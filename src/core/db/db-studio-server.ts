@@ -1,0 +1,781 @@
+import http from "node:http";
+import net from "node:net";
+import { execa } from "execa";
+import chalk from "chalk";
+import { renderStudioHtml } from "./db-studio-html";
+import { StudioConnectionPool } from "./db-connection";
+import {
+  duplicateConnection,
+  getResolvedConnection,
+  listPublicConnections,
+  removeConnection,
+  renameConnection,
+  updateConnectionFields,
+  upsertConnectionFromDraft,
+} from "./db-cache";
+import type { TConnectionDraft, TConnectionFieldPatch } from "./db-cache";
+import { testConnectionProfile } from "./db-connection";
+import {
+  analyzeSqlSafety,
+  appendSafeLimit,
+  generateCountSql,
+  generateCreateTableDdl,
+  generateSelectSql,
+  looksLikeProduction,
+} from "./db-metadata";
+import type { TGridSortState, TResolvedDatabaseConnection, TStudioWorkspaceState, TTableChangeSet } from "./db-types";
+import {
+  deleteSavedQuery,
+  listSavedQueries,
+  renameSavedQuery,
+  saveQuery,
+} from "./db-query-files";
+import { deleteRow, insertRow, saveTableChanges, updateRow } from "./db-row";
+import { appendQueryHistory, listQueryHistory } from "./db-query-history";
+import { readWorkspace, writeWorkspace } from "./studio/workspace-cache";
+import { readStudioSettings, writeStudioSettings } from "./studio/studio-settings";
+import {
+  formatSql,
+  generateInsertTemplate,
+  generateTableQuery,
+  generateUpdateTemplate,
+  splitStatements,
+} from "./studio/sql-formatter";
+import {
+  detectAppDatabaseServices,
+  ensureCloudFoundrySession,
+  getCloudFoundryTargetSummary,
+  importConnectionFromApp,
+  listCloudFoundryAppsWithCache,
+} from "./db-btp";
+import { onCacheEvent } from "../cache/smart-cache";
+import type { TDatabaseObjectKind, TDatabaseType } from "./db-types";
+
+export type TStudioServerOptions = {
+  port?: number;
+  readOnly?: boolean;
+  queryTimeoutMs?: number;
+};
+
+export type TStudioServerHandle = {
+  url: string;
+  port: number;
+  close: () => Promise<void>;
+};
+
+type TJsonBody = Record<string, unknown>;
+
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once("error", () => resolve(false));
+    tester.once("listening", () => tester.close(() => resolve(true)));
+    tester.listen(port, "127.0.0.1");
+  });
+}
+
+async function findAvailablePort(preferredPort: number): Promise<number> {
+  for (let candidate = preferredPort; candidate < preferredPort + 50; candidate += 1) {
+    if (await isPortAvailable(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(`No available port found between ${preferredPort} and ${preferredPort + 49}`);
+}
+
+async function readJsonBody(req: http.IncomingMessage): Promise<TJsonBody> {
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of req) {
+    chunks.push(Buffer.from(chunk));
+  }
+
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+
+  if (!raw) {
+    return {};
+  }
+
+  return JSON.parse(raw) as TJsonBody;
+}
+
+function sendJson(res: http.ServerResponse, value: unknown, status = 200): void {
+  const payload = JSON.stringify(value);
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+  res.end(payload);
+}
+
+function sendText(res: http.ServerResponse, value: string, contentType: string, fileName?: string): void {
+  const headers: Record<string, string> = { "content-type": contentType };
+  if (fileName) {
+    headers["content-disposition"] = `attachment; filename="${fileName}"`;
+  }
+  res.writeHead(200, headers);
+  res.end(value);
+}
+
+function toCsv(fields: string[], rows: Array<Record<string, unknown>>): string {
+  const escapeCell = (value: unknown): string => {
+    const text = value === null || value === undefined ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+
+  const header = fields.map(escapeCell).join(",");
+  const lines = rows.map((row) => fields.map((field) => escapeCell(row[field])).join(","));
+  return [header, ...lines].join("\n");
+}
+
+function getString(body: TJsonBody, key: string): string {
+  const value = body[key];
+  return typeof value === "string" ? value : "";
+}
+
+function getNumber(body: TJsonBody, key: string, fallback: number): number {
+  const value = Number(body[key]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+const VALID_ENVIRONMENTS = new Set(["DEV", "QAS", "PROD", "SANDBOX", "CUSTOM"]);
+
+function getEnvironment(body: TJsonBody): TConnectionDraft["environment"] {
+  const value = getString(body, "environment").toUpperCase();
+  return VALID_ENVIRONMENTS.has(value) ? (value as TConnectionDraft["environment"]) : undefined;
+}
+
+function draftFromBody(body: TJsonBody): TConnectionDraft {
+  const type = getString(body, "type") === "hana" ? "hana" : "postgresql";
+  return {
+    name: getString(body, "name") || `${type} connection`,
+    color: getString(body, "color") || undefined,
+    environment: getEnvironment(body),
+    isFavorite: body.isFavorite === undefined ? undefined : Boolean(body.isFavorite),
+    type,
+    host: getString(body, "host"),
+    port: getNumber(body, "port", type === "hana" ? 443 : 5432),
+    database: getString(body, "database") || undefined,
+    schema: getString(body, "schema") || undefined,
+    username: getString(body, "username"),
+    password: getString(body, "password"),
+    ssl: body.ssl === undefined ? true : Boolean(body.ssl),
+    sslValidateCertificate: Boolean(body.sslValidateCertificate),
+    tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined,
+  };
+}
+
+function getObject(body: TJsonBody, key: string): Record<string, unknown> {
+  const value = body[key];
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function resolvedFromDraft(draft: TConnectionDraft): TResolvedDatabaseConnection {
+  const now = new Date().toISOString();
+  return {
+    id: "draft",
+    name: draft.name,
+    type: draft.type,
+    host: draft.host,
+    port: draft.port,
+    database: draft.database,
+    schema: draft.schema,
+    username: draft.username,
+    password: draft.password,
+    ssl: draft.ssl,
+    sslValidateCertificate: draft.sslValidateCertificate,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function openBrowser(url: string): Promise<void> {
+  const command = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  await execa(command, args, { reject: false, detached: true, stdio: "ignore" }).catch(() => undefined);
+}
+
+export async function startStudioServer(options: TStudioServerOptions = {}): Promise<TStudioServerHandle> {
+  const preferredPort = options.port && options.port > 0 ? options.port : 45888;
+  const port = await findAvailablePort(preferredPort);
+  const pool = new StudioConnectionPool({ queryTimeoutMs: options.queryTimeoutMs });
+  const serverReadOnlyDefault = options.readOnly ?? false;
+
+  const router = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
+    const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
+    const pathname = url.pathname;
+    const method = req.method ?? "GET";
+
+    if (pathname === "/" && method === "GET") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(renderStudioHtml({ readOnlyDefault: serverReadOnlyDefault }));
+      return;
+    }
+
+    // Server-Sent Events: stream smart-cache background-refresh notifications.
+    if (pathname === "/api/events" && method === "GET") {
+      res.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      res.write(": connected\n\n");
+      const unsubscribe = onCacheEvent((event) => {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      });
+      const keepAlive = setInterval(() => res.write(": ping\n\n"), 25000);
+      req.on("close", () => {
+        clearInterval(keepAlive);
+        unsubscribe();
+      });
+      return;
+    }
+
+    // --- Connections ---------------------------------------------------------
+    if (pathname === "/api/connections" && method === "GET") {
+      sendJson(res, { connections: await listPublicConnections() });
+      return;
+    }
+
+    if (pathname === "/api/connections/test" && method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = await getResolvedConnection(getString(body, "connectionId"));
+      const result = await testConnectionProfile(resolved, { queryTimeoutMs: options.queryTimeoutMs });
+      sendJson(res, result);
+      return;
+    }
+
+    if (pathname === "/api/connections/test-draft" && method === "POST") {
+      const body = await readJsonBody(req);
+      const result = await testConnectionProfile(resolvedFromDraft(draftFromBody(body)), { queryTimeoutMs: options.queryTimeoutMs });
+      sendJson(res, result);
+      return;
+    }
+
+    if (pathname === "/api/connections/create" && method === "POST") {
+      const body = await readJsonBody(req);
+      const profile = await upsertConnectionFromDraft(draftFromBody(body));
+      const { encryptedPassword: _omit, ...publicProfile } = profile;
+      void _omit;
+      sendJson(res, { connection: publicProfile });
+      return;
+    }
+
+    if (pathname === "/api/connections/rename" && method === "POST") {
+      const body = await readJsonBody(req);
+      const profile = await renameConnection(getString(body, "id"), getString(body, "name"));
+      sendJson(res, { id: profile.id, name: profile.name });
+      return;
+    }
+
+    if (pathname === "/api/connections/update" && method === "POST") {
+      const body = await readJsonBody(req);
+      const patch: TConnectionFieldPatch = {};
+      if (typeof body.name === "string") patch.name = body.name;
+      if (typeof body.color === "string") patch.color = body.color;
+      if (body.environment !== undefined) patch.environment = getEnvironment(body);
+      if (body.isFavorite !== undefined) patch.isFavorite = Boolean(body.isFavorite);
+      if (Array.isArray(body.tags)) patch.tags = body.tags as string[];
+      const profile = await updateConnectionFields(getString(body, "id"), patch);
+      const { encryptedPassword: _omit, ...publicProfile } = profile;
+      void _omit;
+      sendJson(res, { connection: publicProfile });
+      return;
+    }
+
+    if (pathname === "/api/connections/duplicate" && method === "POST") {
+      const body = await readJsonBody(req);
+      const profile = await duplicateConnection(getString(body, "id"));
+      sendJson(res, { id: profile.id, name: profile.name });
+      return;
+    }
+
+    if (pathname === "/api/connections/remove" && method === "POST") {
+      const body = await readJsonBody(req);
+      await pool.closeConnection(getString(body, "id"));
+      const removed = await removeConnection(getString(body, "id"));
+      sendJson(res, { removed });
+      return;
+    }
+
+    if (pathname === "/api/connections/import-from-app" && method === "POST") {
+      const body = await readJsonBody(req);
+      const { profile } = await importConnectionFromApp({
+        app: getString(body, "app"),
+        serviceName: getString(body, "serviceName") || undefined,
+        type: (getString(body, "type") || undefined) as TDatabaseType | undefined,
+      });
+      const { encryptedPassword: _omitPassword, ...publicProfile } = profile;
+      void _omitPassword;
+      sendJson(res, { connection: publicProfile });
+      return;
+    }
+
+    // --- BTP -----------------------------------------------------------------
+    if (pathname === "/api/btp/current-target" && method === "GET") {
+      const session = await ensureCloudFoundrySession();
+      const target = await getCloudFoundryTargetSummary();
+      sendJson(res, {
+        loggedIn: session.loggedIn,
+        message: session.message,
+        target,
+        productionWarning: looksLikeProduction(target.org, target.space),
+      });
+      return;
+    }
+
+    if (pathname === "/api/btp/apps" && method === "GET") {
+      const session = await ensureCloudFoundrySession();
+      if (!session.loggedIn) {
+        sendJson(res, { loggedIn: false, message: session.message, apps: [] });
+        return;
+      }
+      const apps = await listCloudFoundryAppsWithCache({ refresh: url.searchParams.get("refresh") === "true" });
+      sendJson(res, { loggedIn: true, apps });
+      return;
+    }
+
+    if (pathname === "/api/btp/env" && method === "POST") {
+      const body = await readJsonBody(req);
+      const candidates = await detectAppDatabaseServices(getString(body, "app"));
+      // Never expose passwords to the browser.
+      const safeCandidates = candidates.map(({ password: _password, ...rest }) => {
+        void _password;
+        return rest;
+      });
+      sendJson(res, { services: safeCandidates });
+      return;
+    }
+
+    // --- Catalog -------------------------------------------------------------
+    if (pathname === "/api/catalog/schemas" && method === "GET") {
+      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      sendJson(res, { schemas: await adapter.listSchemas() });
+      return;
+    }
+
+    if (pathname === "/api/catalog/objects" && method === "GET") {
+      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      const kindsParam = url.searchParams.get("kinds");
+      const kinds = kindsParam ? (kindsParam.split(",").filter(Boolean) as TDatabaseObjectKind[]) : undefined;
+      const objects = await adapter.listObjects({
+        schema: url.searchParams.get("schema") ?? undefined,
+        search: url.searchParams.get("search") ?? undefined,
+        kinds,
+      });
+      sendJson(res, { objects });
+      return;
+    }
+
+    if (pathname === "/api/catalog/columns" && method === "GET") {
+      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      const schema = url.searchParams.get("schema") ?? "";
+      const table = url.searchParams.get("table") ?? "";
+      const [columns, indexes] = await Promise.all([
+        adapter.listColumns(schema, table),
+        adapter.listIndexes(schema, table).catch(() => []),
+      ]);
+      sendJson(res, { columns, indexes });
+      return;
+    }
+
+    if (pathname === "/api/catalog/ddl" && method === "GET") {
+      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      const schema = url.searchParams.get("schema") ?? "";
+      const table = url.searchParams.get("table") ?? "";
+      const columns = await adapter.listColumns(schema, table);
+      sendJson(res, { ddl: generateCreateTableDdl(adapter.type, schema, table, columns) });
+      return;
+    }
+
+    if (pathname === "/api/catalog/indexes" && method === "GET") {
+      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      sendJson(res, { indexes: await adapter.listIndexes(url.searchParams.get("schema") ?? "", url.searchParams.get("table") ?? "") });
+      return;
+    }
+
+    if (pathname === "/api/catalog/primary-key" && method === "GET") {
+      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      const primaryKey = await adapter.getPrimaryKey(url.searchParams.get("schema") ?? "", url.searchParams.get("table") ?? "");
+      sendJson(res, { primaryKey });
+      return;
+    }
+
+    if (pathname === "/api/catalog/constraints" && method === "GET") {
+      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      const schema = url.searchParams.get("schema") ?? "";
+      const table = url.searchParams.get("table") ?? "";
+      const [primaryKey, indexes] = await Promise.all([
+        adapter.getPrimaryKey(schema, table),
+        adapter.listIndexes(schema, table).catch(() => []),
+      ]);
+      sendJson(res, { primaryKey, indexes });
+      return;
+    }
+
+    // --- Table data ----------------------------------------------------------
+    if (pathname === "/api/table/data" && method === "POST") {
+      const body = await readJsonBody(req);
+      const adapter = await pool.getAdapter(getString(body, "connectionId"));
+      const result = await adapter.getTableData({
+        schema: getString(body, "schema"),
+        table: getString(body, "table"),
+        limit: getNumber(body, "limit", 100),
+        offset: getNumber(body, "offset", 0),
+        where: getString(body, "where") || undefined,
+        orderBy: getString(body, "orderBy") || undefined,
+        orderDirection: getString(body, "orderDirection") === "desc" ? "desc" : "asc",
+      });
+      sendJson(res, { result });
+      return;
+    }
+
+    if (pathname === "/api/table/count" && method === "POST") {
+      const body = await readJsonBody(req);
+      const adapter = await pool.getAdapter(getString(body, "connectionId"));
+      const count = await adapter.countRows(getString(body, "schema"), getString(body, "table"));
+      sendJson(res, { count });
+      return;
+    }
+
+    if ((pathname === "/api/table/row/update" || pathname === "/api/table/row/insert" || pathname === "/api/table/row/delete") && method === "POST") {
+      const body = await readJsonBody(req);
+      const readOnly = body.readOnly === undefined ? serverReadOnlyDefault : Boolean(body.readOnly);
+
+      if (readOnly) {
+        sendJson(res, { ok: false, blocked: true, error: "Read-only mode is on. Turn it off to modify data." });
+        return;
+      }
+
+      const adapter = await pool.getAdapter(getString(body, "connectionId"));
+      const schema = getString(body, "schema");
+      const table = getString(body, "table");
+
+      try {
+        let result;
+        if (pathname.endsWith("/update")) {
+          result = await updateRow(adapter, { schema, table, changes: getObject(body, "changes"), keys: getObject(body, "keys") });
+        } else if (pathname.endsWith("/insert")) {
+          result = await insertRow(adapter, { schema, table, values: getObject(body, "values") });
+        } else {
+          result = await deleteRow(adapter, { schema, table, keys: getObject(body, "keys") });
+        }
+        sendJson(res, { ok: true, result });
+      } catch (error) {
+        sendJson(res, { ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    if (pathname === "/api/table/save-changes" && method === "POST") {
+      const body = await readJsonBody(req);
+      const readOnly = body.readOnly === undefined ? serverReadOnlyDefault : Boolean(body.readOnly);
+
+      if (readOnly) {
+        sendJson(res, { ok: false, blocked: true, error: "Read-only mode is on. Turn it off to save changes." });
+        return;
+      }
+
+      const adapter = await pool.getAdapter(getString(body, "connectionId"));
+      const result = await saveTableChanges(adapter, {
+        schema: getString(body, "schema"),
+        table: getString(body, "table"),
+        primaryKeyColumns: Array.isArray(body.primaryKeyColumns) ? (body.primaryKeyColumns as string[]) : [],
+        updates: Array.isArray(body.updates) ? (body.updates as TTableChangeSet["updates"]) : [],
+        inserts: Array.isArray(body.inserts) ? (body.inserts as TTableChangeSet["inserts"]) : [],
+        deletes: Array.isArray(body.deletes) ? (body.deletes as TTableChangeSet["deletes"]) : [],
+      });
+      sendJson(res, { ok: true, result });
+      return;
+    }
+
+    if (pathname === "/api/table/sql" && method === "POST") {
+      const body = await readJsonBody(req);
+      const adapter = await pool.getAdapter(getString(body, "connectionId"));
+      const schema = getString(body, "schema");
+      const table = getString(body, "table");
+      sendJson(res, {
+        select: generateSelectSql(adapter.type, schema, table, getNumber(body, "limit", 100)),
+        count: generateCountSql(adapter.type, schema, table),
+      });
+      return;
+    }
+
+    // --- Query run -----------------------------------------------------------
+    if (pathname === "/api/query/run" && method === "POST") {
+      const body = await readJsonBody(req);
+      const connectionId = getString(body, "connectionId");
+      const sql = getString(body, "sql");
+      const limit = getNumber(body, "limit", 0);
+      const readOnly = body.readOnly === undefined ? serverReadOnlyDefault : Boolean(body.readOnly);
+      const confirmDangerous = Boolean(body.confirmDangerous);
+
+      if (!connectionId) {
+        sendJson(res, { ok: false, error: "Select a connection first." });
+        return;
+      }
+
+      const safety = analyzeSqlSafety(sql, { readOnly });
+
+      if (safety.blockedByReadOnly) {
+        sendJson(res, { ok: false, blocked: true, safety, error: `Read-only mode blocks: ${safety.matchedKeywords.join(", ")}` });
+        return;
+      }
+
+      if (safety.isDestructive && !confirmDangerous) {
+        sendJson(res, { ok: false, needsConfirmation: true, safety });
+        return;
+      }
+
+      const connection = await getResolvedConnection(connectionId).catch(() => undefined);
+      const adapter = await pool.getAdapter(connectionId);
+      const effectiveSql = appendSafeLimit(adapter.type, sql, limit);
+
+      try {
+        const result = await adapter.runQuery(effectiveSql, { maxRows: limit > 0 ? limit : undefined });
+        await appendQueryHistory({
+          connectionId,
+          connectionName: connection?.name,
+          connectionType: adapter.type,
+          sql,
+          durationMs: result.durationMs,
+          success: true,
+          rowCount: result.rowCount,
+        });
+        sendJson(res, { ok: true, result, safety, effectiveSql });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await appendQueryHistory({
+          connectionId,
+          connectionName: connection?.name,
+          connectionType: adapter.type,
+          sql,
+          durationMs: 0,
+          success: false,
+          error: message,
+        });
+        sendJson(res, { ok: false, error: message });
+      }
+      return;
+    }
+
+    // --- Saved queries -------------------------------------------------------
+    if (pathname === "/api/queries" && method === "GET") {
+      sendJson(res, { queries: await listSavedQueries() });
+      return;
+    }
+
+    if (pathname === "/api/queries" && method === "POST") {
+      const body = await readJsonBody(req);
+      const query = await saveQuery({
+        name: getString(body, "name"),
+        sql: getString(body, "sql"),
+        connectionId: getString(body, "connectionId") || undefined,
+        connectionType: (getString(body, "connectionType") || undefined) as TDatabaseType | undefined,
+        tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined,
+      });
+      sendJson(res, { query });
+      return;
+    }
+
+    if (pathname.startsWith("/api/queries/") && method === "PUT") {
+      const id = decodeURIComponent(pathname.slice("/api/queries/".length));
+      const body = await readJsonBody(req);
+      const name = getString(body, "name");
+      const sql = getString(body, "sql");
+      const query = sql
+        ? await saveQuery({ id, name, sql, connectionId: getString(body, "connectionId") || undefined })
+        : await renameSavedQuery(id, name);
+      sendJson(res, { query });
+      return;
+    }
+
+    if (pathname.startsWith("/api/queries/") && method === "DELETE") {
+      const id = decodeURIComponent(pathname.slice("/api/queries/".length));
+      sendJson(res, { deleted: await deleteSavedQuery(id) });
+      return;
+    }
+
+    // --- Workspace + settings ------------------------------------------------
+    if (pathname === "/api/studio/workspace" && method === "GET") {
+      sendJson(res, { workspace: await readWorkspace() });
+      return;
+    }
+
+    if (pathname === "/api/studio/workspace" && method === "PUT") {
+      const body = await readJsonBody(req);
+      const workspace = await writeWorkspace(body as unknown as TStudioWorkspaceState);
+      sendJson(res, { workspace });
+      return;
+    }
+
+    if (pathname === "/api/studio/settings" && method === "GET") {
+      sendJson(res, { settings: await readStudioSettings() });
+      return;
+    }
+
+    if (pathname === "/api/studio/settings" && method === "PUT") {
+      const body = await readJsonBody(req);
+      const settings = await writeStudioSettings(body);
+      sendJson(res, { settings });
+      return;
+    }
+
+    // --- SQL helpers ---------------------------------------------------------
+    if (pathname === "/api/sql/format" && method === "POST") {
+      const body = await readJsonBody(req);
+      sendJson(res, { sql: formatSql(getString(body, "sql")) });
+      return;
+    }
+
+    if (pathname === "/api/sql/parse-statements" && method === "POST") {
+      const body = await readJsonBody(req);
+      sendJson(res, { statements: splitStatements(getString(body, "sql")) });
+      return;
+    }
+
+    if (pathname === "/api/sql/generate-table-query" && method === "POST") {
+      const body = await readJsonBody(req);
+      const adapter = await pool.getAdapter(getString(body, "connectionId"));
+      const sql = generateTableQuery({
+        type: adapter.type,
+        schema: getString(body, "schema"),
+        table: getString(body, "table"),
+        where: getString(body, "where") || undefined,
+        sort: Array.isArray(body.sort) ? (body.sort as TGridSortState[]) : undefined,
+        limit: getNumber(body, "limit", 100),
+        offset: getNumber(body, "offset", 0),
+      });
+      sendJson(res, { sql });
+      return;
+    }
+
+    if (pathname === "/api/table/generate-sql" && method === "POST") {
+      const body = await readJsonBody(req);
+      const adapter = await pool.getAdapter(getString(body, "connectionId"));
+      const schema = getString(body, "schema");
+      const table = getString(body, "table");
+      const [columns, primaryKey] = await Promise.all([
+        adapter.listColumns(schema, table).catch(() => []),
+        adapter.getPrimaryKey(schema, table).catch(() => ({ columns: [] })),
+      ]);
+      sendJson(res, {
+        select: generateSelectSql(adapter.type, schema, table, getNumber(body, "limit", 100)),
+        count: generateCountSql(adapter.type, schema, table),
+        insert: generateInsertTemplate(adapter.type, schema, table, columns),
+        update: generateUpdateTemplate(adapter.type, schema, table, columns, primaryKey.columns),
+      });
+      return;
+    }
+
+    // --- History -------------------------------------------------------------
+    if (pathname === "/api/history" && method === "GET") {
+      sendJson(res, { history: await listQueryHistory(100) });
+      return;
+    }
+
+    if (pathname === "/api/history" && method === "DELETE") {
+      const { clearQueryHistory } = await import("./db-query-history");
+      await clearQueryHistory();
+      sendJson(res, { cleared: true });
+      return;
+    }
+
+    // --- Export --------------------------------------------------------------
+    if (pathname === "/api/export/csv" && method === "POST") {
+      const body = await readJsonBody(req);
+      const fields = Array.isArray(body.fields) ? (body.fields as string[]) : [];
+      const rows = Array.isArray(body.rows) ? (body.rows as Array<Record<string, unknown>>) : [];
+      sendText(res, toCsv(fields, rows), "text/csv; charset=utf-8", "result.csv");
+      return;
+    }
+
+    if (pathname === "/api/export/json" && method === "POST") {
+      const body = await readJsonBody(req);
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      sendText(res, JSON.stringify(rows, null, 2), "application/json; charset=utf-8", "result.json");
+      return;
+    }
+
+    if (pathname === "/api/export/data" && method === "POST") {
+      const body = await readJsonBody(req);
+      const source = getString(body, "source");
+      const format = getString(body, "format") === "json" ? "json" : "csv";
+      const schema = getString(body, "schema");
+      const table = getString(body, "objectName");
+      const selectedColumns = Array.isArray(body.selectedColumns) ? (body.selectedColumns as string[]) : undefined;
+      let rows: Array<Record<string, unknown>> = [];
+      let fields: string[] = [];
+
+      if (source === "selected-rows" && Array.isArray(body.selectedRows)) {
+        rows = body.selectedRows as Array<Record<string, unknown>>;
+        fields = selectedColumns ?? (rows[0] ? Object.keys(rows[0]) : []);
+      } else {
+        const adapter = await pool.getAdapter(getString(body, "connectionId"));
+        const sort = Array.isArray(body.sort) ? (body.sort as TGridSortState[]) : [];
+        const isPage = source === "current-page";
+        const result = await adapter.getTableData({
+          schema,
+          table,
+          limit: isPage ? getNumber(body, "limit", 100) : 100000,
+          offset: isPage ? getNumber(body, "offset", 0) : 0,
+          where: source === "whole-table" ? undefined : getString(body, "whereClause") || undefined,
+          orderBy: sort[0]?.column,
+          orderDirection: sort[0]?.direction === "desc" ? "desc" : "asc",
+        });
+        rows = result.rows;
+        fields = selectedColumns ?? result.fields;
+      }
+
+      if (selectedColumns) {
+        rows = rows.map((row) => {
+          const picked: Record<string, unknown> = {};
+          for (const column of selectedColumns) picked[column] = row[column];
+          return picked;
+        });
+        fields = selectedColumns;
+      }
+
+      if (format === "json") {
+        sendText(res, JSON.stringify(rows, null, 2), "application/json; charset=utf-8", `${table || "result"}.json`);
+      } else {
+        sendText(res, toCsv(fields, rows), "text/csv; charset=utf-8", `${table || "result"}.csv`);
+      }
+      return;
+    }
+
+    res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: "Not found" }));
+  };
+
+  const server = http.createServer((req, res) => {
+    router(req, res).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!res.headersSent) {
+        sendJson(res, { error: message }, 500);
+      } else {
+        res.end();
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
+
+  const url = `http://127.0.0.1:${port}`;
+  console.log(chalk.green(`SimpleMDG CF DB Studio: ${url}`));
+  if (serverReadOnlyDefault) {
+    console.log(chalk.yellow("Read-only mode is ON. Write/DDL statements are blocked."));
+  }
+  console.log(chalk.gray("Server is bound to 127.0.0.1 only. Press Ctrl+C to stop."));
+
+  if (!process.env.SMDG_STUDIO_NO_OPEN) {
+    await openBrowser(url);
+  }
+
+  return {
+    url,
+    port,
+    close: async () => {
+      await pool.closeAll();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}

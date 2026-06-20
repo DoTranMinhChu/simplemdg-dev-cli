@@ -1,0 +1,48 @@
+{
+  "name": "simplemdg-dev-cli",
+  "version": "2.7.0",
+  "description": "SimpleMDG local development CLI with CF/BTP helpers, CAP helpers, GitLab sync, request trace, and BTP DB Studio.",
+  "bin": {
+    "simplemdg": "dist/index.js",
+    "smdg": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "USER_GUIDE.md",
+    "tsconfig.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "execa": "^9.3.1",
+    "fast-glob": "^3.3.2",
+    "fs-extra": "^11.2.0",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.14.10",
+    "@types/prompts": "^2.4.9",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3",
+    "@types/pg": "^8.11.10"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "optionalDependencies": {
+    "pg": "^8.12.0",
+    "@sap/hana-client": "^2.23.24"
+  }
+}
