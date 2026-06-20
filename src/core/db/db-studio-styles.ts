@@ -250,7 +250,7 @@ mark.hl{background:#facc15;color:#10151f;border-radius:3px;padding:0 1px}
 .shorts .srow{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)}
 /* editor gutter */
 .editwrap{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#0a1018}
-.gutter{padding:11px 8px;text-align:right;color:var(--faint);font-family:Consolas,monospace;font-size:13px;line-height:1.5;user-select:none;background:#0c131e;min-width:42px;overflow:hidden}
+.gutter{padding:11px 8px;text-align:right;color:var(--faint);font-family:Consolas,"Cascadia Code",monospace;font-size:13px;line-height:1.5;white-space:pre;user-select:none;background:#0c131e;min-width:42px;overflow:hidden}
 .editwrap .editor{border:0;border-radius:0;flex:1;line-height:1.5}
 .ac{position:absolute;z-index:70;background:var(--bg-2);border:1px solid var(--border-2);border-radius:8px;box-shadow:0 12px 40px rgba(0,0,0,.5);max-height:220px;overflow:auto;min-width:220px}
 .ac .aci{padding:6px 11px;cursor:pointer;display:flex;justify-content:space-between;gap:10px}

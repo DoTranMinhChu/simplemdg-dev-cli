@@ -320,7 +320,19 @@ async function runInstallCommand(options: TInstallCommandOptions): Promise<void>
   process.exitCode = installResult.exitCode;
 }
 
-program.name("simplemdg").description("SimpleMDG local development helper").version("2.7.0");
+function readCliVersion(): string {
+  // Single source of truth: read the version from package.json at runtime so
+  // `smdg -V` always matches the package. Works in dev (src via tsx) and when
+  // installed (dist), since package.json sits one level up from this file.
+  try {
+    const packageJson = fs.readJsonSync(path.join(__dirname, "..", "package.json")) as { version?: string };
+    return packageJson.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+program.name("simplemdg").description("SimpleMDG local development helper").version(readCliVersion());
 
 
 program
