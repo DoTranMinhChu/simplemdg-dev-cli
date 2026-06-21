@@ -573,18 +573,31 @@ function openBtpWizard(){
 
   function renderTargetStep(r,q){
     clear(body);
-    var search=el("input",{class:"input",placeholder:"Search org / space / region...",value:q});
-    body.appendChild(el("div",{class:"field",style:"margin-bottom:6px"},[search]));
-    // Status line: cached count + age + per-region refresh progress.
-    var refreshingRegions=(r.regionStatus||[]).filter(function(x){return x.refreshState==="refreshing";}).length;
-    var statusTxt="Cached "+(r.totalTargets||0)+" targets";
-    if(r.lastUpdatedAgo)statusTxt+=" · updated "+r.lastUpdatedAgo;
-    if(refreshingRegions)statusTxt+=" · refreshing "+refreshingRegions+"/"+(r.regionStatus||[]).length+" regions...";
-    body.appendChild(el("div",{class:"note",style:"margin-bottom:8px"},[el("span",{text:statusTxt})]));
-    var lowerQ=(q||"").toLowerCase();
+    st.targets=r;
+    // --- Build the persistent chrome ONCE so the search input keeps focus. ---
+    var search=el("input",{class:"input",placeholder:"Search org / space / region...",value:q||"",style:"flex:1;min-width:0"});
+    var spin=el("span",{class:"spin",style:"display:none;flex:0 0 auto"});
+    var searchRow=el("div",{style:"display:flex;align-items:center;gap:8px;margin-bottom:6px"},[search,spin]);
+    body.appendChild(searchRow);
+    var statusEl=el("div",{class:"note",style:"margin-bottom:8px"});
+    body.appendChild(statusEl);
     var scroll=el("div",{class:"wiz-body",style:"max-height:340px;overflow:auto"});
+    body.appendChild(scroll);
+    body.appendChild(el("div",{class:"row right",style:"margin-top:8px"},[
+      el("button",{class:"btn ghost",text:"Cancel",onclick:closeModal}),
+      el("button",{class:"btn sec",text:"⟳ Refresh all regions",title:"Scan all enabled regions in the background",onclick:function(){api("POST","/api/btp/targets/refresh",{}).then(function(){logMsg("Refreshing CF targets across regions...","ok");return api("GET","/api/btp/targets");}).then(function(nr){st.targets=nr;updateStatus();drawList();}).catch(function(e){logMsg(e.message,"err");});}})
+    ]));
 
-    function mkTrow(t){
+    function updateStatus(){
+      var r2=st.targets||{};
+      var refreshingRegions=(r2.regionStatus||[]).filter(function(x){return x.refreshState==="refreshing";}).length;
+      var statusTxt="Cached "+(r2.totalTargets||0)+" targets";
+      if(r2.lastUpdatedAgo)statusTxt+=" · updated "+r2.lastUpdatedAgo;
+      if(refreshingRegions)statusTxt+=" · refreshing "+refreshingRegions+"/"+(r2.regionStatus||[]).length+" regions...";
+      clear(statusEl).appendChild(el("span",{text:statusTxt}));
+    }
+
+    function mkTrow(t,lowerQ){
       var key=t.key;var isFav=t.isFavorite;
       var envLabel=t.environment?el("span",{class:"ci-env "+t.environment,text:t.environment}):null;
       var row=el("div",{class:"trow"+(st.targetKey===key?" active":"")});
@@ -598,75 +611,84 @@ function openBtpWizard(){
       if(t.cacheStatus&&t.cacheStatus!=="missing")right.appendChild(cacheBadge(t.cacheStatus,t.updatedAgo));
       if(envLabel)right.appendChild(envLabel);
       var favBtn=el("span",{class:"trow-fav"+(isFav?" on":""),title:isFav?"Remove favorite":"Add favorite",text:"★"});
-      favBtn.addEventListener("click",function(e){e.stopPropagation();api("POST","/api/btp/favorite",{targetKey:key,add:!isFav}).then(function(){return api("GET","/api/btp/targets");}).then(function(nr){st.targets=nr;renderTargetStep(nr,search.value);});});
+      favBtn.addEventListener("click",function(e){e.stopPropagation();api("POST","/api/btp/favorite",{targetKey:key,add:!isFav}).then(function(){return api("GET","/api/btp/targets");}).then(function(nr){st.targets=nr;updateStatus();drawList();});});
       right.appendChild(favBtn);
       row.appendChild(icon);row.appendChild(main);row.appendChild(right);
       row.addEventListener("click",function(){st.targetKey=key;st.targetLabel=t.org+(t.space?" / "+t.space:"")+" ("+t.region+")";stepApps();});
       return row;
     }
 
-    function filterTargets(arr){
-      if(!lowerQ)return arr;
-      return arr.filter(function(t){return (t.org+" "+t.space+" "+t.region+" "+(t.environment||"")).toLowerCase().indexOf(lowerQ)>=0;});
-    }
+    // --- Re-render ONLY the list on each keystroke. ---
+    function drawList(){
+      var r2=st.targets||{};
+      var lowerQ=(search.value||"").toLowerCase();
+      clear(scroll);
 
-    function addSection(title,items){
-      if(!items.length)return;
-      scroll.appendChild(el("div",{class:"wiz-section-hdr"},[el("span",{text:title}),el("span",{class:"wiz-count",text:String(items.length)})]));
-      items.forEach(function(t){scroll.appendChild(mkTrow(t));});
-    }
-
-    var favs=filterTargets(r.favorites||[]);
-    var recs=filterTargets(r.recent||[]).filter(function(t){return !favs.find(function(f){return f.key===t.key;});});
-    var favKeys=new Set((r.favorites||[]).map(function(t){return t.key;}));
-    var recentKeys=new Set((r.recent||[]).map(function(t){return t.key;}));
-
-    addSection("★ Favorites",favs);
-    addSection("◷ Recent",recs);
-
-    // All by region (excluding already shown)
-    var shownKeys=new Set(favs.concat(recs).map(function(t){return t.key;}));
-    var regions=r.regions||[];
-    if(regions.length){
-      scroll.appendChild(el("div",{class:"wiz-section-hdr"},[el("span",{text:"All Targets"})]));
-      regions.forEach(function(region){
-        var items=filterTargets((r.byRegion[region]||[])).filter(function(t){return !shownKeys.has(t.key);});
+      function filterTargets(arr){
+        if(!lowerQ)return arr;
+        return arr.filter(function(t){return (t.org+" "+t.space+" "+t.region+" "+(t.environment||"")).toLowerCase().indexOf(lowerQ)>=0;});
+      }
+      function addSection(title,items){
         if(!items.length)return;
-        var hdr=el("div",{class:"region-hdr"});
-        var chev=el("span",{class:"chevron",text:"▾"});
-        hdr.appendChild(el("span",{text:"🌍 "+region}));
-        hdr.appendChild(el("span",{class:"wiz-count",text:String(items.length)}));
-        hdr.appendChild(chev);
-        var regionBody=el("div",{class:"region-body"});
-        items.forEach(function(t){regionBody.appendChild(mkTrow(t));});
-        hdr.addEventListener("click",function(){hdr.classList.toggle("collapsed");regionBody.style.display=hdr.classList.contains("collapsed")?"none":"";chev.textContent=hdr.classList.contains("collapsed")?"▸":"▾";});
-        scroll.appendChild(hdr);
-        scroll.appendChild(regionBody);
-      });
+        scroll.appendChild(el("div",{class:"wiz-section-hdr"},[el("span",{text:title}),el("span",{class:"wiz-count",text:String(items.length)})]));
+        items.forEach(function(t){scroll.appendChild(mkTrow(t,lowerQ));});
+      }
+
+      var favs=filterTargets(r2.favorites||[]);
+      var recs=filterTargets(r2.recent||[]).filter(function(t){return !favs.find(function(f){return f.key===t.key;});});
+
+      addSection("★ Favorites",favs);
+      addSection("◷ Recent",recs);
+
+      var shownKeys=new Set(favs.concat(recs).map(function(t){return t.key;}));
+      var regions=r2.regions||[];
+      var anyAll=false;
+      if(regions.length){
+        var allHdr=el("div",{class:"wiz-section-hdr"},[el("span",{text:"All Targets"})]);
+        scroll.appendChild(allHdr);
+        regions.forEach(function(region){
+          var items=filterTargets((r2.byRegion[region]||[])).filter(function(t){return !shownKeys.has(t.key);});
+          if(!items.length)return;
+          anyAll=true;
+          var hdr=el("div",{class:"region-hdr"});
+          var chev=el("span",{class:"chevron",text:"▾"});
+          hdr.appendChild(el("span",{text:"🌍 "+region}));
+          hdr.appendChild(el("span",{class:"wiz-count",text:String(items.length)}));
+          hdr.appendChild(chev);
+          var regionBody=el("div",{class:"region-body"});
+          items.forEach(function(t){regionBody.appendChild(mkTrow(t,lowerQ));});
+          hdr.addEventListener("click",function(){hdr.classList.toggle("collapsed");regionBody.style.display=hdr.classList.contains("collapsed")?"none":"";chev.textContent=hdr.classList.contains("collapsed")?"▸":"▾";});
+          scroll.appendChild(hdr);
+          scroll.appendChild(regionBody);
+        });
+        if(!anyAll)allHdr.remove();
+      }
+
+      if(!favs.length&&!recs.length&&!anyAll){
+        scroll.appendChild(el("div",{class:"empty",text:lowerQ?"No targets match your search.":"No cached targets found. Run: smdg cf apps"}));
+      }
+      spin.style.display="none";
     }
 
-    if(!favs.length&&!recs.length&&!regions.length){
-      scroll.appendChild(el("div",{class:"empty",text:"No cached targets found. Run: smdg cf apps"}));
-    }
+    var debouncedDraw=debounce(function(){drawList();},200);
+    search.addEventListener("input",function(){spin.style.display="";debouncedDraw();});
+    search.addEventListener("keydown",function(e){if(e.key==="Escape"&&search.value){e.stopPropagation();search.value="";spin.style.display="none";drawList();}});
 
-    body.appendChild(scroll);
-    body.appendChild(el("div",{class:"row right",style:"margin-top:8px"},[
-      el("button",{class:"btn ghost",text:"Cancel",onclick:closeModal}),
-      el("button",{class:"btn sec",text:"⟳ Refresh all regions",title:"Scan all enabled regions in the background",onclick:function(){api("POST","/api/btp/targets/refresh",{}).then(function(){logMsg("Refreshing CF targets across regions...","ok");return api("GET","/api/btp/targets");}).then(function(nr){st.targets=nr;renderTargetStep(nr,search.value);}).catch(function(e){logMsg(e.message,"err");});}})
-    ]));
+    updateStatus();
+    drawList();
+    // Keep focus in the search box without scrolling the modal.
+    setTimeout(function(){try{search.focus({preventScroll:true});}catch(ex){search.focus();}},0);
 
-    search.addEventListener("input",debounce(function(){renderTargetStep(st.targets,search.value);},200));
-
-    // SSE: refresh target list when cache updates
+    // SSE: refresh target list when cache updates (list + status only).
     if(st.unsubSse)st.unsubSse();
-    st.unsubSse=onSseEvent(function(ev){if(ev&&(ev.resource==="cf-apps"||ev.resource==="cf-cross-region-targets")){api("GET","/api/btp/targets").then(function(nr){st.targets=nr;renderTargetStep(nr,search.value);});}});
+    st.unsubSse=onSseEvent(function(ev){if(ev&&(ev.resource==="cf-apps"||ev.resource==="cf-cross-region-targets")){api("GET","/api/btp/targets").then(function(nr){st.targets=nr;updateStatus();drawList();});}});
   }
 
   /* ---- Step 2: App Selector ---- */
   function stepApps(forceRefresh){
     if(st.unsubSse){st.unsubSse();st.unsubSse=null;}
     setStep(1);
-    clear(body).appendChild(el("div",{class:"empty"},[el("span",{class:"spin"})," loading apps for "+esc(st.targetLabel)+"..."]));
+    clear(body).appendChild(el("div",{class:"empty"},[el("span",{class:"spin"})," Loading apps from "+esc(st.targetLabel)+"..."]));
     var url="/api/btp/apps?targetKey="+encodeURIComponent(st.targetKey)+(forceRefresh?"&refresh=true":"");
     api("GET",url).then(function(r){
       renderAppsStep(r,"",forceRefresh);
@@ -675,16 +697,26 @@ function openBtpWizard(){
 
   function renderAppsStep(r,q){
     clear(body);
-    if(r.error&&!r.apps.length){
-      body.appendChild(el("div",{class:"errbox",text:r.error}));
-      body.appendChild(el("div",{class:"row right",style:"margin-top:8px"},[el("button",{class:"btn ghost",text:"◁ Back",onclick:stepTarget})]));
-      return;
-    }
     var breadcrumb=el("div",{class:"wiz-breadcrumb",style:"margin-bottom:8px"});
     breadcrumb.appendChild(el("span",{class:"crumb",text:"Targets",onclick:stepTarget}));
     breadcrumb.appendChild(el("span",{class:"sep",text:" › "}));
     breadcrumb.appendChild(el("span",{text:st.targetLabel}));
     body.appendChild(breadcrumb);
+    // Always show the selected target context in the App step.
+    body.appendChild(el("div",{class:"note",style:"margin-bottom:8px"},[el("span",{text:"Selected target: "}),el("b",{text:st.targetLabel})]));
+
+    if(r.error&&(!r.apps||!r.apps.length)){
+      body.appendChild(el("div",{class:"errbox"},[
+        el("div",{text:"Cannot load apps for "+st.targetLabel+"."}),
+        el("div",{style:"margin-top:4px",text:r.error}),
+        el("div",{class:"note",style:"margin-top:6px",text:"Action: run smdg cf login, or refresh the target cache."})
+      ]));
+      body.appendChild(el("div",{class:"row right",style:"margin-top:8px"},[
+        el("button",{class:"btn ghost",text:"◁ Back",onclick:stepTarget}),
+        el("button",{class:"btn sec",text:"⟳ Retry",onclick:function(){stepApps(true);}})
+      ]));
+      return;
+    }
 
     if(r.cacheStatus&&r.cacheStatus!=="fresh"){
       var warn=el("div",{class:"note",style:"margin-bottom:6px"});
@@ -739,7 +771,7 @@ function openBtpWizard(){
       body.appendChild(breadcrumb);
       var svcs=r.candidates||[];
       if(!svcs.length){
-        body.appendChild(el("div",{class:"errbox",text:r.error||"No HANA/PostgreSQL service detected in "+st.app+". The app may not be running on the current CF target."}));
+        body.appendChild(el("div",{class:"errbox",text:r.error||"No HANA/PostgreSQL service detected in "+st.app+" on "+st.targetLabel+"."}));
         body.appendChild(el("div",{class:"row right",style:"margin-top:8px"},[el("button",{class:"btn ghost",text:"◁ Back",onclick:function(){stepApps();}})]));
         return;
       }
@@ -782,7 +814,7 @@ function openBtpWizard(){
       el("button",{class:"btn ghost",text:"◁ Back",onclick:stepServices}),
       el("button",{class:"btn",text:"Save & activate",onclick:function(){
         msg.textContent="Importing & testing...";
-        api("POST","/api/connections/import-from-app",{app:st.app,serviceName:svc.serviceName,type:svc.type}).then(function(r){
+        api("POST","/api/connections/import-from-app",{app:st.app,serviceName:svc.serviceName,type:svc.type,targetKey:st.targetKey}).then(function(r){
           var id=r.connection.id;
           return api("POST","/api/connections/update",{id:id,name:nameI.value.trim(),environment:envSel.value,color:sel.color,isFavorite:fav.checked}).then(function(){
             return api("POST","/api/connections/test",{connectionId:id}).then(function(t){

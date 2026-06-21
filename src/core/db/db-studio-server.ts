@@ -46,15 +46,16 @@ import {
   ensureCloudFoundrySession,
   getCloudFoundryTargetSummary,
   importConnectionFromApp,
-  listCloudFoundryAppsWithCache,
 } from "./db-btp";
-import { onCacheEvent, formatRelativeTime, computeCacheStatus } from "../cache/smart-cache";
+import { onCacheEvent, formatRelativeTime, computeCacheStatus, refreshCache, DEFAULT_CACHE_TTL } from "../cache/smart-cache";
 import { readAllEntries, readEntry } from "../cache/smart-cache-store";
 import { listFavoriteTargets, listRecentTargets, addFavoriteTarget, removeFavoriteTarget, addRecentTarget } from "../cf/cf-target-cache";
 import { cfTargetKey } from "../cf/cf-target.types";
 import type { TCfTarget } from "../cf/cf-target.types";
 import { listCrossRegionTargets, getCrossRegionStatus, scanCrossRegionTargets } from "../cf/cf-cross-region-scanner";
 import type { TCfScanCredential } from "../cf/cf-cross-region-scanner";
+import { withCfTarget, parseCfTargetKey } from "../cf/cf-target-switcher";
+import { listCloudFoundryApps } from "../cf";
 import { readCache } from "../cache";
 import type { TDatabaseObjectKind, TDatabaseType } from "./db-types";
 import type { TSmartCacheEntry } from "../cache/smart-cache.types";
@@ -350,11 +351,20 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
 
     if (pathname === "/api/connections/import-from-app" && method === "POST") {
       const body = await readJsonBody(req);
-      const { profile } = await importConnectionFromApp({
+      const targetKey = getString(body, "targetKey");
+      const importArgs = {
         app: getString(body, "app"),
         serviceName: getString(body, "serviceName") || undefined,
         type: (getString(body, "type") || undefined) as TDatabaseType | undefined,
-      });
+      };
+      // When a cross-region targetKey is supplied, run the import (cf env) under
+      // that target and record its region/org/space on the saved connection.
+      const { profile } = targetKey
+        ? await withCfTarget(targetKey, (target) => importConnectionFromApp({
+            ...importArgs,
+            context: { region: target.region, org: target.org, space: target.space },
+          }))
+        : await importConnectionFromApp(importArgs);
       const { encryptedPassword: _omitPassword, ...publicProfile } = profile;
       void _omitPassword;
       sendJson(res, { connection: publicProfile });
@@ -419,33 +429,39 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
       const forceRefresh = url.searchParams.get("refresh") === "true";
       if (!targetKey) { sendJson(res, { apps: [], cacheStatus: "missing", error: "targetKey required" }); return; }
 
+      let parts: { region: string; org: string; space: string };
+      try {
+        parts = parseCfTargetKey(targetKey);
+      } catch (error) {
+        sendJson(res, { apps: [], cacheStatus: "missing", error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      const targetCtx = { region: parts.region, org: parts.org, space: parts.space };
+
       const entry = await readEntry<unknown[]>("cf-apps", targetKey);
       const cacheStatus = entry ? computeCacheStatus(entry) : "missing";
 
-      // If we have a cached entry and not force-refresh, return it immediately
+      // Fetcher always runs CF commands IN THE CONTEXT of the selected target.
+      const fetchApps = () => withCfTarget(targetKey, () => listCloudFoundryApps());
+
+      // Cache-first: return cached apps immediately and refresh in background.
       if (entry && !forceRefresh) {
-        sendJson(res, { apps: entry.data, cacheStatus, updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt), isRefreshing: false });
+        const refreshPromise = refreshCache({ namespace: "cf-apps", key: targetKey, ttlMs: DEFAULT_CACHE_TTL.cfApps, resource: "cf-apps", fetcher: fetchApps });
+        refreshPromise.catch(() => undefined);
+        sendJson(res, { targetKey, target: targetCtx, apps: entry.data, cacheStatus, fromCache: true, isRefreshing: true, updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt) });
         return;
       }
 
-      // No cache or force refresh: check if this is the current CF target and fetch live
-      const sessionResult = await ensureCloudFoundrySession().catch(() => ({ loggedIn: false, message: "CF not available" }));
-      if (!sessionResult.loggedIn) {
-        if (entry) {
-          sendJson(res, { apps: entry.data, cacheStatus: "stale", updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt), warning: "CF session unavailable; showing cached apps." });
-        } else {
-          sendJson(res, { apps: [], cacheStatus: "missing", error: sessionResult.message });
-        }
-        return;
-      }
+      // No cache (or forced): switch to target and fetch live.
       try {
-        const apps = await listCloudFoundryAppsWithCache({ refresh: forceRefresh });
-        sendJson(res, { apps, cacheStatus: "fresh", updatedAt: new Date().toISOString(), isRefreshing: false });
+        const apps = await refreshCache({ namespace: "cf-apps", key: targetKey, ttlMs: DEFAULT_CACHE_TTL.cfApps, resource: "cf-apps", fetcher: fetchApps });
+        sendJson(res, { targetKey, target: targetCtx, apps, cacheStatus: "fresh", fromCache: false, isRefreshing: false, updatedAt: new Date().toISOString() });
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         if (entry) {
-          sendJson(res, { apps: entry.data, cacheStatus: "stale", updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt), warning: "Refresh failed; showing cached apps." });
+          sendJson(res, { targetKey, target: targetCtx, apps: entry.data, cacheStatus: "stale", fromCache: true, isRefreshing: false, updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt), warning: `Refresh failed; showing cached apps. ${message}` });
         } else {
-          sendJson(res, { apps: [], cacheStatus: "missing", error: error instanceof Error ? error.message : String(error) });
+          sendJson(res, { targetKey, target: targetCtx, apps: [], cacheStatus: "missing", fromCache: false, isRefreshing: false, error: message });
         }
       }
       return;
@@ -454,20 +470,43 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
     if (pathname === "/api/btp/db-candidates" && method === "GET") {
       const targetKey = url.searchParams.get("targetKey") ?? "";
       const appName = url.searchParams.get("appName") ?? "";
-      const candidateKey = `${targetKey}::${appName}`;
-      const entry = await readEntry<unknown[]>("db-import-candidates", candidateKey);
+      if (!targetKey || !appName) { sendJson(res, { candidates: [], cacheStatus: "missing", error: "targetKey and appName required" }); return; }
 
-      if (entry) {
-        sendJson(res, { candidates: entry.data, cacheStatus: computeCacheStatus(entry), updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt) });
-        return;
-      }
-      // No cache: try live if CF is available
+      let parts: { region: string; org: string; space: string };
       try {
-        const candidates = await detectAppDatabaseServices(appName);
-        const safe = candidates.map(({ password: _p, ...rest }) => { void _p; return rest; });
-        sendJson(res, { candidates: safe, cacheStatus: "fresh", updatedAt: new Date().toISOString() });
+        parts = parseCfTargetKey(targetKey);
       } catch (error) {
         sendJson(res, { candidates: [], cacheStatus: "missing", error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      const targetCtx = { region: parts.region, org: parts.org, space: parts.space };
+      const candidateKey = `${targetKey}::${appName}`;
+      const forceRefresh = url.searchParams.get("refresh") === "true";
+      const entry = await readEntry<unknown[]>("db-import-candidates", candidateKey);
+
+      // DB candidates are fetched under the selected target; passwords stripped.
+      const fetchCandidates = async () => {
+        const candidates = await withCfTarget(targetKey, () => detectAppDatabaseServices(appName));
+        return candidates.map(({ password: _p, ...rest }) => { void _p; return rest; });
+      };
+
+      if (entry && !forceRefresh) {
+        const refreshPromise = refreshCache({ namespace: "db-import-candidates", key: candidateKey, ttlMs: DEFAULT_CACHE_TTL.dbImportCandidates, resource: "db-import-candidates", fetcher: fetchCandidates });
+        refreshPromise.catch(() => undefined);
+        sendJson(res, { targetKey, target: targetCtx, appName, candidates: entry.data, cacheStatus: computeCacheStatus(entry), fromCache: true, isRefreshing: true, updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt) });
+        return;
+      }
+
+      try {
+        const candidates = await refreshCache({ namespace: "db-import-candidates", key: candidateKey, ttlMs: DEFAULT_CACHE_TTL.dbImportCandidates, resource: "db-import-candidates", fetcher: fetchCandidates });
+        sendJson(res, { targetKey, target: targetCtx, appName, candidates, cacheStatus: "fresh", fromCache: false, isRefreshing: false, updatedAt: new Date().toISOString() });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (entry) {
+          sendJson(res, { targetKey, target: targetCtx, appName, candidates: entry.data, cacheStatus: "stale", fromCache: true, isRefreshing: false, updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt), warning: `Refresh failed; showing cached candidates. ${message}` });
+        } else {
+          sendJson(res, { targetKey, target: targetCtx, appName, candidates: [], cacheStatus: "missing", fromCache: false, isRefreshing: false, error: message });
+        }
       }
       return;
     }
@@ -504,17 +543,6 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         target,
         productionWarning: looksLikeProduction(target.org, target.space),
       });
-      return;
-    }
-
-    if (pathname === "/api/btp/apps" && method === "GET") {
-      const session = await ensureCloudFoundrySession();
-      if (!session.loggedIn) {
-        sendJson(res, { loggedIn: false, message: session.message, apps: [] });
-        return;
-      }
-      const apps = await listCloudFoundryAppsWithCache({ refresh: url.searchParams.get("refresh") === "true" });
-      sendJson(res, { loggedIn: true, apps });
       return;
     }
 
