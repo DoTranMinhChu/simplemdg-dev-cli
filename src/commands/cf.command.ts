@@ -45,6 +45,15 @@ import {
 } from "../core/cf/cf-target-cache";
 import { cfTargetKey, cfTargetLabel } from "../core/cf/cf-target.types";
 import type { TCfTarget } from "../core/cf/cf-target.types";
+import {
+  addCustomRegion,
+  getEnabledRegionEndpoints,
+  listEnabledRegions,
+  listRegions,
+  removeRegion,
+  setRegionEnabled,
+} from "../core/cf/cf-region-registry";
+import type { TCfRegionEndpoint } from "../core/cf/cf-region-registry";
 import type { TCloudFoundryApp, TCloudFoundryLoginProfile, TCloudFoundryOrgEntry, TCloudFoundryTarget } from "../core/types";
 
 type TCloudFoundryLoginOptions = {
@@ -1223,13 +1232,22 @@ function formatCloudFoundryOrgEntry(entry: TCloudFoundryOrgEntry, target: TCloud
   return `${entry.org} ${chalk.gray(`${entry.region} · ${spaceText}${isCurrent ? " · current" : ""}`)}`;
 }
 
-function getCloudFoundryApiEndpointsForOrgSearch(options: { api?: string }, target: TCloudFoundryTarget, cache: Awaited<ReturnType<typeof readCache>>): string[] {
+async function getCloudFoundryApiEndpointsForOrgSearch(options: { api?: string }, target: TCloudFoundryTarget, cache: Awaited<ReturnType<typeof readCache>>): Promise<string[]> {
+  // When a specific endpoint is requested, scan only that one.
+  if (options.api?.trim()) {
+    return uniqueValues([options.api]);
+  }
+
+  // The user-managed region registry is the source of truth for which regions
+  // to scan; fall back to the built-in defaults if it is somehow empty.
+  const enabledRegionEndpoints = await getEnabledRegionEndpoints();
+  const baseRegionEndpoints = enabledRegionEndpoints.length ? enabledRegionEndpoints : DEFAULT_CLOUD_FOUNDRY_API_ENDPOINTS;
+
   return uniqueValues([
-    options.api ?? "",
     target.apiEndpoint ?? "",
     ...cache.cloudFoundry.loginProfiles.map((item) => item.apiEndpoint),
     ...cache.cloudFoundry.orgsAcrossRegions.map((item) => item.apiEndpoint),
-    ...DEFAULT_CLOUD_FOUNDRY_API_ENDPOINTS,
+    ...baseRegionEndpoints,
   ]);
 }
 
@@ -1247,7 +1265,7 @@ async function getCloudFoundryOrganizationsAcrossRegions(options: { api?: string
     });
   }
 
-  const apiEndpoints = getCloudFoundryApiEndpointsForOrgSearch(options, target, cache);
+  const apiEndpoints = await getCloudFoundryApiEndpointsForOrgSearch(options, target, cache);
   console.log(chalk.gray(`Searching CF orgs across ${apiEndpoints.length} region endpoint(s)...`));
   const credentials = cache.cloudFoundry.loginProfiles.map((profile) => ({
     apiEndpoint: profile.apiEndpoint,
@@ -3310,6 +3328,153 @@ async function runCacheCommand(): Promise<void> {
   console.log(JSON.stringify(cache.cloudFoundry, null, 2));
 }
 
+/* ====================================================================
+   CF REGION REGISTRY COMMANDS
+   ==================================================================== */
+function printRegionList(regions: TCfRegionEndpoint[]): void {
+  console.log(chalk.bold("SimpleMDG CF Regions"));
+  console.log("");
+  for (const region of regions) {
+    const box = region.enabled ? chalk.green("[x]") : chalk.gray("[ ]");
+    const name = (region.enabled ? chalk.white : chalk.gray)(region.region.padEnd(8));
+    const custom = region.isCustom ? chalk.cyan(" (custom)") : "";
+    const label = region.label ? chalk.gray(` ${region.label}`) : "";
+    console.log(`${box} ${name} ${chalk.gray(region.apiEndpoint)}${custom}${label}`);
+  }
+}
+
+async function runRegionListCommand(): Promise<void> {
+  printRegionList(await listRegions());
+}
+
+async function runRegionAddCommand(options: { api?: string; region?: string; label?: string }): Promise<void> {
+  let apiEndpoint = options.api?.trim();
+
+  if (!apiEndpoint) {
+    const response = await prompts({
+      type: "text",
+      name: "api",
+      message: "Custom CF API endpoint (e.g. https://api.cf.eu30.hana.ondemand.com)",
+      validate: (value: string) => (value.trim() ? true : "API endpoint is required"),
+    });
+    apiEndpoint = (response.api as string | undefined)?.trim();
+  }
+
+  if (!apiEndpoint) {
+    console.log(chalk.yellow("No API endpoint provided. Aborted."));
+    return;
+  }
+
+  const added = await addCustomRegion({ apiEndpoint, region: options.region, label: options.label });
+  console.log(chalk.green(`Added custom region ${added.region} (${added.apiEndpoint}).`));
+}
+
+async function runRegionTestCommand(options: { region?: string }): Promise<void> {
+  const regions = await listRegions();
+  const targets = options.region
+    ? regions.filter((region) => region.region === options.region!.toLowerCase())
+    : await listEnabledRegions();
+
+  if (!targets.length) {
+    console.log(chalk.yellow("No matching regions to test."));
+    return;
+  }
+
+  const originalTarget = await readCloudFoundryTarget();
+
+  for (const region of targets) {
+    process.stdout.write(`${region.region.padEnd(8)} `);
+    const result = await runCommand("cf", ["api", region.apiEndpoint]);
+    console.log(result.exitCode === 0 ? chalk.green("reachable") : chalk.red("unreachable"));
+  }
+
+  if (originalTarget.apiEndpoint) {
+    await runCommand("cf", ["api", originalTarget.apiEndpoint]);
+  }
+}
+
+async function runRegionRefreshCommand(options: { region?: string }): Promise<void> {
+  // Force a cross-region rescan; the scanner already restores the previous target.
+  console.log(chalk.gray("Refreshing CF targets across enabled regions..."));
+  await getCloudFoundryOrganizationsAcrossRegions({ refresh: true, api: options.region });
+  console.log(chalk.green("Region targets refreshed."));
+}
+
+async function runRegionInteractiveCommand(): Promise<void> {
+  const regions = await listRegions();
+  printRegionList(regions);
+  console.log("");
+
+  const action = await searchableSelectChoice({
+    message: "Region actions",
+    choices: [
+      { title: "Enable / disable regions", value: "toggle" },
+      { title: "Add custom region", value: "add" },
+      { title: "Remove custom region", value: "remove" },
+      { title: "Test region endpoints", value: "test" },
+      { title: "Refresh targets for all enabled regions", value: "refresh" },
+      { title: "Exit", value: "__exit__" },
+    ],
+    allowCustomValue: false,
+  });
+
+  if (action === "toggle") {
+    const response = await prompts({
+      type: "multiselect",
+      name: "enabled",
+      message: "Select regions to enable (space to toggle, enter to confirm)",
+      choices: regions.map((region) => ({
+        title: `${region.region} — ${region.apiEndpoint}`,
+        value: region.region,
+        selected: region.enabled,
+      })),
+      hint: "- Space to select. Enter to submit.",
+      instructions: false,
+    });
+    const enabledSet = new Set((response.enabled as string[] | undefined) ?? []);
+    for (const region of regions) {
+      await setRegionEnabled(region.region, enabledSet.has(region.region));
+    }
+    console.log(chalk.green(`Enabled ${enabledSet.size} region(s).`));
+    return;
+  }
+
+  if (action === "add") {
+    await runRegionAddCommand({});
+    return;
+  }
+
+  if (action === "remove") {
+    const custom = regions.filter((region) => region.isCustom);
+    if (!custom.length) {
+      console.log(chalk.gray("No custom regions to remove."));
+      return;
+    }
+    const selected = await searchableSelectChoice({
+      message: "Remove custom region",
+      choices: [
+        ...custom.map((region) => ({ title: `${region.region} — ${region.apiEndpoint}`, value: region.region })),
+        { title: "Cancel", value: "__cancel__" },
+      ],
+      allowCustomValue: false,
+    });
+    if (selected !== "__cancel__") {
+      await removeRegion(selected);
+      console.log(chalk.green(`Removed region ${selected}.`));
+    }
+    return;
+  }
+
+  if (action === "test") {
+    await runRegionTestCommand({});
+    return;
+  }
+
+  if (action === "refresh") {
+    await runRegionRefreshCommand({});
+  }
+}
+
 export function registerCloudFoundryCommands(program: Command): void {
   const cfCommand = program.command("cf").description("Cloud Foundry helper commands for SimpleMDG");
 
@@ -3325,6 +3490,29 @@ export function registerCloudFoundryCommands(program: Command): void {
     .action(runLoginCommand);
 
   cfCommand.command("target").description("Show current cf target").action(runTargetCommand);
+
+  const regionCommand = cfCommand
+    .command("region")
+    .description("Manage CF region endpoints used by the cross-region target scanner")
+    .action(runRegionInteractiveCommand);
+  regionCommand.command("list").description("List configured CF regions").action(runRegionListCommand);
+  regionCommand
+    .command("add")
+    .description("Add a custom CF region endpoint")
+    .option("--api <apiEndpoint>", "CF API endpoint URL")
+    .option("--region <region>", "Region name (derived from endpoint when omitted)")
+    .option("--label <label>", "Optional friendly label")
+    .action(runRegionAddCommand);
+  regionCommand
+    .command("test")
+    .description("Test reachability of region endpoints")
+    .option("--region <region>", "Test only one region")
+    .action(runRegionTestCommand);
+  regionCommand
+    .command("refresh")
+    .description("Refresh cross-region targets for enabled regions")
+    .option("--region <apiEndpoint>", "Limit refresh to one API endpoint")
+    .action(runRegionRefreshCommand);
 
   cfCommand
     .command("org")
