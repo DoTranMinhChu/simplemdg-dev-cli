@@ -573,8 +573,14 @@ function openBtpWizard(){
 
   function renderTargetStep(r,q){
     clear(body);
-    var search=el("input",{class:"input",placeholder:"Search org / space / region...(",value:q});
-    body.appendChild(el("div",{class:"field",style:"margin-bottom:8px"},[search]));
+    var search=el("input",{class:"input",placeholder:"Search org / space / region...",value:q});
+    body.appendChild(el("div",{class:"field",style:"margin-bottom:6px"},[search]));
+    // Status line: cached count + age + per-region refresh progress.
+    var refreshingRegions=(r.regionStatus||[]).filter(function(x){return x.refreshState==="refreshing";}).length;
+    var statusTxt="Cached "+(r.totalTargets||0)+" targets";
+    if(r.lastUpdatedAgo)statusTxt+=" · updated "+r.lastUpdatedAgo;
+    if(refreshingRegions)statusTxt+=" · refreshing "+refreshingRegions+"/"+(r.regionStatus||[]).length+" regions...";
+    body.appendChild(el("div",{class:"note",style:"margin-bottom:8px"},[el("span",{text:statusTxt})]));
     var lowerQ=(q||"").toLowerCase();
     var scroll=el("div",{class:"wiz-body",style:"max-height:340px;overflow:auto"});
 
@@ -646,14 +652,14 @@ function openBtpWizard(){
     body.appendChild(scroll);
     body.appendChild(el("div",{class:"row right",style:"margin-top:8px"},[
       el("button",{class:"btn ghost",text:"Cancel",onclick:closeModal}),
-      el("button",{class:"btn sec",text:"⟳ Refresh list",onclick:function(){api("GET","/api/btp/targets").then(function(nr){st.targets=nr;renderTargetStep(nr,search.value);});}})
+      el("button",{class:"btn sec",text:"⟳ Refresh all regions",title:"Scan all enabled regions in the background",onclick:function(){api("POST","/api/btp/targets/refresh",{}).then(function(){logMsg("Refreshing CF targets across regions...","ok");return api("GET","/api/btp/targets");}).then(function(nr){st.targets=nr;renderTargetStep(nr,search.value);}).catch(function(e){logMsg(e.message,"err");});}})
     ]));
 
     search.addEventListener("input",debounce(function(){renderTargetStep(st.targets,search.value);},200));
 
     // SSE: refresh target list when cache updates
     if(st.unsubSse)st.unsubSse();
-    st.unsubSse=onSseEvent(function(ev){if(ev&&ev.namespace==="cf-apps"){api("GET","/api/btp/targets").then(function(nr){st.targets=nr;renderTargetStep(nr,search.value);});}});
+    st.unsubSse=onSseEvent(function(ev){if(ev&&(ev.resource==="cf-apps"||ev.resource==="cf-cross-region-targets")){api("GET","/api/btp/targets").then(function(nr){st.targets=nr;renderTargetStep(nr,search.value);});}});
   }
 
   /* ---- Step 2: App Selector ---- */

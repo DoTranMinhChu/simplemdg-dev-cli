@@ -53,6 +53,9 @@ import { readAllEntries, readEntry } from "../cache/smart-cache-store";
 import { listFavoriteTargets, listRecentTargets, addFavoriteTarget, removeFavoriteTarget, addRecentTarget } from "../cf/cf-target-cache";
 import { cfTargetKey } from "../cf/cf-target.types";
 import type { TCfTarget } from "../cf/cf-target.types";
+import { listCrossRegionTargets, getCrossRegionStatus, scanCrossRegionTargets } from "../cf/cf-cross-region-scanner";
+import type { TCfScanCredential } from "../cf/cf-cross-region-scanner";
+import { readCache } from "../cache";
 import type { TDatabaseObjectKind, TDatabaseType } from "./db-types";
 import type { TSmartCacheEntry } from "../cache/smart-cache.types";
 
@@ -180,6 +183,16 @@ function buildTargetSummary(target: TCfTarget, appsEntry?: TSmartCacheEntry<unkn
     updatedAt: appsEntry?.updatedAt,
     updatedAgo: formatRelativeTime(appsEntry?.updatedAt),
   };
+}
+
+/** Resolve cached CF login credentials for the cross-region scanner. */
+async function resolveCfScanCredentials(): Promise<TCfScanCredential[]> {
+  const cache = await readCache();
+  return cache.cloudFoundry.loginProfiles.map((profile) => ({
+    apiEndpoint: profile.apiEndpoint,
+    username: profile.username,
+    password: profile.password,
+  }));
 }
 
 function draftFromBody(body: TJsonBody): TConnectionDraft {
@@ -354,36 +367,50 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
     if (pathname === "/api/btp/targets" && method === "GET") {
       const favTargets = await listFavoriteTargets();
       const recentTargets = await listRecentTargets(10);
-      // All known targets = union of favorites + recent + entries in cf-apps namespace
       const appsEntries = await readAllEntries<unknown[]>("cf-apps");
       const favKeys = new Set(favTargets.map((t) => cfTargetKey(t)));
-      const recentKeys = new Set(recentTargets.map((t) => cfTargetKey(t)));
-      // Build "all targets" from keys in the cf-apps cache
-      const allFromCache: TCfTarget[] = Object.keys(appsEntries).map((key) => {
+
+      // Primary source: the cross-region target cache (independent of current CF
+      // target). Fall back to keys seen in the cf-apps cache.
+      const crossRegion = await listCrossRegionTargets();
+      const allFromApps: TCfTarget[] = Object.keys(appsEntries).map((key) => {
         const parts = key.split("::");
         return { region: parts[0] ?? "", apiEndpoint: "", org: parts[1] ?? "", space: parts[2] ?? "" };
       });
-      // Merge favorites/recent to get apiEndpoints
+
       const targetMap = new Map<string, TCfTarget>();
-      for (const t of [...favTargets, ...recentTargets, ...allFromCache]) {
+      for (const t of [...crossRegion, ...favTargets, ...recentTargets, ...allFromApps]) {
         const k = cfTargetKey(t);
         if (!targetMap.has(k)) targetMap.set(k, t);
       }
       const allTargets = Array.from(targetMap.values());
-      // Group by region
+
       const byRegion: Record<string, unknown[]> = {};
       for (const t of allTargets) {
         if (!byRegion[t.region]) byRegion[t.region] = [];
         const appsEntry = appsEntries[cfTargetKey(t)] as TSmartCacheEntry<unknown[]> | undefined;
         byRegion[t.region].push(buildTargetSummary({ ...t, isFavorite: favKeys.has(cfTargetKey(t)) }, appsEntry));
       }
+
+      const regionStatus = await getCrossRegionStatus();
       sendJson(res, {
         favorites: favTargets.map((t) => buildTargetSummary(t, appsEntries[cfTargetKey(t)] as TSmartCacheEntry<unknown[]> | undefined)),
         recent: recentTargets.map((t) => buildTargetSummary(t, appsEntries[cfTargetKey(t)] as TSmartCacheEntry<unknown[]> | undefined)),
         byRegion,
         totalTargets: allTargets.length,
         regions: Object.keys(byRegion).sort(),
+        regionStatus: regionStatus.regions,
+        lastUpdatedAt: regionStatus.lastUpdatedAt,
+        lastUpdatedAgo: formatRelativeTime(regionStatus.lastUpdatedAt),
       });
+      return;
+    }
+
+    if (pathname === "/api/btp/targets/refresh" && method === "POST") {
+      // Trigger a background cross-region scan; respond immediately. Progress is
+      // streamed over /api/events. Credentials are resolved server-side.
+      void scanCrossRegionTargets({ credentials: await resolveCfScanCredentials() }).catch(() => undefined);
+      sendJson(res, { ok: true, started: true });
       return;
     }
 

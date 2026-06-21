@@ -92,7 +92,7 @@ export async function listCloudFoundrySpaces(): Promise<string[]> {
   return parseCloudFoundryNameList(result.stdout, "name");
 }
 
-function parseCloudFoundryNameList(output: string, headerName: string): string[] {
+export function parseCloudFoundryNameList(output: string, headerName: string): string[] {
   const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const headerIndex = lines.findIndex((line) => line.toLowerCase() === headerName.toLowerCase());
 

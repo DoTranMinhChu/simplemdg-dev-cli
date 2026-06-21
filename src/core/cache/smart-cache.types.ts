@@ -55,6 +55,15 @@ export type TCacheEvent = {
   resource: string;
   updatedAt?: string;
   error?: string;
+  /** Optional per-region scan progress for cross-region target refreshes. */
+  detail?: {
+    region?: string;
+    regionStatus?: "queued" | "scanning" | "success" | "failed";
+    targetCount?: number;
+    totalRegions?: number;
+    completedRegions?: number;
+    failedRegions?: number;
+  };
 };
 
 export type TNamespaceStat = {

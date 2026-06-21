@@ -54,6 +54,11 @@ import {
   setRegionEnabled,
 } from "../core/cf/cf-region-registry";
 import type { TCfRegionEndpoint } from "../core/cf/cf-region-registry";
+import {
+  getCrossRegionStatus,
+  listCrossRegionTargets,
+  scanCrossRegionTargets,
+} from "../core/cf/cf-cross-region-scanner";
 import type { TCloudFoundryApp, TCloudFoundryLoginProfile, TCloudFoundryOrgEntry, TCloudFoundryTarget } from "../core/types";
 
 type TCloudFoundryLoginOptions = {
@@ -83,6 +88,7 @@ type TCloudFoundryBindOptions = {
   app?: string;
   cwd?: string;
   refresh?: boolean;
+  target?: boolean;
 };
 
 type TCloudFoundryEnvOptions = {
@@ -91,6 +97,7 @@ type TCloudFoundryEnvOptions = {
   cwd?: string;
   refresh?: boolean;
   raw?: boolean;
+  target?: boolean;
 };
 
 type TCloudFoundryLogsOptions = {
@@ -101,6 +108,7 @@ type TCloudFoundryLogsOptions = {
   follow?: boolean;
   instance?: string;
   process?: string;
+  target?: boolean;
 };
 
 type TCloudFoundryHttpWatchOptions = {
@@ -747,8 +755,21 @@ async function selectDebugMode(options: TCloudFoundryDebugOptions): Promise<TClo
   }) as Promise<TCloudFoundryDebugMode>;
 }
 
-async function maybeSwitchCloudFoundryTargetForDebug(options: TCloudFoundryDebugOptions): Promise<void> {
-  if (options.skipOrgSelect || options.app?.trim()) {
+/**
+ * Shared cross-region target selector used by every app-scoped CF command
+ * (bind/env/logs/debug/request-trace/http-watch). When `--target` is passed it
+ * opens the full target switcher directly; otherwise it offers "use current" or
+ * "switch across regions". An explicit `app` (or `skipTargetSelect`) keeps the
+ * current target untouched.
+ */
+async function selectCloudFoundryTarget(options: { app?: string; target?: boolean; skipTargetSelect?: boolean; message?: string }): Promise<void> {
+  if (options.skipTargetSelect || options.app?.trim()) {
+    return;
+  }
+
+  // Explicit --target: jump straight into the switcher.
+  if (options.target) {
+    await runOrgCommand({ switch: true });
     return;
   }
 
@@ -761,10 +782,10 @@ async function maybeSwitchCloudFoundryTargetForDebug(options: TCloudFoundryDebug
   ].join(" · ");
 
   const action = await searchableSelectChoice({
-    message: "Select BTP target for debug",
+    message: options.message ?? "Select BTP target",
     choices: [
       { title: `Use current target (${currentTargetLabel})`, value: "current" },
-      { title: "Search org across regions and switch", value: "switch" },
+      { title: "Search target across regions and switch", value: "switch" },
     ],
     allowCustomValue: false,
   });
@@ -772,6 +793,20 @@ async function maybeSwitchCloudFoundryTargetForDebug(options: TCloudFoundryDebug
   if (action === "switch") {
     await runOrgCommand({ switch: true });
   }
+}
+
+/** Legacy wrapper kept for debug/request-trace/http-watch call sites. */
+async function maybeSwitchCloudFoundryTargetForDebug(options: TCloudFoundryDebugOptions): Promise<void> {
+  await selectCloudFoundryTarget({ app: options.app, skipTargetSelect: options.skipOrgSelect, message: "Select BTP target for debug" });
+}
+
+/**
+ * Combined target + app resolver: pick a (possibly cross-region) target, then
+ * resolve the app from the cache-first app list. One helper for bind/env/logs.
+ */
+async function resolveTargetAndApp(options: { app?: string; refresh?: boolean; target?: boolean; skipTargetSelect?: boolean; message: string }): Promise<string> {
+  await selectCloudFoundryTarget({ app: options.app, target: options.target, skipTargetSelect: options.skipTargetSelect });
+  return resolveAppSelection({ app: options.app, refresh: options.refresh, message: options.message });
 }
 
 async function selectDebugInstance(options: TCloudFoundryDebugOptions): Promise<string> {
@@ -1444,6 +1479,13 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
     return;
   }
 
+  // Cross-region status line (instant, from cache).
+  const status = await getCrossRegionStatus();
+  if (status.totalTargets) {
+    console.log(chalk.gray(`Using cached targets · ${status.totalTargets} targets · updated ${formatRelativeTime(status.lastUpdatedAt)}`));
+    console.log("");
+  }
+
   const action = options.list
     ? "list"
     : options.switch
@@ -1455,6 +1497,7 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
           { title: "Refresh all regions", value: "refresh" },
           { title: "List targets", value: "list" },
           { title: "Manage favorites", value: "favorites" },
+          { title: "Manage regions", value: "regions" },
           { title: "Show current target", value: "current" },
         ],
         allowCustomValue: false,
@@ -1470,25 +1513,45 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
     return;
   }
 
-  let orgEntries: TCloudFoundryOrgEntry[];
-
-  if (action === "refresh" || options.refresh) {
-    await ensureExternalTool("cf");
-    console.log(chalk.gray("Refreshing CF orgs across regions..."));
-    orgEntries = await getCloudFoundryOrganizationsAcrossRegions({ api: options.api, refresh: true });
-    console.log(chalk.green(`Refresh completed · ${orgEntries.length} target(s) found.`));
-    console.log("");
-  } else {
-    const cache = await readCache();
-    orgEntries = cache.cloudFoundry.orgsAcrossRegions ?? [];
-  }
-
-  if (action === "list") {
-    printTargetSections(favorites, recent, orgEntries, latestTarget);
+  if (action === "regions") {
+    await runRegionInteractiveCommand();
     return;
   }
 
-  const allTargets = orgEntries.map(orgEntryToTarget);
+  let allTargets: TCfTarget[];
+
+  if (action === "refresh" || options.refresh) {
+    await ensureExternalTool("cf");
+    console.log(chalk.gray("Refreshing CF targets across enabled regions..."));
+    const cache = await readCache();
+    const credentials = cache.cloudFoundry.loginProfiles.map((profile) => ({
+      apiEndpoint: profile.apiEndpoint,
+      username: profile.username,
+      password: profile.password,
+    }));
+    const summary = await scanCrossRegionTargets({ credentials });
+    for (const region of summary.regionResults) {
+      const tag = region.status === "success" ? chalk.green("success") : chalk.red("failed");
+      const suffix = region.status === "failed" && region.usedCache ? chalk.gray(" · using cached result") : "";
+      console.log(`  ${region.region.padEnd(8)} ${tag} · ${region.targetCount} targets${suffix}`);
+    }
+    console.log(chalk.green(`Refresh completed · ${summary.totalTargets} target(s) across ${summary.regionResults.length} region(s).`));
+    console.log("");
+    allTargets = summary.targets;
+  } else {
+    // Cross-region cache first; fall back to legacy orgsAcrossRegions cache.
+    allTargets = await listCrossRegionTargets();
+    if (!allTargets.length) {
+      const cache = await readCache();
+      allTargets = (cache.cloudFoundry.orgsAcrossRegions ?? []).map(orgEntryToTarget);
+    }
+  }
+
+  if (action === "list") {
+    printTargetSections(favorites, recent, allTargets.map((t) => ({ apiEndpoint: t.apiEndpoint, region: t.region, org: t.org, updatedAt: t.lastRefreshedAt ?? "" })), latestTarget);
+    return;
+  }
+
   const recentKeys = new Set(recent.map((target) => cfTargetKey(target)));
   const combined = dedupeTargets([...favorites, ...recent, ...allTargets]);
 
@@ -1502,7 +1565,12 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
     message: `Select CF target (${favorites.length} favorite · ${recent.length} recent · ${allTargets.length} all)`,
     choices: combined.map((target, index) => {
       const marker = target.isFavorite ? chalk.yellow("★ ") : recentKeys.has(cfTargetKey(target)) ? chalk.gray("◷ ") : "  ";
-      return { title: `${marker}${cfTargetLabel(target)}`, value: String(index) };
+      const meta = [
+        target.environment && target.environment !== "UNKNOWN" ? target.environment : "",
+        typeof target.cachedAppCount === "number" ? `${target.cachedAppCount} apps cached` : "",
+      ].filter(Boolean).join(" · ");
+      const suffix = meta ? chalk.gray(`  (${meta})`) : "";
+      return { title: `${marker}${cfTargetLabel(target)}${suffix}`, value: String(index) };
     }),
     validateCustomValue: validateRequired,
     customValueTitle: (value) => `Use typed org in current region: ${value}`,
@@ -1578,14 +1646,14 @@ async function runAppsCacheRefreshCommand(): Promise<void> {
 
 async function runBindCommand(options: TCloudFoundryBindOptions): Promise<void> {
   const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
-  const appName = await resolveAppSelection({ app: options.app, refresh: options.refresh, message: "Select app to cds bind" });
+  const appName = await resolveTargetAndApp({ app: options.app, refresh: options.refresh, target: options.target, message: "Select app to cds bind" });
   const exitCode = await runCommandInherit("cds", ["bind", "--to-app-services", appName], { cwd: repositoryPath });
   process.exitCode = exitCode;
 }
 
 async function runEnvCommand(options: TCloudFoundryEnvOptions): Promise<void> {
   const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
-  const appName = await resolveAppSelection({ app: options.app, refresh: options.refresh, message: "Select app to export cf env" });
+  const appName = await resolveTargetAndApp({ app: options.app, refresh: options.refresh, target: options.target, message: "Select app to export cf env" });
   const cache = await readCache();
 
   const outputFileName = options.out ?? await selectFromHistoryOrInput({
@@ -1618,7 +1686,7 @@ async function runEnvCommand(options: TCloudFoundryEnvOptions): Promise<void> {
 
 
 async function runLogsCommand(options: TCloudFoundryLogsOptions): Promise<void> {
-  const appName = await resolveAppSelection({ app: options.app, refresh: options.refresh, message: "Select app to view logs" });
+  const appName = await resolveTargetAndApp({ app: options.app, refresh: options.refresh, target: options.target, message: "Select app to view logs" });
   const shouldFollow = options.follow || !options.recent;
   const shouldReadRecent = options.recent || !shouldFollow;
   const outputPath = options.out ? path.resolve(process.cwd(), options.out) : undefined;
@@ -3394,10 +3462,25 @@ async function runRegionTestCommand(options: { region?: string }): Promise<void>
 }
 
 async function runRegionRefreshCommand(options: { region?: string }): Promise<void> {
-  // Force a cross-region rescan; the scanner already restores the previous target.
+  await ensureExternalTool("cf");
   console.log(chalk.gray("Refreshing CF targets across enabled regions..."));
-  await getCloudFoundryOrganizationsAcrossRegions({ refresh: true, api: options.region });
-  console.log(chalk.green("Region targets refreshed."));
+  const cache = await readCache();
+  const credentials = cache.cloudFoundry.loginProfiles.map((profile) => ({
+    apiEndpoint: profile.apiEndpoint,
+    username: profile.username,
+    password: profile.password,
+  }));
+  const enabled = await listEnabledRegions();
+  const regions = options.region
+    ? enabled.filter((region) => region.region === options.region || region.apiEndpoint === options.region)
+    : enabled;
+  const summary = await scanCrossRegionTargets({ credentials, regions });
+  for (const region of summary.regionResults) {
+    const tag = region.status === "success" ? chalk.green("success") : chalk.red("failed");
+    const suffix = region.status === "failed" && region.usedCache ? chalk.gray(" · using cached result") : "";
+    console.log(`  ${region.region.padEnd(8)} ${tag} · ${region.targetCount} targets${suffix}`);
+  }
+  console.log(chalk.green(`Region targets refreshed · ${summary.totalTargets} total.`));
 }
 
 async function runRegionInteractiveCommand(): Promise<void> {
@@ -3538,6 +3621,7 @@ export function registerCloudFoundryCommands(program: Command): void {
     .option("--app <appName>", "BTP app name")
     .option("--cwd <path>", "Repository path", process.cwd())
     .option("--refresh", "Refresh app list before selecting")
+    .option("--target", "Pick a target across regions first (favorites/recent/all)")
     .action(runBindCommand);
 
   cfCommand
@@ -3548,6 +3632,7 @@ export function registerCloudFoundryCommands(program: Command): void {
     .option("--cwd <path>", "Repository path", process.cwd())
     .option("--refresh", "Refresh app list before selecting")
     .option("--raw", "Export raw cf env output instead of clean JSON")
+    .option("--target", "Pick a target across regions first (favorites/recent/all)")
     .action(runEnvCommand);
 
 
@@ -3561,6 +3646,7 @@ export function registerCloudFoundryCommands(program: Command): void {
     .option("--out <fileName>", "Export logs to file. With realtime logs, append until Ctrl+C")
     .option("--instance <index>", "Filter logs by app instance index, for example 0 or 1")
     .option("--process <processName>", "Filter logs by process name, for example WEB")
+    .option("--target", "Pick a target across regions first (favorites/recent/all)")
     .action(runLogsCommand);
 
 
