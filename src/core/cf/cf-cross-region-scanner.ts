@@ -4,8 +4,8 @@ import { emitCacheEvent } from "../cache/smart-cache-events";
 import { readAllEntries, readEntry, writeEntry } from "../cache/smart-cache-store";
 import { listEnabledRegions } from "./cf-region-registry";
 import type { TCfRegionEndpoint } from "./cf-region-registry";
-import { buildCfTargetId, cfTargetKey, detectCfEnvironment } from "./cf-target.types";
-import type { TCfTarget } from "./cf-target.types";
+import { buildCfTargetId, cfTargetKey, detectCfEnvironment, isValidCfTarget } from "./cf-target.types";
+import type { TCfTarget, TCfOrgSummary } from "./cf-target.types";
 import type { TSmartCacheEntry } from "../cache/smart-cache.types";
 import { DEFAULT_CACHE_TTL } from "../cache/smart-cache.types";
 
@@ -18,6 +18,8 @@ type TRegionTargetsPayload = {
   region: string;
   apiEndpoint: string;
   targets: TCfTarget[];
+  /** Orgs that were found but had no accessible spaces, or whose space-load failed. */
+  orgSummaries: TCfOrgSummary[];
   scanStatus: "success" | "failed";
   scanError?: string;
 };
@@ -89,7 +91,10 @@ async function fetchOrgsWithRelogin(apiEndpoint: string, credentials: TCfScanCre
   return undefined;
 }
 
-async function scanRegion(region: TCfRegionEndpoint, credentials: TCfScanCredential[]): Promise<TCfTarget[]> {
+async function scanRegion(
+  region: TCfRegionEndpoint,
+  credentials: TCfScanCredential[],
+): Promise<{ targets: TCfTarget[]; orgSummaries: TCfOrgSummary[] }> {
   const apiResult = await runCommand("cf", ["api", region.apiEndpoint]);
   if (apiResult.exitCode !== 0) {
     throw new Error(`Cannot reach ${region.apiEndpoint}`);
@@ -102,17 +107,57 @@ async function scanRegion(region: TCfRegionEndpoint, credentials: TCfScanCredent
 
   const now = new Date().toISOString();
   const targets: TCfTarget[] = [];
+  const orgSummaries: TCfOrgSummary[] = [];
 
   for (const org of orgs) {
-    let spaces: string[] = [];
+    // Target the org first; if that fails the org is inaccessible.
     const orgTarget = await runCommand("cf", ["target", "-o", org]);
-    if (orgTarget.exitCode === 0) {
-      const spacesResult = await runCommand("cf", ["spaces"]);
-      spaces = spacesResult.exitCode === 0 ? parseCloudFoundryNameList(spacesResult.stdout, "name") : [];
+    if (orgTarget.exitCode !== 0) {
+      orgSummaries.push({
+        region: region.region,
+        apiEndpoint: region.apiEndpoint,
+        org,
+        status: "spaces-failed",
+        error: orgTarget.stderr || orgTarget.stdout || "cf target failed",
+      });
+      continue;
     }
 
-    const orgSpaces = spaces.length ? spaces : [""];
-    for (const space of orgSpaces) {
+    const spacesResult = await runCommand("cf", ["spaces"]);
+    if (spacesResult.exitCode !== 0) {
+      orgSummaries.push({
+        region: region.region,
+        apiEndpoint: region.apiEndpoint,
+        org,
+        status: "spaces-failed",
+        error: spacesResult.stderr || spacesResult.stdout || "cf spaces failed",
+      });
+      continue;
+    }
+
+    const spaces = parseCloudFoundryNameList(spacesResult.stdout, "name");
+
+    if (!spaces.length) {
+      // Org exists but has no spaces — not a usable CF target.
+      orgSummaries.push({
+        region: region.region,
+        apiEndpoint: region.apiEndpoint,
+        org,
+        spaceCount: 0,
+        status: "no-spaces",
+      });
+      continue;
+    }
+
+    orgSummaries.push({
+      region: region.region,
+      apiEndpoint: region.apiEndpoint,
+      org,
+      spaceCount: spaces.length,
+      status: "spaces-loaded",
+    });
+
+    for (const space of spaces) {
       targets.push({
         id: buildCfTargetId({ region: region.region, org, space }),
         region: region.region,
@@ -125,7 +170,7 @@ async function scanRegion(region: TCfRegionEndpoint, credentials: TCfScanCredent
     }
   }
 
-  return targets;
+  return { targets, orgSummaries };
 }
 
 /**
@@ -168,11 +213,11 @@ export async function scanCrossRegionTargets(options: {
     }
 
     try {
-      const targets = await scanRegion(region, credentials);
+      const { targets, orgSummaries } = await scanRegion(region, credentials);
       await writeEntry(
         CROSS_REGION_TARGETS_NAMESPACE,
         region.region,
-        regionEntry({ region: region.region, apiEndpoint: region.apiEndpoint, targets, scanStatus: "success" }),
+        regionEntry({ region: region.region, apiEndpoint: region.apiEndpoint, targets, orgSummaries, scanStatus: "success" }),
       );
       completedRegions += 1;
       regionResults.push({ region: region.region, apiEndpoint: region.apiEndpoint, status: "success", targetCount: targets.length, usedCache: false });
@@ -235,12 +280,13 @@ export async function scanCrossRegionTargets(options: {
   return { targets, regionResults, totalTargets: targets.length, failedRegions, updatedAt };
 }
 
-/** Read all cached cross-region targets (merged across regions). */
+/** Read all cached cross-region targets (merged across regions). Skips invalid (empty-space) entries. */
 export async function listCrossRegionTargets(): Promise<TCfTarget[]> {
   const entries = await readAllEntries<TRegionTargetsPayload>(CROSS_REGION_TARGETS_NAMESPACE);
   const targets: TCfTarget[] = [];
   for (const entry of Object.values(entries)) {
     for (const target of entry.data.targets ?? []) {
+      if (!isValidCfTarget(target)) continue;
       targets.push({ ...target, id: target.id ?? cfTargetKey(target) });
     }
   }
@@ -252,22 +298,51 @@ export async function listCrossRegionTargets(): Promise<TCfTarget[]> {
   });
 }
 
+/** Read all org summaries (orgs with no spaces or failed space-load) across regions. */
+export async function listCrossRegionOrgSummaries(): Promise<TCfOrgSummary[]> {
+  const entries = await readAllEntries<TRegionTargetsPayload>(CROSS_REGION_TARGETS_NAMESPACE);
+  const summaries: TCfOrgSummary[] = [];
+  for (const entry of Object.values(entries)) {
+    for (const summary of entry.data.orgSummaries ?? []) {
+      summaries.push(summary);
+    }
+  }
+  return summaries.sort((a, b) => {
+    const byRegion = a.region.localeCompare(b.region);
+    return byRegion !== 0 ? byRegion : a.org.localeCompare(b.org);
+  });
+}
+
 /** Per-region status snapshot for the cross-region target cache. */
 export async function getCrossRegionStatus(): Promise<{
   totalTargets: number;
-  regions: Array<{ region: string; targetCount: number; updatedAt: string; refreshState?: string; scanError?: string }>;
+  regions: Array<{
+    region: string;
+    targetCount: number;
+    noSpaceOrgCount: number;
+    failedSpaceOrgCount: number;
+    updatedAt: string;
+    refreshState?: string;
+    scanError?: string;
+  }>;
   lastUpdatedAt?: string;
 }> {
   const entries = await readAllEntries<TRegionTargetsPayload>(CROSS_REGION_TARGETS_NAMESPACE);
   let total = 0;
   let lastUpdatedAt: string | undefined;
   const regions = Object.values(entries).map((entry) => {
-    const count = entry.data.targets?.length ?? 0;
+    const validTargets = (entry.data.targets ?? []).filter(isValidCfTarget);
+    const count = validTargets.length;
     total += count;
+    const orgSummaries = entry.data.orgSummaries ?? [];
+    const noSpaceOrgCount = orgSummaries.filter((s) => s.status === "no-spaces").length;
+    const failedSpaceOrgCount = orgSummaries.filter((s) => s.status === "spaces-failed").length;
     if (!lastUpdatedAt || entry.updatedAt > lastUpdatedAt) lastUpdatedAt = entry.updatedAt;
     return {
       region: entry.data.region,
       targetCount: count,
+      noSpaceOrgCount,
+      failedSpaceOrgCount,
       updatedAt: entry.updatedAt,
       refreshState: entry.refreshState,
       scanError: entry.data.scanError ?? entry.lastRefreshError,

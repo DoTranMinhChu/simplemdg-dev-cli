@@ -24,13 +24,37 @@ export type TCfTarget = {
   refreshState?: "idle" | "refreshing" | "failed";
 };
 
-/** Deterministic target id used as the cache key across CLI and Studio. */
+/**
+ * An org that was discovered during scanning but has no accessible spaces
+ * (or space loading failed), so it cannot be a selectable CF target.
+ */
+export type TCfOrgSummary = {
+  region: string;
+  apiEndpoint: string;
+  org: string;
+  spaceCount?: number;
+  status: "spaces-loaded" | "no-spaces" | "spaces-failed";
+  error?: string;
+};
+
+/**
+ * Deterministic target id. Throws if any field is blank — an empty space
+ * would produce an invalid key like `br10::org::` which cannot be used.
+ */
 export function buildCfTargetId(input: { region: string; org: string; space: string }): string {
-  return `${input.region}::${input.org}::${input.space || ""}`;
+  if (!input.region?.trim()) throw new Error("CF target region is required.");
+  if (!input.org?.trim()) throw new Error("CF target org is required.");
+  if (!input.space?.trim()) throw new Error("CF target space is required.");
+  return `${input.region.trim()}::${input.org.trim()}::${input.space.trim()}`;
 }
 
 export function cfTargetKey(target: Pick<TCfTarget, "region" | "org" | "space">): string {
   return buildCfTargetId(target);
+}
+
+/** True only when region, org, and space are all non-empty. */
+export function isValidCfTarget(target: Pick<TCfTarget, "region" | "org" | "space">): boolean {
+  return Boolean(target.region?.trim() && target.org?.trim() && target.space?.trim());
 }
 
 export function cfTargetLabel(target: Pick<TCfTarget, "region" | "org" | "space">): string {

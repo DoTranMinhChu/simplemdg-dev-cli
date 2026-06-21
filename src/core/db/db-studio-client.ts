@@ -667,6 +667,43 @@ function openBtpWizard(){
       if(!favs.length&&!recs.length&&!anyAll){
         scroll.appendChild(el("div",{class:"empty",text:lowerQ?"No targets match your search.":"No cached targets found. Run: smdg cf apps"}));
       }
+
+      // Show orgs without accessible spaces as disabled / informational rows.
+      var allNoSpace=[];
+      (r2.regions||[]).forEach(function(region){
+        ((r2.noSpaceByRegion&&r2.noSpaceByRegion[region])||[]).forEach(function(s){
+          if(!lowerQ||(s.org+" "+region).toLowerCase().indexOf(lowerQ)>=0){
+            allNoSpace.push({region:region,org:s.org,status:s.status,error:s.error});
+          }
+        });
+      });
+      if(allNoSpace.length){
+        var noSpaceHdr=el("div",{class:"wiz-section-hdr",style:"margin-top:10px;cursor:pointer"});
+        noSpaceHdr.appendChild(el("span",{text:"Orgs without accessible spaces"}));
+        noSpaceHdr.appendChild(el("span",{class:"wiz-count",text:String(allNoSpace.length)}));
+        var noSpaceChev=el("span",{class:"chevron",style:"font-size:10px",text:"▸"});
+        noSpaceHdr.appendChild(noSpaceChev);
+        var noSpaceBody=el("div",{style:"display:none"});
+        allNoSpace.forEach(function(s){
+          var row=el("div",{class:"trow disabled",title:"This org has no accessible spaces and cannot be used to load apps or import database credentials."});
+          row.appendChild(el("div",{class:"trow-icon",text:"○"}));
+          var main=el("div",{class:"trow-main"});
+          var titleEl=el("div",{class:"trow-title",text:s.org});
+          var metaEl=el("div",{class:"trow-meta",text:s.region+" · "+(s.status==="no-spaces"?"No spaces found":"Spaces failed"+(s.error?": "+s.error:""))});
+          main.appendChild(titleEl);main.appendChild(metaEl);
+          row.appendChild(main);
+          row.appendChild(el("div",{class:"trow-right"},[el("span",{class:"note",text:"No accessible spaces"})]));
+          noSpaceBody.appendChild(row);
+        });
+        noSpaceHdr.addEventListener("click",function(){
+          var open=noSpaceBody.style.display!=="none";
+          noSpaceBody.style.display=open?"none":"";
+          noSpaceChev.textContent=open?"▸":"▾";
+        });
+        scroll.appendChild(noSpaceHdr);
+        scroll.appendChild(noSpaceBody);
+      }
+
       spin.style.display="none";
     }
 
@@ -687,6 +724,17 @@ function openBtpWizard(){
   /* ---- Step 2: App Selector ---- */
   function stepApps(forceRefresh){
     if(st.unsubSse){st.unsubSse();st.unsubSse=null;}
+    // Guard: all three key parts must be non-empty before hitting the backend.
+    var keyParts=(st.targetKey||"").split("::");
+    if(keyParts.length!==3||!keyParts[0]||!keyParts[1]||!keyParts[2]){
+      setStep(1);
+      clear(body).appendChild(el("div",{class:"errbox"},[
+        el("div",{text:"Cannot load apps because the selected target is incomplete."}),
+        el("div",{style:"margin-top:4px",text:"A valid target must include region, org, and space. Please select an org with an accessible space."}),
+        el("div",{class:"row right",style:"margin-top:8px"},[el("button",{class:"btn ghost",text:"◁ Back",onclick:stepTarget})])
+      ]));
+      return;
+    }
     setStep(1);
     clear(body).appendChild(el("div",{class:"empty"},[el("span",{class:"spin"})," Loading apps from "+esc(st.targetLabel)+"..."]));
     var url="/api/btp/apps?targetKey="+encodeURIComponent(st.targetKey)+(forceRefresh?"&refresh=true":"");

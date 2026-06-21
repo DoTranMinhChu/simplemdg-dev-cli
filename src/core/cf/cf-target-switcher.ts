@@ -17,13 +17,19 @@ import type { TCloudFoundryLoginProfile, TCloudFoundryTarget } from "../types";
 
 export type TCfTargetKeyParts = { region: string; org: string; space: string };
 
-/** Deterministic target-key parser: `region::org::space`. */
+/** Deterministic target-key parser: `region::org::space`. All three parts must be non-empty. */
 export function parseCfTargetKey(targetKey: string): TCfTargetKeyParts {
-  const [region, org, space] = (targetKey ?? "").split("::");
-  if (!region || !org || !space) {
-    throw new Error(`Invalid CF target key: ${targetKey}`);
+  const parts = (targetKey ?? "").split("::");
+  if (parts.length !== 3) {
+    throw new Error(`Invalid CF target key format: ${targetKey}. Expected region::org::space`);
   }
-  return { region, org, space };
+  const [region, org, space] = parts;
+  if (!region?.trim() || !org?.trim() || !space?.trim()) {
+    throw new Error(
+      `Invalid CF target key: ${targetKey}. All three parts (region, org, space) must be non-empty.`,
+    );
+  }
+  return { region: region.trim(), org: org.trim(), space: space.trim() };
 }
 
 /** Resolve the API endpoint for a region name from the region registry. */

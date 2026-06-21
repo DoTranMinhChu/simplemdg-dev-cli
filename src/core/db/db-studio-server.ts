@@ -50,9 +50,9 @@ import {
 import { onCacheEvent, formatRelativeTime, computeCacheStatus, refreshCache, DEFAULT_CACHE_TTL } from "../cache/smart-cache";
 import { readAllEntries, readEntry } from "../cache/smart-cache-store";
 import { listFavoriteTargets, listRecentTargets, addFavoriteTarget, removeFavoriteTarget, addRecentTarget } from "../cf/cf-target-cache";
-import { cfTargetKey } from "../cf/cf-target.types";
+import { cfTargetKey, isValidCfTarget } from "../cf/cf-target.types";
 import type { TCfTarget } from "../cf/cf-target.types";
-import { listCrossRegionTargets, getCrossRegionStatus, scanCrossRegionTargets } from "../cf/cf-cross-region-scanner";
+import { listCrossRegionTargets, listCrossRegionOrgSummaries, getCrossRegionStatus, scanCrossRegionTargets } from "../cf/cf-cross-region-scanner";
 import type { TCfScanCredential } from "../cf/cf-cross-region-scanner";
 import { withCfTarget, parseCfTargetKey } from "../cf/cf-target-switcher";
 import { listCloudFoundryApps } from "../cf";
@@ -380,16 +380,22 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
       const appsEntries = await readAllEntries<unknown[]>("cf-apps");
       const favKeys = new Set(favTargets.map((t) => cfTargetKey(t)));
 
-      // Primary source: the cross-region target cache (independent of current CF
-      // target). Fall back to keys seen in the cf-apps cache.
+      // Primary source: cross-region target cache. Fall back to keys seen in the
+      // cf-apps cache (only valid 3-part keys with non-empty space).
       const crossRegion = await listCrossRegionTargets();
-      const allFromApps: TCfTarget[] = Object.keys(appsEntries).map((key) => {
+      const orgSummaries = await listCrossRegionOrgSummaries();
+
+      const allFromApps: TCfTarget[] = [];
+      for (const key of Object.keys(appsEntries)) {
         const parts = key.split("::");
-        return { region: parts[0] ?? "", apiEndpoint: "", org: parts[1] ?? "", space: parts[2] ?? "" };
-      });
+        if (parts.length === 3 && parts[0]?.trim() && parts[1]?.trim() && parts[2]?.trim()) {
+          allFromApps.push({ region: parts[0], apiEndpoint: "", org: parts[1], space: parts[2] });
+        }
+      }
 
       const targetMap = new Map<string, TCfTarget>();
       for (const t of [...crossRegion, ...favTargets, ...recentTargets, ...allFromApps]) {
+        if (!isValidCfTarget(t)) continue;
         const k = cfTargetKey(t);
         if (!targetMap.has(k)) targetMap.set(k, t);
       }
@@ -402,11 +408,21 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         byRegion[t.region].push(buildTargetSummary({ ...t, isFavorite: favKeys.has(cfTargetKey(t)) }, appsEntry));
       }
 
+      // Group org summaries (no-spaces / spaces-failed) by region for the UI.
+      const noSpaceByRegion: Record<string, Array<{ org: string; status: string; error?: string }>> = {};
+      for (const summary of orgSummaries) {
+        if (summary.status !== "spaces-loaded") {
+          if (!noSpaceByRegion[summary.region]) noSpaceByRegion[summary.region] = [];
+          noSpaceByRegion[summary.region].push({ org: summary.org, status: summary.status, error: summary.error });
+        }
+      }
+
       const regionStatus = await getCrossRegionStatus();
       sendJson(res, {
         favorites: favTargets.map((t) => buildTargetSummary(t, appsEntries[cfTargetKey(t)] as TSmartCacheEntry<unknown[]> | undefined)),
         recent: recentTargets.map((t) => buildTargetSummary(t, appsEntries[cfTargetKey(t)] as TSmartCacheEntry<unknown[]> | undefined)),
         byRegion,
+        noSpaceByRegion,
         totalTargets: allTargets.length,
         regions: Object.keys(byRegion).sort(),
         regionStatus: regionStatus.regions,

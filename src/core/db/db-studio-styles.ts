@@ -308,6 +308,8 @@ table.grid tr.selrow td{background:var(--sel)}
 .trow .trow-fav{cursor:pointer;color:var(--faint);font-size:14px}
 .trow .trow-fav.on{color:#f59e0b}
 .trow .trow-fav:hover{color:#f59e0b}
+.trow.disabled{cursor:not-allowed;opacity:.45}
+.trow.disabled:hover{background:none;border-color:transparent}
 .region-group{margin-top:6px}
 .region-hdr{font-size:11px;color:var(--faint);padding:4px 6px 2px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;display:flex;align-items:center;gap:6px;cursor:pointer}
 .region-hdr:hover{color:var(--muted)}
