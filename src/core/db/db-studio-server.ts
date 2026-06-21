@@ -48,8 +48,13 @@ import {
   importConnectionFromApp,
   listCloudFoundryAppsWithCache,
 } from "./db-btp";
-import { onCacheEvent } from "../cache/smart-cache";
+import { onCacheEvent, formatRelativeTime, computeCacheStatus } from "../cache/smart-cache";
+import { readAllEntries, readEntry } from "../cache/smart-cache-store";
+import { listFavoriteTargets, listRecentTargets, addFavoriteTarget, removeFavoriteTarget, addRecentTarget } from "../cf/cf-target-cache";
+import { cfTargetKey } from "../cf/cf-target.types";
+import type { TCfTarget } from "../cf/cf-target.types";
 import type { TDatabaseObjectKind, TDatabaseType } from "./db-types";
+import type { TSmartCacheEntry } from "../cache/smart-cache.types";
 
 export type TStudioServerOptions = {
   port?: number;
@@ -141,6 +146,40 @@ const VALID_ENVIRONMENTS = new Set(["DEV", "QAS", "PROD", "SANDBOX", "CUSTOM"]);
 function getEnvironment(body: TJsonBody): TConnectionDraft["environment"] {
   const value = getString(body, "environment").toUpperCase();
   return VALID_ENVIRONMENTS.has(value) ? (value as TConnectionDraft["environment"]) : undefined;
+}
+
+/** Detect environment label from org/space name (heuristic). */
+function detectEnvironment(org: string, space: string): string {
+  const haystack = `${org} ${space}`.toLowerCase();
+  if (/\bprod\b|production|prd|\blive\b/.test(haystack)) return "PROD";
+  if (/\bqas\b|quality|staging|uat/.test(haystack)) return "QAS";
+  if (/\bdev\b|development|\blocal\b/.test(haystack)) return "DEV";
+  if (/\bsandbox\b|sbx/.test(haystack)) return "SANDBOX";
+  return "";
+}
+
+/**
+ * Build a serialisable summary for a cached target from the cf-apps namespace
+ * entry (or just target metadata if no apps are cached).
+ */
+function buildTargetSummary(target: TCfTarget, appsEntry?: TSmartCacheEntry<unknown[]> | undefined): Record<string, unknown> {
+  const env = detectEnvironment(target.org, target.space);
+  const cacheStatus = appsEntry ? computeCacheStatus(appsEntry) : "missing";
+  const appCount = appsEntry ? (Array.isArray(appsEntry.data) ? appsEntry.data.length : 0) : undefined;
+  return {
+    region: target.region,
+    apiEndpoint: target.apiEndpoint,
+    org: target.org,
+    space: target.space,
+    key: cfTargetKey(target),
+    isFavorite: target.isFavorite ?? false,
+    lastUsedAt: target.lastUsedAt,
+    environment: env,
+    cachedAppCount: appCount,
+    cacheStatus,
+    updatedAt: appsEntry?.updatedAt,
+    updatedAgo: formatRelativeTime(appsEntry?.updatedAt),
+  };
 }
 
 function draftFromBody(body: TJsonBody): TConnectionDraft {
@@ -310,6 +349,125 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
     }
 
     // --- BTP -----------------------------------------------------------------
+    // -------- Multi-target BTP routes (smart cache first) -------------------
+
+    if (pathname === "/api/btp/targets" && method === "GET") {
+      const favTargets = await listFavoriteTargets();
+      const recentTargets = await listRecentTargets(10);
+      // All known targets = union of favorites + recent + entries in cf-apps namespace
+      const appsEntries = await readAllEntries<unknown[]>("cf-apps");
+      const favKeys = new Set(favTargets.map((t) => cfTargetKey(t)));
+      const recentKeys = new Set(recentTargets.map((t) => cfTargetKey(t)));
+      // Build "all targets" from keys in the cf-apps cache
+      const allFromCache: TCfTarget[] = Object.keys(appsEntries).map((key) => {
+        const parts = key.split("::");
+        return { region: parts[0] ?? "", apiEndpoint: "", org: parts[1] ?? "", space: parts[2] ?? "" };
+      });
+      // Merge favorites/recent to get apiEndpoints
+      const targetMap = new Map<string, TCfTarget>();
+      for (const t of [...favTargets, ...recentTargets, ...allFromCache]) {
+        const k = cfTargetKey(t);
+        if (!targetMap.has(k)) targetMap.set(k, t);
+      }
+      const allTargets = Array.from(targetMap.values());
+      // Group by region
+      const byRegion: Record<string, unknown[]> = {};
+      for (const t of allTargets) {
+        if (!byRegion[t.region]) byRegion[t.region] = [];
+        const appsEntry = appsEntries[cfTargetKey(t)] as TSmartCacheEntry<unknown[]> | undefined;
+        byRegion[t.region].push(buildTargetSummary({ ...t, isFavorite: favKeys.has(cfTargetKey(t)) }, appsEntry));
+      }
+      sendJson(res, {
+        favorites: favTargets.map((t) => buildTargetSummary(t, appsEntries[cfTargetKey(t)] as TSmartCacheEntry<unknown[]> | undefined)),
+        recent: recentTargets.map((t) => buildTargetSummary(t, appsEntries[cfTargetKey(t)] as TSmartCacheEntry<unknown[]> | undefined)),
+        byRegion,
+        totalTargets: allTargets.length,
+        regions: Object.keys(byRegion).sort(),
+      });
+      return;
+    }
+
+    if (pathname === "/api/btp/apps" && method === "GET") {
+      const targetKey = url.searchParams.get("targetKey") ?? "";
+      const forceRefresh = url.searchParams.get("refresh") === "true";
+      if (!targetKey) { sendJson(res, { apps: [], cacheStatus: "missing", error: "targetKey required" }); return; }
+
+      const entry = await readEntry<unknown[]>("cf-apps", targetKey);
+      const cacheStatus = entry ? computeCacheStatus(entry) : "missing";
+
+      // If we have a cached entry and not force-refresh, return it immediately
+      if (entry && !forceRefresh) {
+        sendJson(res, { apps: entry.data, cacheStatus, updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt), isRefreshing: false });
+        return;
+      }
+
+      // No cache or force refresh: check if this is the current CF target and fetch live
+      const sessionResult = await ensureCloudFoundrySession().catch(() => ({ loggedIn: false, message: "CF not available" }));
+      if (!sessionResult.loggedIn) {
+        if (entry) {
+          sendJson(res, { apps: entry.data, cacheStatus: "stale", updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt), warning: "CF session unavailable; showing cached apps." });
+        } else {
+          sendJson(res, { apps: [], cacheStatus: "missing", error: sessionResult.message });
+        }
+        return;
+      }
+      try {
+        const apps = await listCloudFoundryAppsWithCache({ refresh: forceRefresh });
+        sendJson(res, { apps, cacheStatus: "fresh", updatedAt: new Date().toISOString(), isRefreshing: false });
+      } catch (error) {
+        if (entry) {
+          sendJson(res, { apps: entry.data, cacheStatus: "stale", updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt), warning: "Refresh failed; showing cached apps." });
+        } else {
+          sendJson(res, { apps: [], cacheStatus: "missing", error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      return;
+    }
+
+    if (pathname === "/api/btp/db-candidates" && method === "GET") {
+      const targetKey = url.searchParams.get("targetKey") ?? "";
+      const appName = url.searchParams.get("appName") ?? "";
+      const candidateKey = `${targetKey}::${appName}`;
+      const entry = await readEntry<unknown[]>("db-import-candidates", candidateKey);
+
+      if (entry) {
+        sendJson(res, { candidates: entry.data, cacheStatus: computeCacheStatus(entry), updatedAt: entry.updatedAt, updatedAgo: formatRelativeTime(entry.updatedAt) });
+        return;
+      }
+      // No cache: try live if CF is available
+      try {
+        const candidates = await detectAppDatabaseServices(appName);
+        const safe = candidates.map(({ password: _p, ...rest }) => { void _p; return rest; });
+        sendJson(res, { candidates: safe, cacheStatus: "fresh", updatedAt: new Date().toISOString() });
+      } catch (error) {
+        sendJson(res, { candidates: [], cacheStatus: "missing", error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    if (pathname === "/api/btp/favorite" && method === "POST") {
+      const body = await readJsonBody(req);
+      const targetKey = getString(body, "targetKey");
+      const add = body.add !== false;
+      const parts = targetKey.split("::");
+      const target: TCfTarget = { region: parts[0] ?? "", apiEndpoint: "", org: parts[1] ?? "", space: parts[2] ?? "" };
+      if (add) await addFavoriteTarget(target); else await removeFavoriteTarget(target);
+      sendJson(res, { ok: true });
+      return;
+    }
+
+    if (pathname === "/api/btp/recent" && method === "POST") {
+      const body = await readJsonBody(req);
+      const targetKey = getString(body, "targetKey");
+      const parts = targetKey.split("::");
+      const target: TCfTarget = { region: parts[0] ?? "", apiEndpoint: "", org: parts[1] ?? "", space: parts[2] ?? "" };
+      await addRecentTarget(target);
+      sendJson(res, { ok: true });
+      return;
+    }
+
+    // -------- Legacy BTP routes (current CF target) --------------------------
+
     if (pathname === "/api/btp/current-target" && method === "GET") {
       const session = await ensureCloudFoundrySession();
       const target = await getCloudFoundryTargetSummary();
