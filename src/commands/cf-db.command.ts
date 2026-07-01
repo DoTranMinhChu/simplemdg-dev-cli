@@ -30,7 +30,7 @@ import { saveQuery } from "../core/db/db-query-files";
 import { appendQueryHistory } from "../core/db/db-query-history";
 import type { IDatabaseAdapter, TDatabaseQueryResult, TDatabaseType, TResolvedDatabaseConnection } from "../core/db/db-types";
 
-type TStudioCommandOptions = { port?: string; readOnly?: boolean; timeout?: string };
+type TStudioCommandOptions = { port?: string; readOnly?: boolean; timeout?: string; debugCf?: boolean };
 type TImportCommandOptions = { app?: string; service?: string };
 
 function validateRequired(value: string): true | string {
@@ -170,6 +170,7 @@ async function runStudioCommand(options: TStudioCommandOptions): Promise<void> {
     port: options.port ? Number(options.port) : undefined,
     readOnly: Boolean(options.readOnly),
     queryTimeoutMs: options.timeout ? Number(options.timeout) : undefined,
+    debugCf: Boolean(options.debugCf),
   });
 
   const shutdown = async (): Promise<void> => {
@@ -185,11 +186,24 @@ async function runStudioCommand(options: TStudioCommandOptions): Promise<void> {
 
 async function runImportCommand(options: TImportCommandOptions): Promise<void> {
   await ensureExternalTool("cf");
-  const session = await ensureCloudFoundrySession();
+  let session = await ensureCloudFoundrySession();
 
   if (!session.loggedIn) {
-    console.log(chalk.yellow(session.message ?? "Cloud Foundry login is required."));
-    throw new Error("Run: smdg cf login");
+    // Dynamic import: cf.command.ts registers this module's commands, so a
+    // static import here would create a circular require between the two files.
+    const { promptAndLoginCloudFoundryInteractively, ensureCfOrgAndSpaceTargetedInteractively } = await import("./cf.command");
+    const loggedIn = await promptAndLoginCloudFoundryInteractively({ reason: session.message ?? "Cloud Foundry login is required." });
+
+    if (!loggedIn) {
+      throw new Error("Run: smdg cf login");
+    }
+
+    await ensureCfOrgAndSpaceTargetedInteractively();
+    session = await ensureCloudFoundrySession();
+
+    if (!session.loggedIn) {
+      throw new Error(session.message ?? "Cloud Foundry login is required.");
+    }
   }
 
   const target = await getCloudFoundryTargetSummary();
@@ -602,6 +616,7 @@ export function registerCloudFoundryDbCommands(cfCommand: Command): void {
     .option("--port <port>", "Preferred local port (auto-falls back if busy)", "45888")
     .option("--read-only", "Start in read-only mode (blocks write/DDL statements)")
     .option("--timeout <ms>", "Query timeout in milliseconds", "30000")
+    .option("--debug-cf", "Print verbose Cloud Foundry execution logs (off by default)")
     .action(runStudioCommand);
 
   db

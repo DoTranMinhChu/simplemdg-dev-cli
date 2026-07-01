@@ -4,12 +4,16 @@ import {
   authenticateCloudFoundry,
   inferCloudFoundryRegionFromApiEndpoint,
   listCloudFoundryApps,
+  parseCloudFoundryApps,
   readCloudFoundryTarget,
   setCloudFoundryApiEndpoint,
   targetCloudFoundryOrg,
   targetCloudFoundrySpace,
 } from "../cf";
 import { runCommand } from "../process";
+import { cfExecutionService } from "../cf/cf-execution-service";
+import type { TCfExecutionContext } from "../cf/cf-execution-service";
+import { decryptCfPassword } from "../cf/cf-auth-service";
 import { parseCloudFoundryEnvironment } from "../cf-env-parser";
 import { detectDatabaseServiceCandidates } from "./db-vcap-parser";
 import { upsertConnectionFromDraft } from "./db-cache";
@@ -70,7 +74,7 @@ export async function ensureCloudFoundrySession(): Promise<TCloudFoundrySessionS
     const apiExitCode = await setCloudFoundryApiEndpoint(profile.apiEndpoint);
     if (apiExitCode !== 0) continue;
 
-    const authExitCode = await authenticateCloudFoundry({ username: profile.username, password: profile.password as string });
+    const authExitCode = await authenticateCloudFoundry({ username: profile.username, password: decryptCfPassword(profile.password as string) });
     if (authExitCode !== 0) continue;
 
     await targetCloudFoundryOrg(profile.org).catch(() => undefined);
@@ -199,6 +203,81 @@ export async function importConnectionFromApp(options: {
     region: options.context?.region ?? (target.apiEndpoint ? inferCloudFoundryRegionFromApiEndpoint(target.apiEndpoint) : undefined),
     org: options.context?.org ?? target.org,
     space: options.context?.space ?? target.space,
+    app: options.app,
+  });
+
+  const profile = await upsertConnectionFromDraft(draft);
+  return { profile, candidates };
+}
+
+// ---------------------------------------------------------------------------
+// Context-aware variants — run CF commands against an isolated CF_HOME via the
+// execution service, so Studio multi-target work never touches the developer's
+// global `cf target`. Always invoked inside `withCfTarget(...)`.
+// ---------------------------------------------------------------------------
+
+/** List apps in the app/space targeted by `context` (isolated CF_HOME). */
+export async function listAppsInContext(context: TCfExecutionContext): Promise<TCloudFoundryApp[]> {
+  const result = await cfExecutionService.runCf(context, ["apps"], { silent: true });
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || "cf apps failed");
+  }
+  return parseCloudFoundryApps(result.stdout);
+}
+
+/** Read and parse VCAP_SERVICES from `cf env <app>` under the context. Never logs raw output. */
+export async function readAppVcapServicesInContext(context: TCfExecutionContext, appName: string): Promise<unknown> {
+  const result = await cfExecutionService.runCf(context, ["env", appName], { silent: true });
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || `cf env ${appName} failed`);
+  }
+  const parsed = parseCloudFoundryEnvironment(result.stdout);
+  if (parsed.VCAP_SERVICES === undefined) {
+    throw new Error(`VCAP_SERVICES was not found in cf env ${appName}`);
+  }
+  return parsed.VCAP_SERVICES;
+}
+
+/** Detect HANA/PostgreSQL service candidates for an app under the context. */
+export async function detectAppDatabaseServicesInContext(
+  context: TCfExecutionContext,
+  appName: string,
+): Promise<TDatabaseServiceCandidate[]> {
+  const vcapServices = await readAppVcapServicesInContext(context, appName);
+  const candidates = detectDatabaseServiceCandidates(vcapServices);
+  if (candidates.length === 0) {
+    throw new Error(`No HANA or PostgreSQL service was detected in cf env ${appName}`);
+  }
+  return candidates;
+}
+
+/**
+ * Import a database service from a BTP app, reading `cf env` under the supplied
+ * context (isolated CF_HOME) and recording the target's region/org/space.
+ */
+export async function importConnectionFromAppInContext(
+  context: TCfExecutionContext,
+  options: {
+    app: string;
+    serviceName?: string;
+    type?: TDatabaseType;
+    target: { region: string; org: string; space: string };
+  },
+): Promise<{ profile: TDatabaseConnectionProfile; candidates: TDatabaseServiceCandidate[] }> {
+  const candidates = await detectAppDatabaseServicesInContext(context, options.app);
+
+  const chosen = options.serviceName
+    ? candidates.find((candidate) => candidate.serviceName === options.serviceName && (!options.type || candidate.type === options.type))
+    : candidates[0];
+
+  if (!chosen) {
+    throw new Error(`Service '${options.serviceName ?? ""}' was not found among detected database services for ${options.app}`);
+  }
+
+  const draft = buildDraftFromCandidate(chosen, {
+    region: options.target.region,
+    org: options.target.org,
+    space: options.target.space,
     app: options.app,
   });
 

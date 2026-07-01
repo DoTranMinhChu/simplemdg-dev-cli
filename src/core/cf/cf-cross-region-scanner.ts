@@ -1,9 +1,10 @@
-import { parseCloudFoundryNameList, readCloudFoundryTarget } from "../cf";
-import { runCommand } from "../process";
+import { parseCloudFoundryNameList } from "../cf";
 import { emitCacheEvent } from "../cache/smart-cache-events";
 import { readAllEntries, readEntry, writeEntry } from "../cache/smart-cache-store";
 import { listEnabledRegions } from "./cf-region-registry";
 import type { TCfRegionEndpoint } from "./cf-region-registry";
+import { cfExecutionService } from "./cf-execution-service";
+import type { TCfExecutionContext } from "./cf-execution-service";
 import { buildCfTargetId, cfTargetKey, detectCfEnvironment, isValidCfTarget } from "./cf-target.types";
 import type { TCfTarget, TCfOrgSummary } from "./cf-target.types";
 import type { TSmartCacheEntry } from "../cache/smart-cache.types";
@@ -59,125 +60,96 @@ function regionEntry(payload: TRegionTargetsPayload): TSmartCacheEntry<TRegionTa
   };
 }
 
-/** Try `cf orgs`; if unauthenticated, attempt cached-credential re-login. */
-async function fetchOrgsWithRelogin(apiEndpoint: string, credentials: TCfScanCredential[]): Promise<string[] | undefined> {
-  let result = await runCommand("cf", ["orgs"]);
-
-  if (result.exitCode === 0) {
-    return parseCloudFoundryNameList(result.stdout, "name");
-  }
-
-  // Re-login: prefer credentials saved for this endpoint, then any other.
-  const ordered = [
-    ...credentials.filter((item) => item.apiEndpoint === apiEndpoint && item.password?.trim()),
-    ...credentials.filter((item) => item.apiEndpoint !== apiEndpoint && item.password?.trim()),
-  ];
-  const tried = new Set<string>();
-
-  for (const credential of ordered) {
-    const id = `${credential.username}|${credential.password ?? ""}`;
-    if (tried.has(id)) continue;
-    tried.add(id);
-
-    const auth = await runCommand("cf", ["auth", credential.username, credential.password as string]);
-    if (auth.exitCode !== 0) continue;
-
-    result = await runCommand("cf", ["orgs"]);
-    if (result.exitCode === 0) {
-      return parseCloudFoundryNameList(result.stdout, "name");
-    }
-  }
-
-  return undefined;
-}
-
+/**
+ * Scan a single region for org/space targets. Runs entirely inside the region's
+ * isolated CF_HOME (via the execution service), which also handles `cf api` and
+ * silent auto re-login. Never touches the developer's global `cf target`.
+ */
 async function scanRegion(
   region: TCfRegionEndpoint,
-  credentials: TCfScanCredential[],
 ): Promise<{ targets: TCfTarget[]; orgSummaries: TCfOrgSummary[] }> {
-  const apiResult = await runCommand("cf", ["api", region.apiEndpoint]);
-  if (apiResult.exitCode !== 0) {
-    throw new Error(`Cannot reach ${region.apiEndpoint}`);
-  }
+  return cfExecutionService.runInRegion(region.region, region.apiEndpoint, async (context: TCfExecutionContext) => {
+    const orgsResult = await cfExecutionService.runCf(context, ["orgs"], { silent: true });
+    if (orgsResult.exitCode !== 0) {
+      throw new Error(`Cannot list orgs for ${region.region}: ${(orgsResult.stderr || orgsResult.stdout || "").trim()}`);
+    }
+    const orgs = parseCloudFoundryNameList(orgsResult.stdout, "name");
 
-  const orgs = await fetchOrgsWithRelogin(region.apiEndpoint, credentials);
-  if (!orgs) {
-    throw new Error(`Not authenticated for ${region.region}`);
-  }
+    const now = new Date().toISOString();
+    const targets: TCfTarget[] = [];
+    const orgSummaries: TCfOrgSummary[] = [];
 
-  const now = new Date().toISOString();
-  const targets: TCfTarget[] = [];
-  const orgSummaries: TCfOrgSummary[] = [];
+    for (const org of orgs) {
+      // Target the org first; if that fails the org is inaccessible.
+      const orgTarget = await cfExecutionService.runCf(context, ["target", "-o", org], { silent: true });
+      if (orgTarget.exitCode !== 0) {
+        orgSummaries.push({
+          region: region.region,
+          apiEndpoint: region.apiEndpoint,
+          org,
+          status: "spaces-failed",
+          error: orgTarget.stderr || orgTarget.stdout || "cf target failed",
+        });
+        continue;
+      }
 
-  for (const org of orgs) {
-    // Target the org first; if that fails the org is inaccessible.
-    const orgTarget = await runCommand("cf", ["target", "-o", org]);
-    if (orgTarget.exitCode !== 0) {
+      const spacesResult = await cfExecutionService.runCf(context, ["spaces"], { silent: true });
+      if (spacesResult.exitCode !== 0) {
+        orgSummaries.push({
+          region: region.region,
+          apiEndpoint: region.apiEndpoint,
+          org,
+          status: "spaces-failed",
+          error: spacesResult.stderr || spacesResult.stdout || "cf spaces failed",
+        });
+        continue;
+      }
+
+      const spaces = parseCloudFoundryNameList(spacesResult.stdout, "name");
+
+      if (!spaces.length) {
+        // Org exists but has no spaces — not a usable CF target.
+        orgSummaries.push({
+          region: region.region,
+          apiEndpoint: region.apiEndpoint,
+          org,
+          spaceCount: 0,
+          status: "no-spaces",
+        });
+        continue;
+      }
+
       orgSummaries.push({
         region: region.region,
         apiEndpoint: region.apiEndpoint,
         org,
-        status: "spaces-failed",
-        error: orgTarget.stderr || orgTarget.stdout || "cf target failed",
+        spaceCount: spaces.length,
+        status: "spaces-loaded",
       });
-      continue;
+
+      for (const space of spaces) {
+        targets.push({
+          id: buildCfTargetId({ region: region.region, org, space }),
+          region: region.region,
+          apiEndpoint: region.apiEndpoint,
+          org,
+          space,
+          environment: detectCfEnvironment({ org, space }),
+          lastRefreshedAt: now,
+        });
+      }
     }
 
-    const spacesResult = await runCommand("cf", ["spaces"]);
-    if (spacesResult.exitCode !== 0) {
-      orgSummaries.push({
-        region: region.region,
-        apiEndpoint: region.apiEndpoint,
-        org,
-        status: "spaces-failed",
-        error: spacesResult.stderr || spacesResult.stdout || "cf spaces failed",
-      });
-      continue;
-    }
-
-    const spaces = parseCloudFoundryNameList(spacesResult.stdout, "name");
-
-    if (!spaces.length) {
-      // Org exists but has no spaces — not a usable CF target.
-      orgSummaries.push({
-        region: region.region,
-        apiEndpoint: region.apiEndpoint,
-        org,
-        spaceCount: 0,
-        status: "no-spaces",
-      });
-      continue;
-    }
-
-    orgSummaries.push({
-      region: region.region,
-      apiEndpoint: region.apiEndpoint,
-      org,
-      spaceCount: spaces.length,
-      status: "spaces-loaded",
-    });
-
-    for (const space of spaces) {
-      targets.push({
-        id: buildCfTargetId({ region: region.region, org, space }),
-        region: region.region,
-        apiEndpoint: region.apiEndpoint,
-        org,
-        space,
-        environment: detectCfEnvironment({ org, space }),
-        lastRefreshedAt: now,
-      });
-    }
-  }
-
-  return { targets, orgSummaries };
+    return { targets, orgSummaries };
+  });
 }
 
 /**
  * Scan all enabled CF regions and rebuild the cross-region target cache.
- * Failure-safe: a region that fails keeps its previously cached targets and is
- * reported as failed; the scan continues with the remaining regions. The
- * caller's previous CF target is restored at the end.
+ * Regions are scanned in parallel — each in its own isolated CF_HOME and serialized
+ * by its per-region mutex — so they never corrupt each other's session. A region
+ * that fails keeps its previously cached targets, is reported as failed, and does
+ * not break the others. The developer's global `cf target` is never touched.
  */
 export async function scanCrossRegionTargets(options: {
   credentials?: TCfScanCredential[];
@@ -185,9 +157,7 @@ export async function scanCrossRegionTargets(options: {
   emitEvents?: boolean;
 } = {}): Promise<TCfScanSummary> {
   const regions = options.regions ?? (await listEnabledRegions());
-  const credentials = options.credentials ?? [];
   const emit = options.emitEvents ?? true;
-  const previousTarget = await readCloudFoundryTarget();
 
   if (emit) {
     emitCacheEvent({
@@ -198,11 +168,10 @@ export async function scanCrossRegionTargets(options: {
     });
   }
 
-  const regionResults: TCfRegionScanResult[] = [];
   let completedRegions = 0;
   let failedRegions = 0;
 
-  for (const region of regions) {
+  const scanOne = async (region: TCfRegionEndpoint): Promise<TCfRegionScanResult> => {
     if (emit) {
       emitCacheEvent({
         type: "cache-refresh-started",
@@ -213,14 +182,13 @@ export async function scanCrossRegionTargets(options: {
     }
 
     try {
-      const { targets, orgSummaries } = await scanRegion(region, credentials);
+      const { targets, orgSummaries } = await scanRegion(region);
       await writeEntry(
         CROSS_REGION_TARGETS_NAMESPACE,
         region.region,
         regionEntry({ region: region.region, apiEndpoint: region.apiEndpoint, targets, orgSummaries, scanStatus: "success" }),
       );
       completedRegions += 1;
-      regionResults.push({ region: region.region, apiEndpoint: region.apiEndpoint, status: "success", targetCount: targets.length, usedCache: false });
 
       if (emit) {
         emitCacheEvent({
@@ -231,10 +199,13 @@ export async function scanCrossRegionTargets(options: {
           detail: { region: region.region, regionStatus: "success", targetCount: targets.length, totalRegions: regions.length, completedRegions },
         });
       }
+
+      return { region: region.region, apiEndpoint: region.apiEndpoint, status: "success", targetCount: targets.length, usedCache: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       failedRegions += 1;
-      // Keep previously cached targets for this region, mark it failed.
+      // Keep previously cached targets for this region, mark it failed. Never
+      // overwrite good cached targets with an empty/failed result.
       const previous = await readEntry<TRegionTargetsPayload>(CROSS_REGION_TARGETS_NAMESPACE, region.region);
       const keptTargets = previous?.data.targets ?? [];
       if (previous) {
@@ -243,7 +214,6 @@ export async function scanCrossRegionTargets(options: {
         previous.lastRefreshFinishedAt = new Date().toISOString();
         await writeEntry(CROSS_REGION_TARGETS_NAMESPACE, region.region, previous).catch(() => undefined);
       }
-      regionResults.push({ region: region.region, apiEndpoint: region.apiEndpoint, status: "failed", targetCount: keptTargets.length, error: message, usedCache: keptTargets.length > 0 });
 
       if (emit) {
         emitCacheEvent({
@@ -254,15 +224,12 @@ export async function scanCrossRegionTargets(options: {
           detail: { region: region.region, regionStatus: "failed", totalRegions: regions.length, completedRegions, failedRegions },
         });
       }
-    }
-  }
 
-  // Restore the caller's previous target so the scan is side-effect free.
-  if (previousTarget.apiEndpoint) {
-    await runCommand("cf", ["api", previousTarget.apiEndpoint]);
-    if (previousTarget.org) await runCommand("cf", ["target", "-o", previousTarget.org]);
-    if (previousTarget.space) await runCommand("cf", ["target", "-s", previousTarget.space]);
-  }
+      return { region: region.region, apiEndpoint: region.apiEndpoint, status: "failed", targetCount: keptTargets.length, error: message, usedCache: keptTargets.length > 0 };
+    }
+  };
+
+  const regionResults = await Promise.all(regions.map((region) => scanOne(region)));
 
   const targets = await listCrossRegionTargets();
   const updatedAt = new Date().toISOString();

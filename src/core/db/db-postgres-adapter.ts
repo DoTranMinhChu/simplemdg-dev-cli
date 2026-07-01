@@ -1,9 +1,11 @@
 import type { Client as PgClient, QueryResult } from "pg";
 import { buildQualifiedName, quoteIdentifier } from "./db-metadata";
+import { classifyDatabaseError } from "./db-error";
 import type {
   IDatabaseAdapter,
   TConnectionTestResult,
   TDatabaseColumn,
+  TDatabaseErrorInfo,
   TDatabaseIndex,
   TDatabaseObject,
   TDatabaseQueryResult,
@@ -78,6 +80,27 @@ export class PostgresAdapter implements IDatabaseAdapter {
     }
 
     return this.client;
+  }
+
+  public async isConnected(): Promise<boolean> {
+    if (!this.client) {
+      return false;
+    }
+    try {
+      await this.client.query("SELECT 1");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async reconnect(): Promise<void> {
+    await this.disconnect().catch(() => undefined);
+    await this.connect();
+  }
+
+  public classifyError(error: unknown): TDatabaseErrorInfo {
+    return classifyDatabaseError(error, this.type);
   }
 
   public async testConnection(): Promise<TConnectionTestResult> {

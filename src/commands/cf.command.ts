@@ -59,6 +59,7 @@ import {
   listCrossRegionTargets,
   scanCrossRegionTargets,
 } from "../core/cf/cf-cross-region-scanner";
+import { decryptCfPassword, loginCfWithPassword } from "../core/cf/cf-auth-service";
 import type { TCloudFoundryApp, TCloudFoundryLoginProfile, TCloudFoundryOrgEntry, TCloudFoundryTarget } from "../core/types";
 
 type TCloudFoundryLoginOptions = {
@@ -194,6 +195,126 @@ function validateRequired(value: string): true | string {
   return value.trim() ? true : "Value is required";
 }
 
+/**
+ * Interactive first-time-login fallback shared by CLI commands that need a CF
+ * session but find no cached credentials. Prompts for (optionally) a region /
+ * API endpoint, email, password, and whether to remember the credential, then
+ * logs in via the same `loginCfWithPassword` used by Studio (so the password is
+ * encrypted before being cached, and the isolated per-region CF_HOME is also
+ * authenticated). Returns false if the user declines or the login fails —
+ * callers decide whether that's fatal.
+ */
+export async function promptAndLoginCloudFoundryInteractively(options?: {
+  apiEndpoint?: string;
+  reason?: string;
+}): Promise<boolean> {
+  console.log(chalk.yellow(options?.reason || "Cloud Foundry login is required."));
+
+  const { proceed } = await prompts({ type: "confirm", name: "proceed", message: "Login now?", initial: true });
+
+  if (!proceed) {
+    console.log(chalk.gray("Skipped login. Run smdg cf login when you're ready."));
+    return false;
+  }
+
+  let apiEndpoint = options?.apiEndpoint;
+
+  if (!apiEndpoint) {
+    const regions = await listEnabledRegions();
+    const endpointChoice = await searchableSelectChoice({
+      message: "CF API endpoint / region",
+      choices: [
+        ...regions.map((region) => ({ title: `${region.label || region.region} – ${region.apiEndpoint}`, value: region.apiEndpoint })),
+        { title: "Custom endpoint…", value: "__custom__" },
+      ],
+      allowCustomValue: false,
+    });
+
+    apiEndpoint = endpointChoice === "__custom__"
+      ? String((await prompts({ type: "text", name: "ep", message: "Custom CF API endpoint", validate: validateRequired })).ep ?? "").trim()
+      : endpointChoice;
+  }
+
+  if (!apiEndpoint) {
+    console.log(chalk.gray("No API endpoint provided. Login cancelled."));
+    return false;
+  }
+
+  const answers = await prompts([
+    { type: "text", name: "email", message: "Email", validate: validateRequired },
+    { type: "password", name: "password", message: "Password", validate: validateRequired },
+    { type: "confirm", name: "remember", message: "Remember credentials securely?", initial: true },
+  ]);
+
+  if (!answers.email || !answers.password) {
+    console.log(chalk.gray("Login cancelled."));
+    return false;
+  }
+
+  const result = await loginCfWithPassword({
+    apiEndpoint,
+    username: String(answers.email).trim(),
+    password: String(answers.password),
+    remember: Boolean(answers.remember),
+  });
+
+  if (!result.success) {
+    console.log(chalk.red(result.error || "Login failed."));
+    return false;
+  }
+
+  console.log(chalk.green(result.message || `Logged in as ${result.username}.`));
+  return true;
+}
+
+/**
+ * After a fresh interactive login, the global CF session is authenticated but
+ * has no org/space targeted yet (login alone doesn't pick one). Pick one
+ * interactively so the calling command can continue as if the user had already
+ * run `cf target` — skips silently if there is exactly one choice or none.
+ */
+export async function ensureCfOrgAndSpaceTargetedInteractively(): Promise<void> {
+  const target = await readCloudFoundryTarget();
+
+  if (target.org) {
+    return;
+  }
+
+  const orgs = await listCloudFoundryOrganizations().catch(() => [] as string[]);
+
+  if (!orgs.length) {
+    return;
+  }
+
+  const org = orgs.length === 1
+    ? orgs[0]
+    : await searchableSelectChoice({
+        message: "Select CF org",
+        choices: orgs.map((item) => ({ title: item, value: item })),
+        validateCustomValue: validateRequired,
+        customValueTitle: (value) => `Use typed CF org: ${value}`,
+      });
+
+  await targetCloudFoundryOrg(org);
+
+  const spaces = await listCloudFoundrySpaces().catch(() => [] as string[]);
+
+  if (!spaces.length) {
+    return;
+  }
+
+  const space = spaces.length === 1
+    ? spaces[0]
+    : await searchableSelectChoice({
+        message: "Select CF space",
+        choices: spaces.map((item) => ({ title: item, value: item })),
+        validateCustomValue: validateRequired,
+        customValueTitle: (value) => `Use typed CF space: ${value}`,
+      });
+
+  await targetCloudFoundrySpace(space);
+}
+
 async function ensureCloudFoundrySessionFromCache(): Promise<TCloudFoundryTarget> {
   await ensureExternalTool("cf");
   const target = await readCloudFoundryTarget();
@@ -206,9 +327,16 @@ async function ensureCloudFoundrySessionFromCache(): Promise<TCloudFoundryTarget
   const profilesWithPassword = cache.cloudFoundry.loginProfiles.filter((profile) => profile.password?.trim());
 
   if (!profilesWithPassword.length) {
-    console.log(chalk.yellow("You are not logged in to Cloud Foundry yet and no cached password was found."));
-    console.log(chalk.gray("Run smdg cf login once and choose to save the password for automatic re-login."));
-    throw new Error("Cloud Foundry login is required");
+    const loggedIn = await promptAndLoginCloudFoundryInteractively({
+      reason: "Cloud Foundry login is required.",
+    });
+
+    if (!loggedIn) {
+      throw new Error("Cloud Foundry login is required. Run: smdg cf login");
+    }
+
+    await ensureCfOrgAndSpaceTargetedInteractively();
+    return readCloudFoundryTarget();
   }
 
   const preferredProfiles = target.apiEndpoint
@@ -242,7 +370,7 @@ async function ensureCloudFoundrySessionFromCache(): Promise<TCloudFoundryTarget
 
   const authExitCode = await authenticateCloudFoundry({
     username: profile.username,
-    password: profile.password as string,
+    password: decryptCfPassword(profile.password as string),
   });
 
   if (authExitCode !== 0) {
@@ -325,9 +453,17 @@ async function ensureCloudFoundryAuthenticatedForApiEndpoint(options: {
   });
 
   if (!profiles.length) {
-    console.log(chalk.yellow(`Not logged in to ${inferCloudFoundryRegionFromApiEndpoint(options.apiEndpoint)} and no cached password was found for automatic login.`));
-    console.log(chalk.gray("Run smdg cf login once, choose to save password, then retry this command."));
-    throw new Error("Cloud Foundry automatic login is required");
+    const loggedIn = await promptAndLoginCloudFoundryInteractively({
+      apiEndpoint: options.apiEndpoint,
+      reason: `Not logged in to ${inferCloudFoundryRegionFromApiEndpoint(options.apiEndpoint)} and no cached password was found for automatic login.`,
+    });
+
+    if (!loggedIn) {
+      throw new Error("Cloud Foundry automatic login is required");
+    }
+
+    const refreshedCache = await readCache();
+    return refreshedCache.cloudFoundry.loginProfiles.find((item) => item.apiEndpoint === options.apiEndpoint);
   }
 
   let lastError = orgsCheck.stderr || orgsCheck.stdout || "cf orgs failed";
@@ -336,7 +472,7 @@ async function ensureCloudFoundryAuthenticatedForApiEndpoint(options: {
     console.log(chalk.gray(`Auto auth CF ${inferCloudFoundryRegionFromApiEndpoint(options.apiEndpoint)} as ${profile.username}...`));
     const authExitCode = await authenticateCloudFoundry({
       username: profile.username,
-      password: profile.password as string,
+      password: decryptCfPassword(profile.password as string),
     });
 
     if (authExitCode !== 0) {
@@ -1556,8 +1692,18 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
   const combined = dedupeTargets([...favorites, ...recent, ...allTargets]);
 
   if (!combined.length) {
-    console.log(chalk.yellow("No cached targets yet."));
-    console.log(chalk.gray("Choose 'Refresh all regions', or run smdg cf login and save the password."));
+    const cacheAfter = await readCache();
+    const hasCredentials = cacheAfter.cloudFoundry.loginProfiles.some((item) => item.password?.trim());
+
+    if (!hasCredentials) {
+      const loggedIn = await promptAndLoginCloudFoundryInteractively({ reason: "No cached CF targets and no login found." });
+      if (loggedIn) {
+        console.log(chalk.gray("Login succeeded. Re-run: smdg cf org --refresh to scan your BTP regions."));
+      }
+    } else {
+      console.log(chalk.yellow("No cached targets yet."));
+      console.log(chalk.gray("Choose 'Refresh all regions', or run smdg cf login and save the password."));
+    }
     return;
   }
 

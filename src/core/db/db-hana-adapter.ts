@@ -1,8 +1,10 @@
 import { buildQualifiedName, quoteIdentifier } from "./db-metadata";
+import { classifyDatabaseError } from "./db-error";
 import type {
   IDatabaseAdapter,
   TConnectionTestResult,
   TDatabaseColumn,
+  TDatabaseErrorInfo,
   TDatabaseIndex,
   TDatabaseObject,
   TDatabaseQueryResult,
@@ -104,9 +106,54 @@ export class HanaAdapter implements IDatabaseAdapter {
     });
   }
 
+  /**
+   * Execute, and on a transient network error (e.g. "Socket closed by peer")
+   * disconnect, reconnect, and retry exactly once. Only used for read-only
+   * operations — destructive SQL must never be auto-retried.
+   */
+  private async execWithReconnect(
+    sql: string,
+    params: unknown[] = [],
+    options?: { retryOnNetworkError?: boolean },
+  ): Promise<unknown> {
+    try {
+      return await this.exec(sql, params);
+    } catch (error) {
+      const info = this.classifyError(error);
+      if (options?.retryOnNetworkError && info.retryable) {
+        await this.disconnect().catch(() => undefined);
+        await this.connect();
+        return this.exec(sql, params);
+      }
+      throw error;
+    }
+  }
+
+  /** Read-only row fetch with automatic reconnect-and-retry-once on socket loss. */
   private async execRows(sql: string, params: unknown[] = []): Promise<THanaRow[]> {
-    const result = await this.exec(sql, params);
+    const result = await this.execWithReconnect(sql, params, { retryOnNetworkError: true });
     return Array.isArray(result) ? (result as THanaRow[]) : [];
+  }
+
+  public async isConnected(): Promise<boolean> {
+    if (!this.connection) {
+      return false;
+    }
+    try {
+      await this.exec("SELECT 1 FROM SYS.DUMMY");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async reconnect(): Promise<void> {
+    await this.disconnect().catch(() => undefined);
+    await this.connect();
+  }
+
+  public classifyError(error: unknown): TDatabaseErrorInfo {
+    return classifyDatabaseError(error, this.type);
   }
 
   public async testConnection(): Promise<TConnectionTestResult> {
@@ -293,7 +340,10 @@ export class HanaAdapter implements IDatabaseAdapter {
       ? ` ORDER BY ${quoteIdentifier(this.type, options.orderBy.trim())} ${options.orderDirection === "desc" ? "DESC" : "ASC"}`
       : "";
     const sql = `SELECT * FROM ${qualifiedName}${whereClause}${orderClause} LIMIT ${options.limit} OFFSET ${options.offset}`;
-    return this.runQuery(sql, { maxRows: options.limit });
+    // Read-only: safe to reconnect-and-retry once on a dropped socket.
+    const startedAt = Date.now();
+    const result = await this.execWithReconnect(sql, [], { retryOnNetworkError: true });
+    return this.toQueryResult(result, Date.now() - startedAt, options.limit);
   }
 
   public quoteIdentifier(identifier: string): string {

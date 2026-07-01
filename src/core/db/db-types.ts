@@ -158,6 +158,22 @@ export type TConnectionTestResult = {
   durationMs: number;
 };
 
+export type TDatabaseErrorKind =
+  | "network"
+  | "authentication"
+  | "permission"
+  | "syntax"
+  | "timeout"
+  | "stale-credential"
+  | "unknown";
+
+export type TDatabaseErrorInfo = {
+  kind: TDatabaseErrorKind;
+  message: string;
+  originalMessage: string;
+  retryable: boolean;
+};
+
 export type TListObjectsOptions = {
   schema?: string;
   kinds?: TDatabaseObjectKind[];
@@ -258,6 +274,9 @@ export type TStudioTabGroup = {
 export type TStudioLayoutState = {
   sidebarWidth?: number;
   readOnly?: boolean;
+  sidebarCollapsed?: boolean;
+  collapsedSidebarSections?: Record<string, boolean>;
+  connectionGroupBy?: "favorite" | "environment" | "region" | "org" | "type";
 };
 
 export type TStudioWorkspaceState = {
@@ -287,6 +306,12 @@ export interface IDatabaseAdapter {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   testConnection(): Promise<TConnectionTestResult>;
+  /** Lightweight liveness probe (e.g. SELECT 1). Returns false if the socket is dead. */
+  isConnected?(): Promise<boolean>;
+  /** Force a full disconnect + reconnect cycle. */
+  reconnect?(): Promise<void>;
+  /** Classify a thrown driver error into a stable, UI-friendly shape. */
+  classifyError?(error: unknown): TDatabaseErrorInfo;
   getPrimaryKey(schema: string, table: string): Promise<TDatabasePrimaryKey>;
   runQuery(sql: string, options?: { maxRows?: number }): Promise<TDatabaseQueryResult>;
   /** Run a parameterized statement. Placeholders come from `placeholder()`. */

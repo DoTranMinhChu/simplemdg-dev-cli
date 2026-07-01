@@ -205,6 +205,12 @@ export async function rememberCloudFoundryLoginProfile(profile: TCloudFoundryLog
   await writeCache(cache);
 }
 
+export async function clearCloudFoundryLoginProfiles(): Promise<void> {
+  const cache = await readCache();
+  cache.cloudFoundry.loginProfiles = [];
+  await writeCache(cache);
+}
+
 export async function rememberCloudFoundryApps(targetKey: string, apps: TCloudFoundryApp[]): Promise<void> {
   const cache = await readCache();
   const entry: TCloudFoundryAppsCacheEntry = {

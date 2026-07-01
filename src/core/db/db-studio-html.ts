@@ -31,38 +31,57 @@ export function renderStudioHtml(options: TStudioHtmlOptions): string {
     <span class="searchbox top-search">${searchSvg()}<input id="topSearch" placeholder="Search connections..." /></span>
     <button id="btnImport" class="iconbtn primary" title="Import from BTP app">Import from BTP</button>
     <button id="btnHome" class="iconbtn" title="Welcome">Home</button>
+    <button id="btnSidebarToggle" class="iconbtn" title="Toggle sidebar" aria-label="Toggle sidebar">☰</button>
     <button id="btnSettings" class="iconbtn" title="Settings">Settings</button>
     <span id="topSpin" class="spin hidden"></span>
   </header>
   <div class="body">
+    <div class="sidebar-rail hidden" id="sidebarRail"></div>
     <aside class="sidebar" id="sidebar">
       <section class="side-sec" id="secConns">
-        <div class="side-head"><span class="chev">▾</span><span class="h-title">Connections</span></div>
+        <div class="side-head"><span class="chev">▾</span><span class="h-title">Connections</span><span class="h-count" id="connCount"></span></div>
         <div class="side-body">
           <div class="side-actions">
             <button id="btnNewConn" class="btn sm">+ New</button>
             <button id="btnImport2" class="btn sm sec">Import BTP</button>
+            <select id="connGroupBy" class="select" style="width:auto;padding:3px 6px;font-size:11.5px" title="Group connections by">
+              <option value="favorite">Group: Favorite/Env</option>
+              <option value="region">Group: Region</option>
+              <option value="org">Group: Org</option>
+              <option value="type">Group: DB Type</option>
+            </select>
           </div>
           <div class="searchbox">${searchSvg()}<input id="connSearch" placeholder="Search connections..." /></div>
           <div id="connList"></div>
         </div>
       </section>
-      <section class="side-sec flex" id="secTree">
+      <section class="side-sec" id="secTree">
         <div class="side-head"><span class="chev">▾</span><span class="h-title">Object Explorer</span></div>
-        <div class="side-body"><div id="tree" class="tree"></div></div>
+        <div class="side-body"><div id="tree" class="tree" tabindex="0"></div></div>
       </section>
       <section class="side-sec" id="secQueries">
-        <div class="side-head"><span class="chev">▾</span><span class="h-title">Saved Queries</span></div>
+        <div class="side-head"><span class="chev">▾</span><span class="h-title">Saved Queries</span><span class="h-count" id="queryCount"></span></div>
         <div class="side-body">
           <div class="side-actions"><button id="btnNewQuery" class="btn sm">+ New query</button></div>
           <div class="searchbox">${searchSvg()}<input id="querySearch" placeholder="Search queries..." /></div>
           <div id="queryList"></div>
         </div>
       </section>
+      <section class="side-sec" id="secHistory">
+        <div class="side-head"><span class="chev">▾</span><span class="h-title">History</span><span class="h-count" id="historyCount"></span></div>
+        <div class="side-body">
+          <div class="side-actions"><button id="btnClearHistory" class="btn sm ghost">Clear</button></div>
+          <div class="searchbox">${searchSvg()}<input id="historySearch" placeholder="Search history..." /></div>
+          <div id="historyList"></div>
+        </div>
+      </section>
     </aside>
-    <div class="resizer" id="resizer"></div>
+    <div class="resizer" id="resizer" tabindex="0" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" title="Drag to resize · Double-click to reset"></div>
     <main class="workspace">
-      <div class="tabbar" id="tabbar"></div>
+      <div class="tabbar-row" id="tabbarRow">
+        <div class="tabbar" id="tabbar"></div>
+        <button class="tab-overflow-btn hidden" id="tabOverflowBtn" title="More tabs" aria-label="More tabs">⋯</button>
+      </div>
       <div class="tabcontent" id="tabcontent"></div>
     </main>
   </div>

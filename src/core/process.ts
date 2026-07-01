@@ -6,12 +6,15 @@ export type TCommandResult = {
   exitCode: number;
 };
 
-export async function runCommand(command: string, args: string[], options?: { cwd?: string; reject?: boolean }): Promise<TCommandResult> {
+export async function runCommand(command: string, args: string[], options?: { cwd?: string; reject?: boolean; env?: NodeJS.ProcessEnv }): Promise<TCommandResult> {
   const result = await execa(command, args, {
     cwd: options?.cwd,
     reject: options?.reject ?? false,
     all: false,
     shell: false,
+    // Merge over process.env so callers can scope a command (e.g. an isolated
+    // CF_HOME) without losing the rest of the environment.
+    env: options?.env ? { ...process.env, ...options.env } : undefined,
   });
 
   return {

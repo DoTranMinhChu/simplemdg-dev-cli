@@ -6,6 +6,7 @@ import { renderStudioHtml } from "./db-studio-html";
 import { StudioConnectionPool } from "./db-connection";
 import {
   duplicateConnection,
+  findConnectionProfile,
   getResolvedConnection,
   listPublicConnections,
   removeConnection,
@@ -42,10 +43,14 @@ import {
   splitStatements,
 } from "./studio/sql-formatter";
 import {
+  buildDraftFromCandidate,
   detectAppDatabaseServices,
+  detectAppDatabaseServicesInContext,
   ensureCloudFoundrySession,
   getCloudFoundryTargetSummary,
   importConnectionFromApp,
+  importConnectionFromAppInContext,
+  listAppsInContext,
 } from "./db-btp";
 import { onCacheEvent, formatRelativeTime, computeCacheStatus, refreshCache, DEFAULT_CACHE_TTL } from "../cache/smart-cache";
 import { readAllEntries, readEntry } from "../cache/smart-cache-store";
@@ -55,7 +60,9 @@ import type { TCfTarget } from "../cf/cf-target.types";
 import { listCrossRegionTargets, listCrossRegionOrgSummaries, getCrossRegionStatus, scanCrossRegionTargets } from "../cf/cf-cross-region-scanner";
 import type { TCfScanCredential } from "../cf/cf-cross-region-scanner";
 import { withCfTarget, parseCfTargetKey } from "../cf/cf-target-switcher";
-import { listCloudFoundryApps } from "../cf";
+import { getCfAuthStatus, loginCfWithPassword, cfLogout } from "../cf/cf-auth-service";
+import { setCfDebug } from "../cf/cf-execution-service";
+import { listRegions } from "../cf/cf-region-registry";
 import { readCache } from "../cache";
 import type { TDatabaseObjectKind, TDatabaseType } from "./db-types";
 import type { TSmartCacheEntry } from "../cache/smart-cache.types";
@@ -64,6 +71,7 @@ export type TStudioServerOptions = {
   port?: number;
   readOnly?: boolean;
   queryTimeoutMs?: number;
+  debugCf?: boolean;
 };
 
 export type TStudioServerHandle = {
@@ -247,10 +255,25 @@ async function openBrowser(url: string): Promise<void> {
 }
 
 export async function startStudioServer(options: TStudioServerOptions = {}): Promise<TStudioServerHandle> {
+  // Background CF work runs silently unless debug mode is explicitly enabled.
+  setCfDebug(options.debugCf ?? false);
   const preferredPort = options.port && options.port > 0 ? options.port : 45888;
   const port = await findAvailablePort(preferredPort);
   const pool = new StudioConnectionPool({ queryTimeoutMs: options.queryTimeoutMs });
   const serverReadOnlyDefault = options.readOnly ?? false;
+
+  // Resolve the classified error for a connection (the pool records it on the
+  // connection state) into the recovery-aware shape the UI expects.
+  const buildAdapterError = (connectionId: string, error: unknown): {
+    error: string;
+    errorInfo: { kind: string; message: string; originalMessage: string; retryable: boolean };
+    recoveryActions: string[];
+  } => {
+    const state = pool.getConnectionStatus(connectionId);
+    const message = error instanceof Error ? error.message : String(error);
+    const errorInfo = state?.lastError ?? { kind: "unknown", message, originalMessage: message, retryable: false };
+    return { error: errorInfo.message, errorInfo, recoveryActions: ["retry", "reconnect", "refresh-from-btp"] };
+  };
 
   const router = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
@@ -358,16 +381,125 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         type: (getString(body, "type") || undefined) as TDatabaseType | undefined,
       };
       // When a cross-region targetKey is supplied, run the import (cf env) under
-      // that target and record its region/org/space on the saved connection.
+      // that target's isolated CF_HOME and record its region/org/space.
       const { profile } = targetKey
-        ? await withCfTarget(targetKey, (target) => importConnectionFromApp({
+        ? await withCfTarget(targetKey, (context, target) => importConnectionFromAppInContext(context, {
             ...importArgs,
-            context: { region: target.region, org: target.org, space: target.space },
+            target: { region: target.region, org: target.org, space: target.space },
           }))
         : await importConnectionFromApp(importArgs);
       const { encryptedPassword: _omitPassword, ...publicProfile } = profile;
       void _omitPassword;
       sendJson(res, { connection: publicProfile });
+      return;
+    }
+
+    // --- Connection lifecycle ------------------------------------------------
+
+    if (pathname === "/api/connections/reconnect" && method === "POST") {
+      const body = await readJsonBody(req);
+      const id = getString(body, "connectionId");
+      const result = await pool.reconnectConnection(id);
+      const state = pool.getConnectionStatus(id);
+      sendJson(res, { ...result, status: state?.status, errorInfo: state?.lastError });
+      return;
+    }
+
+    if (pathname === "/api/connections/close" && method === "POST") {
+      const body = await readJsonBody(req);
+      await pool.invalidateConnection(getString(body, "connectionId"));
+      sendJson(res, { ok: true });
+      return;
+    }
+
+    if (pathname === "/api/connections/status" && method === "GET") {
+      const id = url.searchParams.get("connectionId");
+      if (id) {
+        const state = pool.getConnectionStatus(id);
+        sendJson(res, { connectionId: id, status: state?.status ?? "disconnected", lastUsedAt: state?.lastUsedAt, errorInfo: state?.lastError });
+      } else {
+        sendJson(res, { statuses: pool.listConnectionStatuses() });
+      }
+      return;
+    }
+
+    if (pathname === "/api/connections/refresh-from-btp" && method === "POST") {
+      const body = await readJsonBody(req);
+      const id = getString(body, "connectionId");
+      const conn = await findConnectionProfile(id);
+      if (!conn) {
+        sendJson(res, { ok: false, error: "Connection not found." });
+        return;
+      }
+      if (!conn.app || !conn.region || !conn.org || !conn.space) {
+        sendJson(res, { ok: false, error: "This connection was not imported from a BTP app (missing region/org/space/app)." });
+        return;
+      }
+      const targetKey = `${conn.region}::${conn.org}::${conn.space}`;
+      try {
+        // Re-read cf env under the connection's isolated target and refresh the
+        // encrypted credentials in place, preserving name/color/environment.
+        const candidates = await withCfTarget(targetKey, (context) => detectAppDatabaseServicesInContext(context, conn.app as string));
+        const chosen = conn.serviceName
+          ? candidates.find((candidate) => candidate.serviceName === conn.serviceName && candidate.type === conn.type)
+          : candidates[0];
+        if (!chosen) {
+          sendJson(res, { ok: false, error: `Service '${conn.serviceName ?? ""}' was not found in ${conn.app} env.` });
+          return;
+        }
+        const draft = buildDraftFromCandidate(chosen, { region: conn.region, org: conn.org, space: conn.space, app: conn.app });
+        draft.id = conn.id;
+        draft.name = conn.name;
+        draft.environment = conn.environment;
+        draft.color = conn.color;
+        draft.isFavorite = conn.isFavorite;
+        const profile = await upsertConnectionFromDraft(draft);
+        await pool.invalidateConnection(id);
+        const test = await pool.testConnection(id).catch((error) => ({ success: false, message: error instanceof Error ? error.message : String(error), durationMs: 0 }));
+        const { encryptedPassword: _omitRefresh, ...publicProfile } = profile;
+        void _omitRefresh;
+        sendJson(res, { ok: true, connection: publicProfile, test });
+      } catch (error) {
+        sendJson(res, { ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    // --- CF Auth -------------------------------------------------------------
+
+    if (pathname === "/api/cf/auth-status" && method === "GET") {
+      const status = await getCfAuthStatus();
+      sendJson(res, status);
+      return;
+    }
+
+    if (pathname === "/api/cf/login" && method === "POST") {
+      const body = await readJsonBody(req);
+      const result = await loginCfWithPassword({
+        apiEndpoint: getString(body, "apiEndpoint"),
+        region: getString(body, "region") || undefined,
+        username: getString(body, "username"),
+        password: getString(body, "password"),
+        remember: body.remember !== false,
+      });
+      if (result.success) {
+        // Kick off a background cross-region scan so the wizard populates after login.
+        void scanCrossRegionTargets({ credentials: await resolveCfScanCredentials() }).catch(() => undefined);
+      }
+      sendJson(res, result);
+      return;
+    }
+
+    if (pathname === "/api/cf/logout" && method === "POST") {
+      const body = await readJsonBody(req);
+      const result = await cfLogout({ clearCachedCredentials: body.clearCachedCredentials === true });
+      sendJson(res, result);
+      return;
+    }
+
+    if (pathname === "/api/cf/regions" && method === "GET") {
+      const regions = await listRegions();
+      sendJson(res, { regions: regions.filter((r) => r.enabled || r.isCustom) });
       return;
     }
 
@@ -457,8 +589,9 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
       const entry = await readEntry<unknown[]>("cf-apps", targetKey);
       const cacheStatus = entry ? computeCacheStatus(entry) : "missing";
 
-      // Fetcher always runs CF commands IN THE CONTEXT of the selected target.
-      const fetchApps = () => withCfTarget(targetKey, () => listCloudFoundryApps());
+      // Fetcher always runs CF commands IN THE CONTEXT of the selected target
+      // (isolated CF_HOME via the execution service).
+      const fetchApps = () => withCfTarget(targetKey, (context) => listAppsInContext(context));
 
       // Cache-first: return cached apps immediately and refresh in background.
       if (entry && !forceRefresh) {
@@ -502,7 +635,7 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
 
       // DB candidates are fetched under the selected target; passwords stripped.
       const fetchCandidates = async () => {
-        const candidates = await withCfTarget(targetKey, () => detectAppDatabaseServices(appName));
+        const candidates = await withCfTarget(targetKey, (context) => detectAppDatabaseServicesInContext(context, appName));
         return candidates.map(({ password: _p, ...rest }) => { void _p; return rest; });
       };
 
@@ -575,92 +708,122 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
     }
 
     // --- Catalog -------------------------------------------------------------
+    // Read-only catalog/table routes run via runWithAdapter so a dropped socket
+    // is reconnected and the read retried once. On failure they return a
+    // structured error with recovery actions for the object explorer.
     if (pathname === "/api/catalog/schemas" && method === "GET") {
-      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
-      sendJson(res, { schemas: await adapter.listSchemas() });
+      const connectionId = url.searchParams.get("connectionId") ?? "";
+      try {
+        const schemas = await pool.runWithAdapter(connectionId, (adapter) => adapter.listSchemas(), { retryReadOnlyOnNetworkError: true });
+        sendJson(res, { schemas });
+      } catch (error) {
+        sendJson(res, buildAdapterError(connectionId, error));
+      }
       return;
     }
 
     if (pathname === "/api/catalog/objects" && method === "GET") {
-      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      const connectionId = url.searchParams.get("connectionId") ?? "";
       const kindsParam = url.searchParams.get("kinds");
       const kinds = kindsParam ? (kindsParam.split(",").filter(Boolean) as TDatabaseObjectKind[]) : undefined;
-      const objects = await adapter.listObjects({
-        schema: url.searchParams.get("schema") ?? undefined,
-        search: url.searchParams.get("search") ?? undefined,
-        kinds,
-      });
-      sendJson(res, { objects });
+      try {
+        const objects = await pool.runWithAdapter(connectionId, (adapter) => adapter.listObjects({
+          schema: url.searchParams.get("schema") ?? undefined,
+          search: url.searchParams.get("search") ?? undefined,
+          kinds,
+        }), { retryReadOnlyOnNetworkError: true });
+        sendJson(res, { objects });
+      } catch (error) {
+        sendJson(res, buildAdapterError(connectionId, error));
+      }
       return;
     }
 
     if (pathname === "/api/catalog/columns" && method === "GET") {
-      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      const connectionId = url.searchParams.get("connectionId") ?? "";
       const schema = url.searchParams.get("schema") ?? "";
       const table = url.searchParams.get("table") ?? "";
-      const [columns, indexes] = await Promise.all([
-        adapter.listColumns(schema, table),
-        adapter.listIndexes(schema, table).catch(() => []),
-      ]);
-      sendJson(res, { columns, indexes });
+      try {
+        const result = await pool.runWithAdapter(connectionId, async (adapter) => {
+          const [columns, indexes] = await Promise.all([
+            adapter.listColumns(schema, table),
+            adapter.listIndexes(schema, table).catch(() => []),
+          ]);
+          return { columns, indexes };
+        }, { retryReadOnlyOnNetworkError: true });
+        sendJson(res, result);
+      } catch (error) {
+        sendJson(res, buildAdapterError(connectionId, error));
+      }
       return;
     }
 
     if (pathname === "/api/catalog/ddl" && method === "GET") {
-      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      const connectionId = url.searchParams.get("connectionId") ?? "";
       const schema = url.searchParams.get("schema") ?? "";
       const table = url.searchParams.get("table") ?? "";
-      const columns = await adapter.listColumns(schema, table);
-      sendJson(res, { ddl: generateCreateTableDdl(adapter.type, schema, table, columns) });
+      const ddl = await pool.runWithAdapter(connectionId, async (adapter) => {
+        const columns = await adapter.listColumns(schema, table);
+        return generateCreateTableDdl(adapter.type, schema, table, columns);
+      }, { retryReadOnlyOnNetworkError: true });
+      sendJson(res, { ddl });
       return;
     }
 
     if (pathname === "/api/catalog/indexes" && method === "GET") {
-      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
-      sendJson(res, { indexes: await adapter.listIndexes(url.searchParams.get("schema") ?? "", url.searchParams.get("table") ?? "") });
+      const connectionId = url.searchParams.get("connectionId") ?? "";
+      const indexes = await pool.runWithAdapter(connectionId, (adapter) => adapter.listIndexes(url.searchParams.get("schema") ?? "", url.searchParams.get("table") ?? ""), { retryReadOnlyOnNetworkError: true });
+      sendJson(res, { indexes });
       return;
     }
 
     if (pathname === "/api/catalog/primary-key" && method === "GET") {
-      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
-      const primaryKey = await adapter.getPrimaryKey(url.searchParams.get("schema") ?? "", url.searchParams.get("table") ?? "");
+      const connectionId = url.searchParams.get("connectionId") ?? "";
+      const primaryKey = await pool.runWithAdapter(connectionId, (adapter) => adapter.getPrimaryKey(url.searchParams.get("schema") ?? "", url.searchParams.get("table") ?? ""), { retryReadOnlyOnNetworkError: true });
       sendJson(res, { primaryKey });
       return;
     }
 
     if (pathname === "/api/catalog/constraints" && method === "GET") {
-      const adapter = await pool.getAdapter(url.searchParams.get("connectionId") ?? "");
+      const connectionId = url.searchParams.get("connectionId") ?? "";
       const schema = url.searchParams.get("schema") ?? "";
       const table = url.searchParams.get("table") ?? "";
-      const [primaryKey, indexes] = await Promise.all([
-        adapter.getPrimaryKey(schema, table),
-        adapter.listIndexes(schema, table).catch(() => []),
-      ]);
-      sendJson(res, { primaryKey, indexes });
+      const result = await pool.runWithAdapter(connectionId, async (adapter) => {
+        const [primaryKey, indexes] = await Promise.all([
+          adapter.getPrimaryKey(schema, table),
+          adapter.listIndexes(schema, table).catch(() => []),
+        ]);
+        return { primaryKey, indexes };
+      }, { retryReadOnlyOnNetworkError: true });
+      sendJson(res, result);
       return;
     }
 
     // --- Table data ----------------------------------------------------------
     if (pathname === "/api/table/data" && method === "POST") {
       const body = await readJsonBody(req);
-      const adapter = await pool.getAdapter(getString(body, "connectionId"));
-      const result = await adapter.getTableData({
-        schema: getString(body, "schema"),
-        table: getString(body, "table"),
-        limit: getNumber(body, "limit", 100),
-        offset: getNumber(body, "offset", 0),
-        where: getString(body, "where") || undefined,
-        orderBy: getString(body, "orderBy") || undefined,
-        orderDirection: getString(body, "orderDirection") === "desc" ? "desc" : "asc",
-      });
-      sendJson(res, { result });
+      const connectionId = getString(body, "connectionId");
+      try {
+        const result = await pool.runWithAdapter(connectionId, (adapter) => adapter.getTableData({
+          schema: getString(body, "schema"),
+          table: getString(body, "table"),
+          limit: getNumber(body, "limit", 100),
+          offset: getNumber(body, "offset", 0),
+          where: getString(body, "where") || undefined,
+          orderBy: getString(body, "orderBy") || undefined,
+          orderDirection: getString(body, "orderDirection") === "desc" ? "desc" : "asc",
+        }), { retryReadOnlyOnNetworkError: true });
+        sendJson(res, { result });
+      } catch (error) {
+        sendJson(res, buildAdapterError(connectionId, error));
+      }
       return;
     }
 
     if (pathname === "/api/table/count" && method === "POST") {
       const body = await readJsonBody(req);
-      const adapter = await pool.getAdapter(getString(body, "connectionId"));
-      const count = await adapter.countRows(getString(body, "schema"), getString(body, "table"));
+      const connectionId = getString(body, "connectionId");
+      const count = await pool.runWithAdapter(connectionId, (adapter) => adapter.countRows(getString(body, "schema"), getString(body, "table")), { retryReadOnlyOnNetworkError: true });
       sendJson(res, { count });
       return;
     }
