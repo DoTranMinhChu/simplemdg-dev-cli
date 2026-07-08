@@ -167,8 +167,18 @@ export type TDatabaseErrorKind =
   | "stale-credential"
   | "unknown";
 
+export type TDatabaseErrorCode =
+  | "DB_CONNECTION_FAILED"
+  | "DB_SOCKET_CLOSED"
+  | "DB_AUTH_FAILED"
+  | "DB_PERMISSION_DENIED"
+  | "DB_QUERY_FAILED"
+  | "DB_TIMEOUT"
+  | "DB_UNKNOWN_ERROR";
+
 export type TDatabaseErrorInfo = {
   kind: TDatabaseErrorKind;
+  code: TDatabaseErrorCode;
   message: string;
   originalMessage: string;
   retryable: boolean;

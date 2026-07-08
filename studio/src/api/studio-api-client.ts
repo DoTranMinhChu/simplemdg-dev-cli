@@ -6,11 +6,13 @@ import type {
   TConnectionTestResult,
   TDatabaseColumn,
   TDatabaseIndex,
+  TDatabaseErrorInfo,
   TDatabaseObject,
   TDatabaseObjectKind,
   TDatabasePrimaryKey,
   TDatabaseSchema,
   TDatabaseType,
+  TRecoveryAction,
   TGetBtpAppsResponse,
   TGetBtpDbCandidatesResponse,
   TGetBtpTargetsResponse,
@@ -52,8 +54,20 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 
+// De-duplicate identical in-flight GET requests (catalog/status/table lookups
+// are idempotent) so re-rendering a component that fires the same fetch twice
+// in a tick — or a user mashing Refresh — never doubles up backend load.
+const inFlightGets = new Map<string, Promise<unknown>>();
+
 function get<T>(path: string): Promise<T> {
-  return apiFetch<T>(path, { method: "GET" });
+  const existing = inFlightGets.get(path);
+  if (existing) return existing as Promise<T>;
+
+  const request = apiFetch<T>(path, { method: "GET" }).finally(() => {
+    inFlightGets.delete(path);
+  });
+  inFlightGets.set(path, request);
+  return request;
 }
 
 function post<T>(path: string, body?: unknown): Promise<T> {
@@ -135,15 +149,15 @@ export const studioApi = {
 
   // --- Catalog ---
   getSchemas: (connectionId: string) =>
-    get<{ schemas?: TDatabaseSchema[]; error?: string; errorInfo?: unknown; recoveryActions?: string[] }>(
+    get<{ schemas?: TDatabaseSchema[]; error?: string; errorInfo?: TDatabaseErrorInfo; recoveryActions?: TRecoveryAction[] }>(
       `/api/catalog/schemas${qs({ connectionId })}`,
     ),
   getObjects: (connectionId: string, schema: string, kinds?: TDatabaseObjectKind[], search?: string) =>
-    get<{ objects?: TDatabaseObject[]; error?: string; errorInfo?: unknown; recoveryActions?: string[] }>(
+    get<{ objects?: TDatabaseObject[]; error?: string; errorInfo?: TDatabaseErrorInfo; recoveryActions?: TRecoveryAction[] }>(
       `/api/catalog/objects${qs({ connectionId, schema, kinds: kinds?.join(","), search })}`,
     ),
   getColumns: (connectionId: string, schema: string, table: string) =>
-    get<{ columns?: TDatabaseColumn[]; indexes?: TDatabaseIndex[]; error?: string; errorInfo?: unknown }>(
+    get<{ columns?: TDatabaseColumn[]; indexes?: TDatabaseIndex[]; error?: string; errorInfo?: TDatabaseErrorInfo; recoveryActions?: TRecoveryAction[] }>(
       `/api/catalog/columns${qs({ connectionId, schema, table })}`,
     ),
   getDdl: (connectionId: string, schema: string, table: string) =>

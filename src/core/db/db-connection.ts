@@ -83,11 +83,21 @@ export class StudioConnectionPool {
     await adapter.connect();
   }
 
-  /** Ensure a connected adapter + state record exists for the connection. */
+  /**
+   * Ensure a connected adapter + state record exists for the connection. A
+   * cached "failed" entry is NOT reused (so the next call always attempts a
+   * fresh reconnect — no permanently stuck circuit), but it's also not
+   * deleted on failure: callers that read `getConnectionStatus` right after a
+   * throw (the HTTP layer, building the error response) still see the
+   * classified `lastError`, instead of racing a state that already vanished.
+   */
   private async ensureState(connectionId: string): Promise<TStudioConnectionState> {
     const existing = this.states.get(connectionId);
-    if (existing) {
+    if (existing && existing.status !== "failed") {
       return existing;
+    }
+    if (existing) {
+      await existing.adapter.disconnect().catch(() => undefined);
     }
 
     const resolved = await getResolvedConnection(connectionId);
@@ -107,7 +117,6 @@ export class StudioConnectionPool {
     } catch (error) {
       state.status = "failed";
       state.lastError = this.classify(adapter, error);
-      this.states.delete(connectionId);
       throw error;
     }
 
@@ -177,20 +186,27 @@ export class StudioConnectionPool {
 
   /** Force a reconnect and re-test. Used by the "Reconnect" recovery action. */
   public async reconnectConnection(connectionId: string): Promise<TConnectionTestResult> {
-    const state = await this.ensureState(connectionId);
-    state.status = "reconnecting";
     try {
+      const state = await this.ensureState(connectionId);
+      state.status = "reconnecting";
       await this.reconnectAdapter(state.adapter);
       const result = await state.adapter.testConnection();
       state.status = result.success ? "connected" : "failed";
       if (result.success) state.lastError = undefined;
       return result;
     } catch (error) {
-      state.status = "failed";
-      state.lastError = this.classify(state.adapter, error);
+      // ensureState() may have thrown before a state existed to attach the
+      // classified error to (e.g. every retry attempt still refused the
+      // connection) — classify directly from the caught error in that case.
+      const state = this.states.get(connectionId);
+      const info = state ? this.classify(state.adapter, error) : classifyDatabaseError(error, "postgresql");
+      if (state) {
+        state.status = "failed";
+        state.lastError = info;
+      }
       return {
         success: false,
-        message: state.lastError.message,
+        message: info.message,
         durationMs: 0,
       };
     }

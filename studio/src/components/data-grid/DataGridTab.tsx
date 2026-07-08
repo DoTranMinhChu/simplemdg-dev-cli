@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DataGridToolbar } from "./DataGridToolbar";
 import { DataGridFooter } from "./DataGridFooter";
 import { PendingChangesBar } from "./PendingChangesBar";
 import { EditableCell } from "./EditableCell";
 import { CellValueInspector, type TCellInspectorInput } from "./CellValueInspector";
 import { EmptyState } from "../common/EmptyState";
+import { ErrorPanel } from "../common/ErrorPanel";
 import { studioApi } from "../../api/studio-api-client";
 import { useStudioStore } from "../../state/studio-store";
 import { useWorkspaceStore, type TWorkspaceTab } from "../../state/workspace-store";
-import type { TDatabaseColumn, TDatabaseErrorInfo } from "../../api/studio-api-types";
+import type { TDatabaseColumn, TDatabaseErrorInfo, TRecoveryAction } from "../../api/studio-api-types";
 
 function rowKeyOf(pk: string[], row: Record<string, unknown>): string {
   return pk.map((key) => String(row[key])).join("");
@@ -17,7 +18,7 @@ function rowKeyOf(pk: string[], row: Record<string, unknown>): string {
 type TInsertRow = { seq: number; values: Record<string, string>; error?: string };
 
 export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement {
-  const { toast, setStatusBar, activeConnectionId } = useStudioStore();
+  const { toast, setStatusBar, activeConnectionId, connections } = useStudioStore();
   const { openTab, layout, setTabDirty } = useWorkspaceStore();
 
   const connectionId = tab.connectionId || activeConnectionId;
@@ -34,7 +35,8 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
   const [sortDir, setSortDir] = useState<"asc" | "desc">(tab.sort?.[0]?.direction ?? "asc");
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<{ message: string; info?: TDatabaseErrorInfo } | undefined>();
+  const [error, setError] = useState<{ message: string; info?: TDatabaseErrorInfo; recoveryActions?: TRecoveryAction[] } | undefined>();
+  const isFirstLoadRef = useRef(true);
   const [rangeText, setRangeText] = useState("");
   const [durationText, setDurationText] = useState("");
 
@@ -61,7 +63,7 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
     setPk(pkResponse.primaryKey.columns);
   }, [connectionId, schema, table]);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (): Promise<boolean> => {
     setLoading(true);
     setError(undefined);
     try {
@@ -77,8 +79,8 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
       });
 
       if (!response.result) {
-        setError({ message: response.error ?? "Cannot load data.", info: response.errorInfo });
-        return;
+        setError({ message: response.error ?? "Cannot load data.", info: response.errorInfo, recoveryActions: response.recoveryActions });
+        return false;
       }
 
       setRows(response.result.rows);
@@ -87,8 +89,10 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
       setRangeText(`Showing ${response.result.rowCount ? offset + 1 : 0}-${to}${total != null ? ` of ${total.toLocaleString()}` : ""}`);
       setDurationText(`Duration: ${response.result.durationMs}ms · Offset: ${offset}`);
       setStatusBar({ duration: `${response.result.durationMs}ms`, rows: total != null ? `${total} total` : `${response.result.rowCount} rows` });
+      return true;
     } catch (fetchError) {
       setError({ message: fetchError instanceof Error ? fetchError.message : String(fetchError) });
+      return false;
     } finally {
       setLoading(false);
     }
@@ -104,14 +108,18 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
     }
   }, [connectionId, schema, table, setStatusBar]);
 
+  // Load order matters: table data is the primary, user-visible request. Only
+  // fetch metadata (columns/PK) and the row count — both independent, lower-
+  // priority calls — once we know the connection is actually reachable, so a
+  // dead connection produces exactly one failed request instead of three.
   useEffect(() => {
-    loadMeta().catch(() => undefined);
-    loadCount();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    loadData();
+    loadData().then((success) => {
+      if (success && isFirstLoadRef.current) {
+        isFirstLoadRef.current = false;
+        loadMeta().catch(() => undefined);
+        loadCount();
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offset, pageSize, sortColumn, sortDir]);
 
@@ -262,6 +270,31 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
     }
   };
 
+  const connection = connections.find((item) => item.id === connectionId);
+  const canRefreshFromBtp = Boolean(connection?.app && connection?.region && connection?.org && connection?.space);
+
+  const reconnect = async (): Promise<void> => {
+    toast("Reconnecting...");
+    const result = await studioApi.reconnectConnection(connectionId);
+    if (result.success) {
+      toast("Reconnected.");
+      loadData();
+    } else {
+      toast(`Reconnect failed: ${result.message ?? ""}`, "err");
+    }
+  };
+
+  const refreshFromBtp = async (): Promise<void> => {
+    toast("Refreshing credentials from BTP...");
+    const result = await studioApi.refreshCredentialsFromBtp(connectionId);
+    if (result.ok) {
+      toast(result.test?.success ? "Credentials refreshed and tested OK." : `Credentials refreshed (test: ${result.test?.message ?? "n/a"})`, result.test?.success ? "ok" : "warn");
+      loadData();
+    } else {
+      toast(`Refresh from BTP failed: ${result.error ?? ""}`, "err");
+    }
+  };
+
   const exportCurrentPage = (format: "csv" | "json"): void => {
     if (!rows.length) return toast("No rows to export.", "warn");
     fetch(studioApi.exportUrl(format), {
@@ -288,18 +321,14 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
           <span>{table}</span>
         </div>
         <div className="pane-body">
-          <div className="errbox adapter-err">
-            <div style={{ fontWeight: 600 }}>Cannot load data from {table}</div>
-            <div className="note" style={{ marginTop: 4 }}>
-              {error.info?.kind ? `${error.info.kind} — ` : ""}
-              {error.message}
-            </div>
-            <div className="row" style={{ marginTop: 8 }}>
-              <button className="btn sm" onClick={() => loadData()}>
-                Retry
-              </button>
-            </div>
-          </div>
+          <ErrorPanel
+            title={`Cannot load data from ${table}`}
+            error={{ message: error.message, kind: error.info?.kind, technicalMessage: error.info?.originalMessage, recoveryActions: error.recoveryActions }}
+            onRetry={() => loadData()}
+            onReconnect={reconnect}
+            onRefreshFromBtp={refreshFromBtp}
+            canRefreshFromBtp={canRefreshFromBtp}
+          />
         </div>
       </div>
     );

@@ -1,11 +1,12 @@
-import type { TDatabaseErrorInfo, TDatabaseType } from "./db-types";
+import type { TDatabaseErrorCode, TDatabaseErrorInfo, TDatabaseType } from "./db-types";
 
 /**
- * Network-level failures that mean the socket is dead and a reconnect + single
- * retry of a read-only operation is safe. Covers HANA (RTE:[89013] "Socket
- * closed by peer") and PostgreSQL/node socket errors.
+ * Socket-death patterns: the connection was live and then died mid-session.
+ * Covers HANA (RTE:[89013] "Socket closed by peer") and PostgreSQL/node socket
+ * errors. Distinguished from CONNECTION_REFUSED_PATTERNS (never connected) so
+ * the UI can show a slightly different message/code.
  */
-const NETWORK_PATTERNS = [
+const SOCKET_CLOSED_PATTERNS = [
   "socket closed by peer",
   "rte:[89013]",
   "econnreset",
@@ -19,6 +20,20 @@ const NETWORK_PATTERNS = [
   "server closed the connection",
   "connection terminated",
 ];
+
+/** Never-connected network failures: host unreachable, port closed, DNS failure. */
+const CONNECTION_REFUSED_PATTERNS = [
+  "econnrefused",
+  "connection refused",
+  "could not connect",
+  "enotfound",
+  "no route to host",
+  "ehostunreach",
+  "enetunreach",
+  "getaddrinfo",
+];
+
+const NETWORK_PATTERNS = [...SOCKET_CLOSED_PATTERNS, ...CONNECTION_REFUSED_PATTERNS];
 
 const TIMEOUT_PATTERNS = ["etimedout", "timeout", "timed out", "communicationtimeout"];
 
@@ -77,12 +92,24 @@ export function classifyDatabaseError(error: unknown, type: TDatabaseType): TDat
   const originalMessage = toMessage(error);
   const haystack = originalMessage.toLowerCase();
 
-  if (matchesAny(haystack, NETWORK_PATTERNS)) {
+  if (matchesAny(haystack, SOCKET_CLOSED_PATTERNS)) {
+    const code: TDatabaseErrorCode = "DB_SOCKET_CLOSED";
     return {
       kind: "network",
+      code,
       message: type === "hana"
-        ? "The HANA connection was dropped (socket closed by peer). The session can be re-established."
-        : "The database connection was dropped. The session can be re-established.",
+        ? "The HANA connection was closed by the server."
+        : "The database connection was closed by the server.",
+      originalMessage,
+      retryable: true,
+    };
+  }
+
+  if (matchesAny(haystack, CONNECTION_REFUSED_PATTERNS)) {
+    return {
+      kind: "network",
+      code: "DB_CONNECTION_FAILED",
+      message: "Could not reach the database server. Check the host, port, and network path.",
       originalMessage,
       retryable: true,
     };
@@ -91,6 +118,7 @@ export function classifyDatabaseError(error: unknown, type: TDatabaseType): TDat
   if (matchesAny(haystack, TIMEOUT_PATTERNS)) {
     return {
       kind: "timeout",
+      code: "DB_TIMEOUT",
       message: "The database did not respond in time. It may be busy or unreachable.",
       originalMessage,
       retryable: true,
@@ -100,6 +128,7 @@ export function classifyDatabaseError(error: unknown, type: TDatabaseType): TDat
   if (matchesAny(haystack, AUTH_PATTERNS)) {
     return {
       kind: "authentication",
+      code: "DB_AUTH_FAILED",
       message: "Authentication failed. The cached credentials may be stale or rotated.",
       originalMessage,
       retryable: false,
@@ -109,6 +138,7 @@ export function classifyDatabaseError(error: unknown, type: TDatabaseType): TDat
   if (matchesAny(haystack, PERMISSION_PATTERNS)) {
     return {
       kind: "permission",
+      code: "DB_PERMISSION_DENIED",
       message: "The database user is not authorized for this operation.",
       originalMessage,
       retryable: false,
@@ -118,6 +148,7 @@ export function classifyDatabaseError(error: unknown, type: TDatabaseType): TDat
   if (matchesAny(haystack, SYNTAX_PATTERNS)) {
     return {
       kind: "syntax",
+      code: "DB_QUERY_FAILED",
       message: "The SQL statement is invalid.",
       originalMessage,
       retryable: false,
@@ -126,6 +157,7 @@ export function classifyDatabaseError(error: unknown, type: TDatabaseType): TDat
 
   return {
     kind: "unknown",
+    code: "DB_UNKNOWN_ERROR",
     message: originalMessage || "An unknown database error occurred.",
     originalMessage,
     retryable: false,

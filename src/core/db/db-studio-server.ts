@@ -6,6 +6,7 @@ import { execa } from "execa";
 import chalk from "chalk";
 import { findNearestRepository } from "../repository";
 import { StudioConnectionPool } from "./db-connection";
+import { classifyDatabaseError } from "./db-error";
 import {
   duplicateConnection,
   findConnectionProfile,
@@ -66,7 +67,7 @@ import { getCfAuthStatus, loginCfWithPassword, cfLogout } from "../cf/cf-auth-se
 import { setCfDebug } from "../cf/cf-execution-service";
 import { listRegions } from "../cf/cf-region-registry";
 import { readCache } from "../cache";
-import type { TDatabaseObjectKind, TDatabaseType } from "./db-types";
+import type { TDatabaseErrorInfo, TDatabaseErrorKind, TDatabaseObjectKind, TDatabaseType } from "./db-types";
 import type { TSmartCacheEntry } from "../cache/smart-cache.types";
 
 export type TStudioServerOptions = {
@@ -331,17 +332,67 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
   const pool = new StudioConnectionPool({ queryTimeoutMs: options.queryTimeoutMs });
   const serverReadOnlyDefault = options.readOnly ?? false;
 
+  // HTTP status per DB error kind: 503 for transient connectivity issues (the
+  // caller can safely retry), 401/403 for credential/authorization problems,
+  // 400 for bad input (SQL syntax), 500 reserved for truly unexpected bugs.
+  const statusForErrorKind = (kind: TDatabaseErrorKind): number => {
+    switch (kind) {
+      case "network":
+      case "timeout":
+        return 503;
+      case "authentication":
+      case "stale-credential":
+        return 401;
+      case "permission":
+        return 403;
+      case "syntax":
+        return 400;
+      default:
+        return 500;
+    }
+  };
+
+  // Only offer recovery actions that can plausibly fix that class of error —
+  // e.g. retrying a syntax error changes nothing, so it gets none.
+  const recoveryActionsForErrorKind = (kind: TDatabaseErrorKind): Array<"retry" | "reconnect" | "refresh-from-btp" | "close-connection"> => {
+    switch (kind) {
+      case "network":
+      case "timeout":
+        return ["retry", "reconnect", "refresh-from-btp"];
+      case "authentication":
+      case "stale-credential":
+        return ["reconnect", "refresh-from-btp", "close-connection"];
+      case "permission":
+        return ["reconnect", "close-connection"];
+      case "syntax":
+        return [];
+      default:
+        return ["retry", "close-connection"];
+    }
+  };
+
   // Resolve the classified error for a connection (the pool records it on the
-  // connection state) into the recovery-aware shape the UI expects.
+  // connection state) into the recovery-aware shape the UI expects, plus the
+  // HTTP status to send it with.
   const buildAdapterError = (connectionId: string, error: unknown): {
-    error: string;
-    errorInfo: { kind: string; message: string; originalMessage: string; retryable: boolean };
-    recoveryActions: string[];
+    payload: { error: string; errorInfo: TDatabaseErrorInfo; recoveryActions: string[] };
+    status: number;
   } => {
     const state = pool.getConnectionStatus(connectionId);
-    const message = error instanceof Error ? error.message : String(error);
-    const errorInfo = state?.lastError ?? { kind: "unknown", message, originalMessage: message, retryable: false };
-    return { error: errorInfo.message, errorInfo, recoveryActions: ["retry", "reconnect", "refresh-from-btp"] };
+    // Prefer the pool's classification (it knows the adapter type, e.g. HANA
+    // vs PostgreSQL, for a more specific message); fall back to classifying
+    // the caught error directly if no state was ever recorded for this id
+    // (e.g. the connection profile itself couldn't be resolved).
+    const errorInfo: TDatabaseErrorInfo = state?.lastError ?? classifyDatabaseError(error, "postgresql");
+    return {
+      payload: { error: errorInfo.message, errorInfo, recoveryActions: recoveryActionsForErrorKind(errorInfo.kind) },
+      status: statusForErrorKind(errorInfo.kind),
+    };
+  };
+
+  const sendAdapterError = (res: http.ServerResponse, connectionId: string, error: unknown): void => {
+    const built = buildAdapterError(connectionId, error);
+    sendJson(res, built.payload, built.status);
   };
 
   const router = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
@@ -789,7 +840,7 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         const schemas = await pool.runWithAdapter(connectionId, (adapter) => adapter.listSchemas(), { retryReadOnlyOnNetworkError: true });
         sendJson(res, { schemas });
       } catch (error) {
-        sendJson(res, buildAdapterError(connectionId, error));
+        sendAdapterError(res, connectionId, error);
       }
       return;
     }
@@ -806,7 +857,7 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         }), { retryReadOnlyOnNetworkError: true });
         sendJson(res, { objects });
       } catch (error) {
-        sendJson(res, buildAdapterError(connectionId, error));
+        sendAdapterError(res, connectionId, error);
       }
       return;
     }
@@ -825,7 +876,7 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         }, { retryReadOnlyOnNetworkError: true });
         sendJson(res, result);
       } catch (error) {
-        sendJson(res, buildAdapterError(connectionId, error));
+        sendAdapterError(res, connectionId, error);
       }
       return;
     }
@@ -834,25 +885,37 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
       const connectionId = url.searchParams.get("connectionId") ?? "";
       const schema = url.searchParams.get("schema") ?? "";
       const table = url.searchParams.get("table") ?? "";
-      const ddl = await pool.runWithAdapter(connectionId, async (adapter) => {
-        const columns = await adapter.listColumns(schema, table);
-        return generateCreateTableDdl(adapter.type, schema, table, columns);
-      }, { retryReadOnlyOnNetworkError: true });
-      sendJson(res, { ddl });
+      try {
+        const ddl = await pool.runWithAdapter(connectionId, async (adapter) => {
+          const columns = await adapter.listColumns(schema, table);
+          return generateCreateTableDdl(adapter.type, schema, table, columns);
+        }, { retryReadOnlyOnNetworkError: true });
+        sendJson(res, { ddl });
+      } catch (error) {
+        sendAdapterError(res, connectionId, error);
+      }
       return;
     }
 
     if (pathname === "/api/catalog/indexes" && method === "GET") {
       const connectionId = url.searchParams.get("connectionId") ?? "";
-      const indexes = await pool.runWithAdapter(connectionId, (adapter) => adapter.listIndexes(url.searchParams.get("schema") ?? "", url.searchParams.get("table") ?? ""), { retryReadOnlyOnNetworkError: true });
-      sendJson(res, { indexes });
+      try {
+        const indexes = await pool.runWithAdapter(connectionId, (adapter) => adapter.listIndexes(url.searchParams.get("schema") ?? "", url.searchParams.get("table") ?? ""), { retryReadOnlyOnNetworkError: true });
+        sendJson(res, { indexes });
+      } catch (error) {
+        sendAdapterError(res, connectionId, error);
+      }
       return;
     }
 
     if (pathname === "/api/catalog/primary-key" && method === "GET") {
       const connectionId = url.searchParams.get("connectionId") ?? "";
-      const primaryKey = await pool.runWithAdapter(connectionId, (adapter) => adapter.getPrimaryKey(url.searchParams.get("schema") ?? "", url.searchParams.get("table") ?? ""), { retryReadOnlyOnNetworkError: true });
-      sendJson(res, { primaryKey });
+      try {
+        const primaryKey = await pool.runWithAdapter(connectionId, (adapter) => adapter.getPrimaryKey(url.searchParams.get("schema") ?? "", url.searchParams.get("table") ?? ""), { retryReadOnlyOnNetworkError: true });
+        sendJson(res, { primaryKey });
+      } catch (error) {
+        sendAdapterError(res, connectionId, error);
+      }
       return;
     }
 
@@ -860,14 +923,18 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
       const connectionId = url.searchParams.get("connectionId") ?? "";
       const schema = url.searchParams.get("schema") ?? "";
       const table = url.searchParams.get("table") ?? "";
-      const result = await pool.runWithAdapter(connectionId, async (adapter) => {
-        const [primaryKey, indexes] = await Promise.all([
-          adapter.getPrimaryKey(schema, table),
-          adapter.listIndexes(schema, table).catch(() => []),
-        ]);
-        return { primaryKey, indexes };
-      }, { retryReadOnlyOnNetworkError: true });
-      sendJson(res, result);
+      try {
+        const result = await pool.runWithAdapter(connectionId, async (adapter) => {
+          const [primaryKey, indexes] = await Promise.all([
+            adapter.getPrimaryKey(schema, table),
+            adapter.listIndexes(schema, table).catch(() => []),
+          ]);
+          return { primaryKey, indexes };
+        }, { retryReadOnlyOnNetworkError: true });
+        sendJson(res, result);
+      } catch (error) {
+        sendAdapterError(res, connectionId, error);
+      }
       return;
     }
 
@@ -887,7 +954,7 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         }), { retryReadOnlyOnNetworkError: true });
         sendJson(res, { result });
       } catch (error) {
-        sendJson(res, buildAdapterError(connectionId, error));
+        sendAdapterError(res, connectionId, error);
       }
       return;
     }
@@ -895,8 +962,12 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
     if (pathname === "/api/table/count" && method === "POST") {
       const body = await readJsonBody(req);
       const connectionId = getString(body, "connectionId");
-      const count = await pool.runWithAdapter(connectionId, (adapter) => adapter.countRows(getString(body, "schema"), getString(body, "table")), { retryReadOnlyOnNetworkError: true });
-      sendJson(res, { count });
+      try {
+        const count = await pool.runWithAdapter(connectionId, (adapter) => adapter.countRows(getString(body, "schema"), getString(body, "table")), { retryReadOnlyOnNetworkError: true });
+        sendJson(res, { count });
+      } catch (error) {
+        sendAdapterError(res, connectionId, error);
+      }
       return;
     }
 
@@ -909,11 +980,12 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         return;
       }
 
-      const adapter = await pool.getAdapter(getString(body, "connectionId"));
+      const connectionId = getString(body, "connectionId");
       const schema = getString(body, "schema");
       const table = getString(body, "table");
 
       try {
+        const adapter = await pool.getAdapter(connectionId);
         let result;
         if (pathname.endsWith("/update")) {
           result = await updateRow(adapter, { schema, table, changes: getObject(body, "changes"), keys: getObject(body, "keys") });
@@ -924,7 +996,8 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         }
         sendJson(res, { ok: true, result });
       } catch (error) {
-        sendJson(res, { ok: false, error: error instanceof Error ? error.message : String(error) });
+        const built = buildAdapterError(connectionId, error);
+        sendJson(res, { ok: false, ...built.payload }, built.status);
       }
       return;
     }
@@ -938,28 +1011,39 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         return;
       }
 
-      const adapter = await pool.getAdapter(getString(body, "connectionId"));
-      const result = await saveTableChanges(adapter, {
-        schema: getString(body, "schema"),
-        table: getString(body, "table"),
-        primaryKeyColumns: Array.isArray(body.primaryKeyColumns) ? (body.primaryKeyColumns as string[]) : [],
-        updates: Array.isArray(body.updates) ? (body.updates as TTableChangeSet["updates"]) : [],
-        inserts: Array.isArray(body.inserts) ? (body.inserts as TTableChangeSet["inserts"]) : [],
-        deletes: Array.isArray(body.deletes) ? (body.deletes as TTableChangeSet["deletes"]) : [],
-      });
-      sendJson(res, { ok: true, result });
+      const connectionId = getString(body, "connectionId");
+      try {
+        const adapter = await pool.getAdapter(connectionId);
+        const result = await saveTableChanges(adapter, {
+          schema: getString(body, "schema"),
+          table: getString(body, "table"),
+          primaryKeyColumns: Array.isArray(body.primaryKeyColumns) ? (body.primaryKeyColumns as string[]) : [],
+          updates: Array.isArray(body.updates) ? (body.updates as TTableChangeSet["updates"]) : [],
+          inserts: Array.isArray(body.inserts) ? (body.inserts as TTableChangeSet["inserts"]) : [],
+          deletes: Array.isArray(body.deletes) ? (body.deletes as TTableChangeSet["deletes"]) : [],
+        });
+        sendJson(res, { ok: true, result });
+      } catch (error) {
+        const built = buildAdapterError(connectionId, error);
+        sendJson(res, { ok: false, ...built.payload }, built.status);
+      }
       return;
     }
 
     if (pathname === "/api/table/sql" && method === "POST") {
       const body = await readJsonBody(req);
-      const adapter = await pool.getAdapter(getString(body, "connectionId"));
-      const schema = getString(body, "schema");
-      const table = getString(body, "table");
-      sendJson(res, {
-        select: generateSelectSql(adapter.type, schema, table, getNumber(body, "limit", 100)),
-        count: generateCountSql(adapter.type, schema, table),
-      });
+      const connectionId = getString(body, "connectionId");
+      try {
+        const adapter = await pool.getAdapter(connectionId);
+        const schema = getString(body, "schema");
+        const table = getString(body, "table");
+        sendJson(res, {
+          select: generateSelectSql(adapter.type, schema, table, getNumber(body, "limit", 100)),
+          count: generateCountSql(adapter.type, schema, table),
+        });
+      } catch (error) {
+        sendAdapterError(res, connectionId, error);
+      }
       return;
     }
 
@@ -990,10 +1074,10 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
       }
 
       const connection = await getResolvedConnection(connectionId).catch(() => undefined);
-      const adapter = await pool.getAdapter(connectionId);
-      const effectiveSql = appendSafeLimit(adapter.type, sql, limit);
 
       try {
+        const adapter = await pool.getAdapter(connectionId);
+        const effectiveSql = appendSafeLimit(adapter.type, sql, limit);
         const result = await adapter.runQuery(effectiveSql, { maxRows: limit > 0 ? limit : undefined });
         await appendQueryHistory({
           connectionId,
@@ -1006,17 +1090,17 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
         });
         sendJson(res, { ok: true, result, safety, effectiveSql });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const built = buildAdapterError(connectionId, error);
         await appendQueryHistory({
           connectionId,
           connectionName: connection?.name,
-          connectionType: adapter.type,
+          connectionType: connection?.type,
           sql,
           durationMs: 0,
           success: false,
-          error: message,
+          error: built.payload.error,
         });
-        sendJson(res, { ok: false, error: message });
+        sendJson(res, { ok: false, ...built.payload }, built.status);
       }
       return;
     }
@@ -1098,35 +1182,45 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
 
     if (pathname === "/api/sql/generate-table-query" && method === "POST") {
       const body = await readJsonBody(req);
-      const adapter = await pool.getAdapter(getString(body, "connectionId"));
-      const sql = generateTableQuery({
-        type: adapter.type,
-        schema: getString(body, "schema"),
-        table: getString(body, "table"),
-        where: getString(body, "where") || undefined,
-        sort: Array.isArray(body.sort) ? (body.sort as TGridSortState[]) : undefined,
-        limit: getNumber(body, "limit", 100),
-        offset: getNumber(body, "offset", 0),
-      });
-      sendJson(res, { sql });
+      const connectionId = getString(body, "connectionId");
+      try {
+        const adapter = await pool.getAdapter(connectionId);
+        const sql = generateTableQuery({
+          type: adapter.type,
+          schema: getString(body, "schema"),
+          table: getString(body, "table"),
+          where: getString(body, "where") || undefined,
+          sort: Array.isArray(body.sort) ? (body.sort as TGridSortState[]) : undefined,
+          limit: getNumber(body, "limit", 100),
+          offset: getNumber(body, "offset", 0),
+        });
+        sendJson(res, { sql });
+      } catch (error) {
+        sendAdapterError(res, connectionId, error);
+      }
       return;
     }
 
     if (pathname === "/api/table/generate-sql" && method === "POST") {
       const body = await readJsonBody(req);
-      const adapter = await pool.getAdapter(getString(body, "connectionId"));
-      const schema = getString(body, "schema");
-      const table = getString(body, "table");
-      const [columns, primaryKey] = await Promise.all([
-        adapter.listColumns(schema, table).catch(() => []),
-        adapter.getPrimaryKey(schema, table).catch(() => ({ columns: [] })),
-      ]);
-      sendJson(res, {
-        select: generateSelectSql(adapter.type, schema, table, getNumber(body, "limit", 100)),
-        count: generateCountSql(adapter.type, schema, table),
-        insert: generateInsertTemplate(adapter.type, schema, table, columns),
-        update: generateUpdateTemplate(adapter.type, schema, table, columns, primaryKey.columns),
-      });
+      const connectionId = getString(body, "connectionId");
+      try {
+        const adapter = await pool.getAdapter(connectionId);
+        const schema = getString(body, "schema");
+        const table = getString(body, "table");
+        const [columns, primaryKey] = await Promise.all([
+          adapter.listColumns(schema, table).catch(() => []),
+          adapter.getPrimaryKey(schema, table).catch(() => ({ columns: [] })),
+        ]);
+        sendJson(res, {
+          select: generateSelectSql(adapter.type, schema, table, getNumber(body, "limit", 100)),
+          count: generateCountSql(adapter.type, schema, table),
+          insert: generateInsertTemplate(adapter.type, schema, table, columns),
+          update: generateUpdateTemplate(adapter.type, schema, table, columns, primaryKey.columns),
+        });
+      } catch (error) {
+        sendAdapterError(res, connectionId, error);
+      }
       return;
     }
 

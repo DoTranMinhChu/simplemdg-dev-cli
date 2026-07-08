@@ -43,8 +43,13 @@ export type TConnectionTestResult = {
 
 export type TDatabaseErrorKind = "network" | "authentication" | "permission" | "syntax" | "timeout" | "stale-credential" | "unknown";
 
+export type TDatabaseErrorCode = "DB_CONNECTION_FAILED" | "DB_SOCKET_CLOSED" | "DB_AUTH_FAILED" | "DB_PERMISSION_DENIED" | "DB_QUERY_FAILED" | "DB_TIMEOUT" | "DB_UNKNOWN_ERROR";
+
+export type TRecoveryAction = "retry" | "reconnect" | "refresh-from-btp" | "close-connection";
+
 export type TDatabaseErrorInfo = {
   kind: TDatabaseErrorKind;
+  code: TDatabaseErrorCode;
   message: string;
   originalMessage: string;
   retryable: boolean;
@@ -107,7 +112,7 @@ export type TGridSortState = { column: string; direction: "asc" | "desc" };
 
 export type TTableDataResponse =
   | { result: TDatabaseQueryResult; error?: undefined }
-  | { error: string; errorInfo?: TDatabaseErrorInfo; recoveryActions?: string[]; result?: undefined };
+  | { error: string; errorInfo?: TDatabaseErrorInfo; recoveryActions?: TRecoveryAction[]; result?: undefined };
 
 export type TRowUpdate = { key: Record<string, unknown>; changes: Record<string, unknown> };
 export type TRowInsert = { values: Record<string, unknown> };

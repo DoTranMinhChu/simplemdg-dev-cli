@@ -57,7 +57,7 @@ export function AppShell(): React.ReactElement {
         <div className="workspace">
           <WorkspaceTabs />
           {tabs.map((tab) => (
-            <div key={tab.id} style={{ display: tab.id === activeTabId ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0 }}>
+            <div key={tab.id} style={{ display: tab.id === activeTabId ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0, position: "relative" }}>
               {tab.kind === "welcome" ? (
                 <WelcomePage
                   onImportFromBtp={() => setShowBtpWizard(true)}
