@@ -52,9 +52,7 @@ export function TopBar({
         onChange={onConnectionSearchChange}
         placeholder="Search connections..."
       />
-      <button className="iconbtn primary" title="Import from BTP app" onClick={onImport}>
-        Import from BTP
-      </button>
+      <IconButton icon="imp" label="Import from BTP app" primary onClick={onImport} />
       <IconButton icon="home" label="Welcome" onClick={onHome} />
       <IconButton icon="col" label="Toggle sidebar" onClick={onToggleSidebar} />
       <IconButton icon="gear" label="Settings" onClick={onSettings} />

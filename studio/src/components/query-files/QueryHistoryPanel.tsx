@@ -5,6 +5,7 @@ import { Button } from "../common/Button";
 import { studioApi } from "../../api/studio-api-client";
 import { useWorkspaceStore } from "../../state/workspace-store";
 import { useStudioStore } from "../../state/studio-store";
+import { highlightMatch } from "../../lib/highlight-match";
 import type { TQueryHistoryItem } from "../../api/studio-api-types";
 
 export function QueryHistoryPanel(): React.ReactElement {
@@ -57,10 +58,10 @@ export function QueryHistoryPanel(): React.ReactElement {
             <div key={item.id} className="wli" onClick={() => openHistoryItem(item)}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span className={`st-dot ${item.success ? "ok" : "err"}`} />
-                <b>{preview.length > 70 ? `${preview.slice(0, 70)}…` : preview}</b>
+                <b>{highlightMatch(preview.length > 70 ? `${preview.slice(0, 70)}…` : preview, search)}</b>
               </div>
               <div className="note">
-                {item.connectionName ?? "(no connection)"} · {new Date(item.timestamp).toLocaleString()}
+                {highlightMatch(item.connectionName ?? "(no connection)", search)} · {new Date(item.timestamp).toLocaleString()}
                 {item.success ? ` · ${item.durationMs}ms` : " · failed"}
               </div>
             </div>

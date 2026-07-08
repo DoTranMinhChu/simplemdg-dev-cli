@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SqlEditor } from "./SqlEditor";
 import { SqlToolbar } from "./SqlToolbar";
 import { SqlResultGrid } from "./SqlResultGrid";
@@ -20,8 +20,42 @@ export function SqlConsoleTab({ tab }: { tab: TWorkspaceTab }): React.ReactEleme
   const [error, setError] = useState<string | undefined>();
   const [meta, setMeta] = useState("");
   const [inspectorInput, setInspectorInput] = useState<{ value: unknown; columnName: string } | null>(null);
+  const [editorHeight, setEditorHeight] = useState(220);
+  const splitRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
 
   const connectionId = tab.connectionId || activeConnectionId;
+
+  const DEFAULT_EDITOR_HEIGHT = 220;
+  const MIN_EDITOR_HEIGHT = 90;
+
+  useEffect(() => {
+    const clampHeight = (rawY: number): number => {
+      const container = splitRef.current;
+      if (!container) return editorHeight;
+      const containerTop = container.getBoundingClientRect().top;
+      const maxHeight = container.getBoundingClientRect().height - 120;
+      return Math.min(maxHeight, Math.max(MIN_EDITOR_HEIGHT, rawY - containerTop));
+    };
+
+    const onMouseMove = (event: MouseEvent): void => {
+      if (!draggingRef.current) return;
+      setEditorHeight(clampHeight(event.clientY));
+    };
+    const onMouseUp = (): void => {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      document.body.classList.remove("resizing-sidebar");
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onChange = (value: string): void => {
     setSql(value);
@@ -115,11 +149,31 @@ export function SqlConsoleTab({ tab }: { tab: TWorkspaceTab }): React.ReactEleme
   return (
     <div className="tabpane">
       <SqlToolbar running={running} limit={limit} onLimitChange={setLimit} onRun={run} onFormat={format} onSave={save} onExport={exportResult} meta={meta} />
-      <div className="pane-body">
-        <SqlEditor value={sql} onChange={onChange} onRunSelected={run} onRunAll={run} onSave={save} />
+      <div className="pane-body sql-split" ref={splitRef} style={{ overflow: "hidden" }}>
+        <div style={{ height: editorHeight, flex: "0 0 auto", overflow: "auto", minHeight: 0 }}>
+          <SqlEditor value={sql} onChange={onChange} onRunSelected={run} onRunAll={run} onSave={save} />
+        </div>
+        <div
+          className="hresizer"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize SQL editor"
+          tabIndex={0}
+          title="Drag to resize · Double-click to reset"
+          onMouseDown={(event) => {
+            draggingRef.current = true;
+            document.body.classList.add("resizing-sidebar");
+            event.preventDefault();
+          }}
+          onDoubleClick={() => setEditorHeight(DEFAULT_EDITOR_HEIGHT)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowUp") setEditorHeight((prev) => Math.max(MIN_EDITOR_HEIGHT, prev - 20));
+            else if (event.key === "ArrowDown") setEditorHeight((prev) => prev + 20);
+          }}
+        />
         {error ? <div className="errbox">{error}</div> : null}
         <div className="note">Result</div>
-        <div className="gridwrap">
+        <div className="gridwrap" style={{ flex: 1, minHeight: 0 }}>
           <SqlResultGrid result={result} onCellActivate={(_rowIndex, field, value) => setInspectorInput({ value, columnName: field })} />
         </div>
       </div>

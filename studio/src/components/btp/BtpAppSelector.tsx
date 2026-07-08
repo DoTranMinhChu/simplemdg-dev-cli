@@ -3,6 +3,7 @@ import { Button } from "../common/Button";
 import { EmptyState } from "../common/EmptyState";
 import { Spinner } from "../common/Spinner";
 import { studioApi } from "../../api/studio-api-client";
+import { highlightMatch } from "../../lib/highlight-match";
 import type { TCloudFoundryApp } from "../../api/studio-api-types";
 
 export function BtpAppSelector({
@@ -104,7 +105,7 @@ export function BtpAppSelector({
                 <div key={app.name} className="trow" onClick={() => onSelect(app.name)}>
                   <div className="trow-icon">▸</div>
                   <div className="trow-main">
-                    <div className="trow-title">{app.name}</div>
+                    <div className="trow-title">{highlightMatch(app.name, search)}</div>
                     <div className="trow-meta">
                       {app.requestedState ?? ""}
                       {app.processes ? ` · ${app.processes}` : ""}

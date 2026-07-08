@@ -4,15 +4,34 @@ import { DataGridFooter } from "./DataGridFooter";
 import { PendingChangesBar } from "./PendingChangesBar";
 import { EditableCell } from "./EditableCell";
 import { CellValueInspector, type TCellInspectorInput } from "./CellValueInspector";
+import { RowDetailsModal } from "./RowDetailsModal";
+import { sqlLiteral } from "./cell-value-detection";
 import { EmptyState } from "../common/EmptyState";
 import { ErrorPanel } from "../common/ErrorPanel";
+import { ContextMenu, type TContextMenuState } from "../common/ContextMenu";
 import { studioApi } from "../../api/studio-api-client";
 import { useStudioStore } from "../../state/studio-store";
 import { useWorkspaceStore, type TWorkspaceTab } from "../../state/workspace-store";
 import type { TDatabaseColumn, TDatabaseErrorInfo, TRecoveryAction } from "../../api/studio-api-types";
 
 function rowKeyOf(pk: string[], row: Record<string, unknown>): string {
-  return pk.map((key) => String(row[key])).join("");
+  return pk.map((key) => String(row[key])).join("");
+}
+
+function buildInsertStatement(schema: string, table: string, fields: string[], row: Record<string, unknown>): string {
+  const qualified = `"${schema}"."${table}"`;
+  const columns = fields.map((field) => `"${field}"`).join(", ");
+  const values = fields.map((field) => sqlLiteral(row[field])).join(", ");
+  return `INSERT INTO ${qualified} (${columns})\nVALUES (${values});`;
+}
+
+function buildUpdateStatement(schema: string, table: string, fields: string[], row: Record<string, unknown>, pk: string[]): string {
+  const qualified = `"${schema}"."${table}"`;
+  const setColumns = fields.filter((field) => !pk.includes(field));
+  const setClause = setColumns.map((field) => `"${field}" = ${sqlLiteral(row[field])}`).join(",\n  ");
+  const whereColumns = pk.length ? pk : fields;
+  const whereClause = whereColumns.map((field) => `"${field}" = ${sqlLiteral(row[field])}`).join("\n  AND ");
+  return `UPDATE ${qualified}\nSET\n  ${setClause}\nWHERE\n  ${whereClause};`;
 }
 
 type TInsertRow = { seq: number; values: Record<string, string>; error?: string };
@@ -48,6 +67,31 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
   const [selected, setSelected] = useState<Record<string, true>>({});
   const [insertSeq, setInsertSeq] = useState(0);
   const [inspector, setInspector] = useState<TCellInspectorInput | null>(null);
+  const [rowContextMenu, setRowContextMenu] = useState<(TContextMenuState & { row: Record<string, unknown> }) | null>(null);
+  const [rowDetails, setRowDetails] = useState<Record<string, unknown> | null>(null);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const resizingColumnRef = useRef<{ field: string; startX: number; startWidth: number } | null>(null);
+  const getColumnWidth = (field: string): number => columnWidths[field] ?? 160;
+
+  useEffect(() => {
+    const onMouseMove = (event: MouseEvent): void => {
+      const state = resizingColumnRef.current;
+      if (!state) return;
+      const nextWidth = Math.max(60, state.startWidth + (event.clientX - state.startX));
+      setColumnWidths((prev) => ({ ...prev, [state.field]: nextWidth }));
+    };
+    const onMouseUp = (): void => {
+      if (!resizingColumnRef.current) return;
+      resizingColumnRef.current = null;
+      document.body.classList.remove("resizing-sidebar");
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
   const editable = pk.length > 0 && !layout.readOnly;
   const pendingCount = Object.keys(edits).length + Object.keys(deletes).length + inserts.length;
@@ -179,6 +223,21 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
     if (keys.length > 1 && !window.confirm(`Mark ${keys.length} selected rows for deletion? They will not be deleted until you Save Changes.`)) return;
     setDeletes((prev) => ({ ...prev, ...Object.fromEntries(keys.map((key) => [key, true as const])) }));
     setSelected({});
+  };
+
+  const copyRowJson = (row: Record<string, unknown>): void => {
+    navigator.clipboard.writeText(JSON.stringify(row, null, 2));
+    toast("Copied row as JSON");
+  };
+
+  const copyInsertStatement = (row: Record<string, unknown>): void => {
+    navigator.clipboard.writeText(buildInsertStatement(schema, table, fields, row));
+    toast("Copied INSERT statement");
+  };
+
+  const copyUpdateStatement = (row: Record<string, unknown>): void => {
+    navigator.clipboard.writeText(buildUpdateStatement(schema, table, fields, row, pk));
+    toast("Copied UPDATE statement");
   };
 
   const addInsertRow = (): void => {
@@ -364,14 +423,29 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
         ) : !rows.length && !inserts.length ? (
           <EmptyState>No rows.</EmptyState>
         ) : (
-          <table className="grid">
+          <table className="grid resizable-cols">
+            <colgroup>
+              <col style={{ width: 54 }} />
+              {fields.map((field) => (
+                <col key={field} style={{ width: getColumnWidth(field) }} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
                 <th className="rowhdr">#</th>
                 {fields.map((field) => (
-                  <th key={field} onClick={() => toggleSort(field)} title="Click to sort">
+                  <th key={field} onClick={() => toggleSort(field)} title="Click to sort" style={{ position: "relative" }}>
                     {field}
                     {sortColumn === field ? <span className="sort">{sortDir === "asc" ? "▲" : "▼"}</span> : null}
+                    <span
+                      className="col-resize-handle"
+                      onClick={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => {
+                        event.stopPropagation();
+                        resizingColumnRef.current = { field, startX: event.clientX, startWidth: getColumnWidth(field) };
+                        document.body.classList.add("resizing-sidebar");
+                      }}
+                    />
                   </th>
                 ))}
               </tr>
@@ -383,7 +457,14 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
                 const rowEdits = edits[key];
                 const rowDeleteError = deleteErrors[key];
                 return (
-                  <tr key={key || rowIndex} className={`${selected[key] ? "selrow " : ""}${isDeleted ? "row-del " : ""}${rowDeleteError ? "row-err " : ""}`}>
+                  <tr
+                    key={key || rowIndex}
+                    className={`${selected[key] ? "selrow " : ""}${isDeleted ? "row-del " : ""}${rowDeleteError ? "row-err " : ""}`}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setRowContextMenu({ x: event.clientX, y: event.clientY, row, items: [] });
+                    }}
+                  >
                     <td className="rowhdr" onClick={() => toggleSelected(key)} title={rowDeleteError || undefined}>
                       {offset + rowIndex + 1}
                     </td>
@@ -457,6 +538,41 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
         onNextPage={() => setOffset((prev) => prev + parseInt(pageSize, 10))}
       />
       {inspector ? <CellValueInspector input={inspector} onClose={() => setInspector(null)} /> : null}
+      {rowContextMenu ? (
+        <ContextMenu
+          x={rowContextMenu.x}
+          y={rowContextMenu.y}
+          onClose={() => setRowContextMenu(null)}
+          items={[
+            { label: "View Row Details", icon: "viw", onClick: () => setRowDetails(rowContextMenu.row) },
+            { sep: true },
+            { label: "Copy Row as JSON", icon: "col", onClick: () => copyRowJson(rowContextMenu.row) },
+            { label: "Copy INSERT Statement", icon: "sql", onClick: () => copyInsertStatement(rowContextMenu.row) },
+            { label: "Copy UPDATE Statement", icon: "sql", onClick: () => copyUpdateStatement(rowContextMenu.row) },
+          ]}
+        />
+      ) : null}
+      {rowDetails ? (
+        <RowDetailsModal
+          fields={fields}
+          row={rowDetails}
+          onClose={() => setRowDetails(null)}
+          onInspectCell={(field) => {
+            const column = columns.find((item) => item.name === field);
+            setInspector({
+              connectionId,
+              schema,
+              objectName: table,
+              objectType: tab.objectType,
+              columnName: field,
+              sqlDataType: column?.dataType,
+              value: rowDetails[field],
+              primaryKey: Object.fromEntries(pk.map((pkCol) => [pkCol, rowDetails[pkCol]])),
+              editable: false,
+            });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-export type TCellValueKind = "null" | "json" | "html" | "xml" | "date" | "datetime" | "number" | "boolean" | "url" | "email" | "base64" | "text";
+export type TCellValueKind = "null" | "json" | "html" | "xml" | "date" | "datetime" | "number" | "boolean" | "url" | "email" | "image" | "base64" | "text";
 
 export type TDetectedCellValue = {
   kind: TCellValueKind;
@@ -80,6 +80,12 @@ export function detectCellValue(value: unknown): TDetectedCellValue {
     if (!isNaN(date.getTime())) {
       return { kind: /[ T]\d{2}:\d{2}/.test(trimmed) ? "datetime" : "date", confidence: 0.85, rawValue: value, stringValue, metadata };
     }
+  }
+  if (/^data:image\/(png|jpe?g|gif|webp|bmp|svg\+xml|x-icon);base64,/i.test(trimmed)) {
+    return { kind: "image", confidence: 0.95, rawValue: value, stringValue, metadata };
+  }
+  if (/^https?:\/\/\S+\.(png|jpe?g|gif|webp|bmp|svg|ico)(\?\S*)?$/i.test(trimmed)) {
+    return { kind: "image", confidence: 0.9, rawValue: value, stringValue, metadata };
   }
   if (/^https?:\/\/\S+$/i.test(trimmed)) {
     return { kind: "url", confidence: 0.9, rawValue: value, stringValue, metadata };

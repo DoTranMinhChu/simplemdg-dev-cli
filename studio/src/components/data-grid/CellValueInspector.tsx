@@ -98,6 +98,29 @@ export function CellValueInspector({ input, onClose }: { input: TCellInspectorIn
         </div>
       );
     }
+    if (detected.kind === "image") {
+      return (
+        <div className="cell-image-preview">
+          <img
+            src={detected.stringValue}
+            alt="Cell value preview"
+            onError={(event) => {
+              (event.currentTarget as HTMLImageElement).style.display = "none";
+              const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
+              if (fallback) fallback.style.display = "block";
+            }}
+          />
+          <div className="note" style={{ display: "none" }}>
+            Could not load image preview.
+          </div>
+          {!detected.stringValue.startsWith("data:") ? (
+            <a className="crumbs a" href={detected.stringValue} target="_blank" rel="noopener noreferrer">
+              Open image in new tab
+            </a>
+          ) : null}
+        </div>
+      );
+    }
     if (detected.kind === "url") {
       return (
         <a className="crumbs a" href={detected.stringValue} target="_blank" rel="noopener noreferrer">

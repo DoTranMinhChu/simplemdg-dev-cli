@@ -3,7 +3,9 @@ import { Icon } from "../common/Icon";
 import { Spinner } from "../common/Spinner";
 
 export type TObjectTreeNodeProps = {
-  label: string;
+  label: ReactNode;
+  /** Plain-text tooltip; defaults to `label` when label is a plain string. */
+  titleText?: string;
   icon: string;
   leaf?: boolean;
   expanded?: boolean;
@@ -20,6 +22,7 @@ export type TObjectTreeNodeProps = {
 /** Presentational lazy-tree row shell shared by every explorer level (schemas, kind folders, objects). */
 export function ObjectTreeNode({
   label,
+  titleText,
   icon,
   leaf,
   expanded,
@@ -50,7 +53,7 @@ export function ObjectTreeNode({
           &rsaquo;
         </span>
         <Icon name={icon} className={`ticon ${icon}`} />
-        <span className="tlabel" title={label}>
+        <span className="tlabel" title={titleText ?? (typeof label === "string" ? label : undefined)}>
           {label}
         </span>
         {badge != null ? <span className="tbadge">({badge})</span> : null}

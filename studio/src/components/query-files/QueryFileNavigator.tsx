@@ -5,6 +5,7 @@ import { ContextMenu, type TContextMenuState } from "../common/ContextMenu";
 import { studioApi } from "../../api/studio-api-client";
 import { useWorkspaceStore } from "../../state/workspace-store";
 import { useStudioStore } from "../../state/studio-store";
+import { highlightMatch } from "../../lib/highlight-match";
 import type { TSavedQuery } from "../../api/studio-api-types";
 
 export function QueryFileNavigator(): React.ReactElement {
@@ -64,7 +65,7 @@ export function QueryFileNavigator(): React.ReactElement {
               setContextMenu({ x: event.clientX, y: event.clientY, query, items: [] });
             }}
           >
-            <b>{query.name}</b>
+            <b>{highlightMatch(query.name, search)}</b>
             <div className="note">
               {query.connectionType ?? ""} · {new Date(query.updatedAt).toLocaleDateString()}
             </div>

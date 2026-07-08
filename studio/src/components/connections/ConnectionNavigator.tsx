@@ -8,6 +8,7 @@ import { studioApi } from "../../api/studio-api-client";
 import type { TPublicDatabaseConnection } from "../../api/studio-api-types";
 import { NewConnectionModal } from "./NewConnectionModal";
 import { EditConnectionModal } from "./EditConnectionModal";
+import { highlightMatch } from "../../lib/highlight-match";
 
 const ENV_ORDER = ["PROD", "QAS", "DEV", "SANDBOX", "CUSTOM", "OTHER"];
 const ENV_COLORS: Record<string, string> = { DEV: "#22c55e", QAS: "#f59e0b", PROD: "#ef4444", SANDBOX: "#6366f1", CUSTOM: "#3b82f6" };
@@ -67,7 +68,7 @@ export function ConnectionNavigator({
       >
         <div className={`ci-dot${activeConnectionId === connection.id ? " connected" : ""}`} style={{ background: color }} />
         <span className="ci-name" title={connection.name}>
-          {connection.name}
+          {highlightMatch(connection.name, search)}
         </span>
         {status && status !== "connected" ? <span className={`ci-state ${status}`}>{status}</span> : null}
         <span className="ci-type">{connection.type === "hana" ? "HANA" : "PG"}</span>

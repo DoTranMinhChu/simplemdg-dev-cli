@@ -4,20 +4,33 @@ import { EmptyState } from "../common/EmptyState";
 import { Spinner } from "../common/Spinner";
 import { studioApi } from "../../api/studio-api-client";
 import { useStudioEvents } from "../../hooks/useStudioEvents";
+import { highlightMatch } from "../../lib/highlight-match";
 import type { TCfTargetSummary, TGetBtpTargetsResponse } from "../../api/studio-api-types";
 
 function cacheBadgeLabel(status: string | undefined): string {
   return status === "fresh" ? "Fresh" : status === "stale" ? "Stale" : status === "expired" ? "Expired" : "—";
 }
 
-function TargetRow({ target, active, onSelect, onToggleFavorite }: { target: TCfTargetSummary; active: boolean; onSelect: () => void; onToggleFavorite: () => void }): React.ReactElement {
+function TargetRow({
+  target,
+  active,
+  search,
+  onSelect,
+  onToggleFavorite,
+}: {
+  target: TCfTargetSummary;
+  active: boolean;
+  search: string;
+  onSelect: () => void;
+  onToggleFavorite: () => void;
+}): React.ReactElement {
   return (
     <div className={`trow${active ? " active" : ""}`} onClick={onSelect}>
       <div className="trow-icon">{target.isFavorite ? "★" : "○"}</div>
       <div className="trow-main">
         <div className="trow-title">
-          {target.org}
-          {target.space ? ` / ${target.space}` : ""}
+          {highlightMatch(target.org, search)}
+          {target.space ? <>{" / "}{highlightMatch(target.space, search)}</> : ""}
         </div>
         <div className="trow-meta">
           {target.region}
@@ -116,7 +129,7 @@ export function BtpTargetSelector({ onSelect }: { onSelect: (target: TCfTargetSu
               <span className="wiz-count">{favorites.length}</span>
             </div>
             {favorites.map((target) => (
-              <TargetRow key={target.key} target={target} active={false} onSelect={() => onSelect(target)} onToggleFavorite={() => toggleFavorite(target)} />
+              <TargetRow key={target.key} target={target} active={false} search={search} onSelect={() => onSelect(target)} onToggleFavorite={() => toggleFavorite(target)} />
             ))}
           </>
         ) : null}
@@ -127,7 +140,7 @@ export function BtpTargetSelector({ onSelect }: { onSelect: (target: TCfTargetSu
               <span className="wiz-count">{recent.length}</span>
             </div>
             {recent.map((target) => (
-              <TargetRow key={target.key} target={target} active={false} onSelect={() => onSelect(target)} onToggleFavorite={() => toggleFavorite(target)} />
+              <TargetRow key={target.key} target={target} active={false} search={search} onSelect={() => onSelect(target)} onToggleFavorite={() => toggleFavorite(target)} />
             ))}
           </>
         ) : null}
@@ -141,7 +154,7 @@ export function BtpTargetSelector({ onSelect }: { onSelect: (target: TCfTargetSu
                 <span className="wiz-count">{items.length}</span>
               </div>
               {items.map((target) => (
-                <TargetRow key={target.key} target={target} active={false} onSelect={() => onSelect(target)} onToggleFavorite={() => toggleFavorite(target)} />
+                <TargetRow key={target.key} target={target} active={false} search={search} onSelect={() => onSelect(target)} onToggleFavorite={() => toggleFavorite(target)} />
               ))}
             </div>
           );

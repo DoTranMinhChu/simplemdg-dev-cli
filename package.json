@@ -1,6 +1,6 @@
 {
   "name": "simplemdg-dev-cli",
-  "version": "2.10.1",
+  "version": "2.10.2",
   "description": "SimpleMDG local development CLI with CF/BTP helpers, CAP helpers, GitLab sync, request trace, and BTP DB Studio.",
   "bin": {
     "simplemdg": "dist/index.js",

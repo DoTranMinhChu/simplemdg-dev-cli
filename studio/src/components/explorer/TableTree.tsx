@@ -6,6 +6,7 @@ import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { studioApi } from "../../api/studio-api-client";
 import { useWorkspaceStore } from "../../state/workspace-store";
 import { useStudioStore } from "../../state/studio-store";
+import { highlightMatch } from "../../lib/highlight-match";
 import type { TDatabaseObject, TDatabaseObjectKind } from "../../api/studio-api-types";
 
 const DATA_CAPABLE_KINDS: TDatabaseObjectKind[] = ["table", "view", "column-view"];
@@ -128,7 +129,8 @@ export function TableTree({
             objects.map((object) => (
               <ObjectTreeNode
                 key={object.name}
-                label={object.name}
+                label={highlightMatch(object.name, search)}
+                titleText={object.name}
                 icon={icon}
                 leaf
                 onClick={() => undefined}
