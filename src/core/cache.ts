@@ -44,6 +44,12 @@ const EMPTY_CACHE: TSimpleMdgCache = {
     tokenEntries: [],
     outputFileNames: [".npmrc"],
   },
+  git: {
+    buildCommandsByRepo: {},
+    scopeHistory: [],
+    sourceBranches: ["staging"],
+    targetBranches: ["uat", "qas"],
+  },
 };
 
 function cloneEmptyCache(): TSimpleMdgCache {
@@ -168,6 +174,12 @@ export async function readCache(): Promise<TSimpleMdgCache> {
       tokens: cache.npmrc?.tokens ?? EMPTY_CACHE.npmrc.tokens,
       tokenEntries: cache.npmrc?.tokenEntries ?? EMPTY_CACHE.npmrc.tokenEntries,
       outputFileNames: cache.npmrc?.outputFileNames ?? EMPTY_CACHE.npmrc.outputFileNames,
+    },
+    git: {
+      buildCommandsByRepo: cache.git?.buildCommandsByRepo ?? EMPTY_CACHE.git.buildCommandsByRepo,
+      scopeHistory: cache.git?.scopeHistory ?? EMPTY_CACHE.git.scopeHistory,
+      sourceBranches: cache.git?.sourceBranches ?? EMPTY_CACHE.git.sourceBranches,
+      targetBranches: cache.git?.targetBranches ?? EMPTY_CACHE.git.targetBranches,
     },
   };
 }
@@ -334,5 +346,34 @@ export async function rememberNpmrcTokenEntry(entry: TNpmrcTokenEntry): Promise<
 export async function rememberNpmrcOutputFileName(fileName: string): Promise<void> {
   const cache = await readCache();
   cache.npmrc.outputFileNames = uniqueLatest([fileName, ...cache.npmrc.outputFileNames]);
+  await writeCache(cache);
+}
+
+export async function rememberGitBuildCommand(repositoryPath: string, command: string): Promise<void> {
+  const cache = await readCache();
+  cache.git.buildCommandsByRepo[repositoryPath] = command;
+  await writeCache(cache);
+}
+
+export async function getRememberedGitBuildCommand(repositoryPath: string): Promise<string | undefined> {
+  const cache = await readCache();
+  return cache.git.buildCommandsByRepo[repositoryPath];
+}
+
+export async function rememberGitScope(scope: string): Promise<void> {
+  const cache = await readCache();
+  cache.git.scopeHistory = uniqueLatest([scope, ...cache.git.scopeHistory]);
+  await writeCache(cache);
+}
+
+export async function rememberGitSourceBranch(branch: string): Promise<void> {
+  const cache = await readCache();
+  cache.git.sourceBranches = uniqueLatest([branch, ...cache.git.sourceBranches]);
+  await writeCache(cache);
+}
+
+export async function rememberGitTargetBranch(branch: string): Promise<void> {
+  const cache = await readCache();
+  cache.git.targetBranches = uniqueLatest([branch, ...cache.git.targetBranches]);
   await writeCache(cache);
 }

@@ -30,7 +30,7 @@ import { saveQuery } from "../core/db/db-query-files";
 import { appendQueryHistory } from "../core/db/db-query-history";
 import type { IDatabaseAdapter, TDatabaseQueryResult, TDatabaseType, TResolvedDatabaseConnection } from "../core/db/db-types";
 
-type TStudioCommandOptions = { port?: string; readOnly?: boolean; timeout?: string; debugCf?: boolean };
+type TStudioCommandOptions = { port?: string; readOnly?: boolean; timeout?: string; debugCf?: boolean; devUi?: boolean; apiOnly?: boolean };
 type TImportCommandOptions = { app?: string; service?: string };
 
 function validateRequired(value: string): true | string {
@@ -166,11 +166,14 @@ async function exportRowsInteractively(result: TDatabaseQueryResult): Promise<vo
 }
 
 async function runStudioCommand(options: TStudioCommandOptions): Promise<void> {
+  const apiOnly = Boolean(options.apiOnly || options.devUi);
+
   const handle = await startStudioServer({
     port: options.port ? Number(options.port) : undefined,
     readOnly: Boolean(options.readOnly),
     queryTimeoutMs: options.timeout ? Number(options.timeout) : undefined,
     debugCf: Boolean(options.debugCf),
+    apiOnly,
   });
 
   const shutdown = async (): Promise<void> => {
@@ -617,6 +620,8 @@ export function registerCloudFoundryDbCommands(cfCommand: Command): void {
     .option("--read-only", "Start in read-only mode (blocks write/DDL statements)")
     .option("--timeout <ms>", "Query timeout in milliseconds", "30000")
     .option("--debug-cf", "Print verbose Cloud Foundry execution logs (off by default)")
+    .option("--dev-ui", "Frontend development mode: API-only server + instructions to run the Vite dev server separately")
+    .option("--api-only", "Start only the JSON/SSE API — no UI is served, no browser opens")
     .action(runStudioCommand);
 
   db

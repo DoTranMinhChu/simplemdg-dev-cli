@@ -69,7 +69,7 @@ Then select root group, destination folder, sync action, and parallel jobs.
 
 ## CF DB Studio
 
-A local database explorer for SAP HANA and PostgreSQL, with one-click import of credentials from BTP apps. The studio runs a web server bound to `127.0.0.1` only and opens your browser.
+A local database explorer for SAP HANA and PostgreSQL, with one-click import of credentials from BTP apps. The studio runs a web server bound to `127.0.0.1` only and opens your browser. The UI is a React + Vite frontend (`studio/`) served as static assets by the local backend; the browser only ever sees connection/target ids, never passwords or tokens.
 
 ### Recommended flow
 
@@ -89,8 +89,8 @@ The studio never deploys anything to BTP and never shows the database password.
 The Studio opens on a **Welcome page**. The left side has three collapsible sections — **Connections** (cards with color/environment/favorite, right-click for actions), **Object Explorer** (a lazy DBeaver-style tree), and **Saved Queries**. Work opens as **tabs** in the main area only when you act on something.
 
 - **Object Explorer** — expand a connection → Catalog → Schemas → a schema → folders (Tables, Views, Procedures, Functions, Synonyms). Children load only when expanded; each folder has its own search and a count badge. Double-click a table to open its data; right-click for Open Data / Open Structure / Generate SELECT / Generate COUNT / Copy Full Name.
-- **SQL tabs** — open from "Open SQL Console", "New query", "Generate SELECT", or a saved query. Run with **Ctrl+Enter**, format, explain (PostgreSQL), pick a row limit, export CSV/JSON, save to a `.sql` file. Dangerous statements require confirmation; read-only mode blocks writes.
-- **Data tabs** — a compact, icon-based toolbar gives the **WHERE filter** most of the width (Enter applies, Ctrl+Enter applies + shows generated SQL); next to it are small icon buttons: Apply ▶, Show SQL, Refresh ⟳, Insert ＋, Delete 🗑 (danger), Structure ▦, and an **Export ⬇ menu** (current page / current query / selected rows as CSV/JSON, plus *Export custom…* for choosing source, columns and format). **Pagination moved to a footer** below the table showing the range, offset, duration, page-size and ◀/▶ buttons. Click row numbers to **multi-select** (Ctrl/Shift to add). For tables with a primary key you can **edit inline** (double-click a cell → yellow), **Insert** (green), and **mark rows for delete** (red) — deletes show a *"N rows marked for delete · Undo"* toast and aren't applied until **Save changes**. A colored pending bar (yellow edits · green inserts · red deletes) offers Save / Revert / Show changes. Right-click a row for **View details / Copy row JSON / Copy INSERT / Copy UPDATE**. Keyboard: `Ctrl+S` save, `Ctrl+Z`/`Ctrl+Y` undo/redo, `Delete` mark selected.
+- **SQL tabs** — open from the Welcome page, a table's Structure → DDL tab, or a saved query/history entry. Run with **Ctrl+Enter** or the Run button, format, pick a row limit, export the result as CSV/JSON, save as a named query. Dangerous statements (DROP/TRUNCATE/ALTER/GRANT/REVOKE) require confirmation; read-only mode blocks writes.
+- **Data tabs** — a compact, icon-based toolbar gives the **WHERE filter** most of the width (Enter applies); next to it are small icon buttons: Apply ▶, Refresh ⟳, Insert ＋, Delete 🗑 (danger), Structure ▦, and Export (current page as CSV). Click a column header to **sort** (click again to flip direction). **Pagination sits in a footer** below the table showing the range, duration, page-size and ◀/▶ buttons. Click a row number to select it (used by Delete). For tables with a primary key you can **edit inline** (double-click a cell), **Insert** (a blank editable row), and **mark rows for delete** — nothing is applied until **Save Changes**. A pending-changes bar (edit/insert/delete counts) offers Save / Revert; if some rows fail to save, only the successful ones clear and the rest stay pending with an error marker.
 - **Structure tabs** — Columns (name, type, length, scale, nullable, key, default, comment), Indexes + primary key, generated **DDL**, and table Info (row count).
 - **BTP Import wizard** — a modal (Target → App → Services → Save) that reads `cf env`, detects HANA/PostgreSQL services, and saves a connection with a display name, color, environment, and favorite.
 
@@ -98,15 +98,15 @@ The bottom status bar shows connection state, last query duration, row count, an
 
 ### Productivity features
 
-- **Workspace restore** — your open tabs (including unsaved "New Query" content) are auto-saved and restored next time you open the Studio. Toggle this in **Settings**.
-- **Tabs** — drag to reorder, right-click for Close / Close Others / Close to Right / Pin / Rename / Duplicate. `Ctrl+Tab` / `Ctrl+Shift+Tab` switch tabs, `Ctrl+W` closes the active tab.
-- **Command palette** — press `Ctrl+Shift+P` to run any action (new SQL, run, save, import, toggle read-only, settings, …).
-- **SQL editor** — `Ctrl+Enter` runs the selection or the statement at the cursor, `F5` runs the whole tab, the Run ▾ menu offers Run Selected / Current / All / Explain, and **Format** pretty-prints. `Ctrl+S` saves to a `.sql` file (or Save As).
-- **Quick-filter SQL** — in a Data tab, type a `WHERE` and click **Show SQL** to see/copy the exact generated query or open it in a SQL console.
-- **Grid editing** — `Ctrl+Z`/`Ctrl+Y` undo/redo pending edits, `Delete` marks the selected row, `Enter`/`Tab` confirm a cell and move. A change-summary bar shows counts and **Show Changes** lists every old→new value before you save.
-- **Search** — every list highlights matches; press Enter to search, Esc to clear.
-- **Cell viewer** — double-click a result cell to open a viewer that pretty-prints JSON.
-- Press `Ctrl+Shift+P` → **Show Keyboard Shortcuts** for the full list.
+- **Workspace restore** — your open tabs (including unsaved SQL content) are auto-saved and restored next time you open the Studio, unless you turn this off in Settings.
+- **Tabs** — pin, close, right-click for Close / Close Others / Close Tabs to the Right / Rename / Duplicate / Pin. Closing and reopening preserves scroll/edit state while the app is running (all open tabs stay mounted, just hidden).
+- **SQL editor** — `Ctrl+Enter` or the Run button executes the editor content, server-side **Format** pretty-prints, **Save** writes to a named saved query (or Save As for a new one).
+- **Grid editing** — click a column header to sort, double-click a cell to edit inline, **Insert row** / **mark rows for delete**, a pending-changes bar shows edit/insert/delete counts with **Save** / **Revert**. If a save partially fails, only the successful rows clear — failed rows stay pending with an error marker so you don't lose the edit.
+- **Object tree context menu** — Open Data, Open Structure, Generate SELECT (opens a SQL tab), Generate COUNT, Copy SELECT/INSERT/UPDATE, Copy Name/Full Name.
+- **Search** — connections, object tree, saved queries, and history all have a search box with Esc-to-clear.
+- **Cell Value Inspector** — double-click a non-editable cell (or use the inspector from an editable one) to see Preview/Formatted/Raw/Edit/Metadata views, with copy-raw, copy-formatted, and copy-as-SQL-literal.
+
+Not yet ported from the previous (pre-React) build: tab drag-to-reorder and tab groups, the command palette (`Ctrl+Shift+P`), per-cell undo/redo history, the SQL Run ▾ dropdown (Run Selected/Current Statement/Explain — Run currently always executes the whole editor), the per-cell right-click menu with active-cell keyboard navigation, the data grid's "Show generated SQL" preview popover, the pending-changes "Show Changes" diff modal, and the connection sidebar's group-by selector.
 
 Settings, the workspace, saved queries, and history live under `~/.simplemdg/` (`db-studio-settings.json`, `db-studio-workspace.json`, `db-queries/`, `db-query-history.json`).
 
@@ -146,3 +146,65 @@ Connections are cached under:
 Saved queries live in `~/.simplemdg/db-queries/` and history in `~/.simplemdg/db-query-history.json`.
 
 Passwords are encrypted with a key derived from the current Windows user + machine. A cache file copied to another machine cannot be decrypted, and the password is never sent to the browser.
+
+## Git move-code (release dependency tracing)
+
+`smdg git move-code` is a release dependency tracing assistant: it moves a **scoped** set of commits from one branch to another across a microservice repository — typically `staging` → `uat` or `qas` — without ever merging the whole source branch and without blindly cherry-picking unrelated commits.
+
+```powershell
+smdg git move-code
+smdg git move-code --source staging --target uat --scope SJS-2158
+smdg git move-code --source staging --target qas --scope ParallelChange
+smdg git move-code --path srv/functions/ParallelChange
+smdg git move-code --symbol ActionValidateParallelChangeHandler
+smdg git move-code --build "cds build"
+smdg git move-code --dry-run
+```
+
+### What "scope" means
+
+A scope is whatever identifies the code you want to move — it does not have to be a Jira ticket:
+
+- Jira ticket key (`SJS-2158`)
+- Feature name (`ParallelChange`)
+- Branch name (`feature/FOM-2683`)
+- File or folder path (`--path`)
+- Class/function/type/API/entity name (`--symbol`)
+- A specific commit hash (`--commit`)
+
+If no flag is given, the CLI asks interactively how you want to search, and lets you combine multiple search methods before moving on.
+
+### The guided flow
+
+1. **Fetch branches** — `git fetch --all --prune`, then validates both branches exist on `origin`.
+2. **Search commits** — searches `origin/<target>..origin/<source>` by keyword/ticket (`--grep`), by path (`git log -- <path>`), by symbol (`git grep` on the source branch, then logs the matching files), or a manual commit hash.
+3. **Select commits** — candidates are shown tagged `[NORMAL]` or `[MERGE]`. You can pick the recommended set, normal commits only, inspect merge commits before including them, hand-pick commits, or search again. Merge commits always show their parents and the `diff --name-status <merge>^1 <merge>` before you decide.
+4. **Create the release branch** — always branched **from the target**, never from the source: `git checkout <target> && git pull && git checkout -b release/<scope>-to-<target>`. If that branch already exists you're asked to reuse it, recreate it, rename it, or abort.
+5. **Cherry-pick** — normal commits use `git cherry-pick <hash>`; merge commits always use `git cherry-pick -m 1 <hash>` (the mainline parent). Every command is printed before it runs.
+6. **Resolve conflicts** — conflicts are explained per file (e.g. "modify/delete: the file was deleted in the target branch but modified by the cherry-picked commit") with explicit choices: keep the deletion, keep the incoming file, check remaining usages first, or abort. Nothing is auto-resolved.
+7. **Build** — runs a configurable build/test command (`cds build`, `npm run build`, `npm test`, or a custom one); your choice is remembered per repository.
+8. **Trace dependencies** — if the build fails, the CLI parses `Cannot find module '...'` and TypeScript type-mismatch errors, resolves the likely missing file(s) **on the source branch**, and shows which source commit introduced them. The recommended action is to check out only the missing files from that specific commit (`git checkout <commit> -- <files>`) — not to cherry-pick the whole dependency commit, and never to check out the latest file from `origin/<source>`.
+9. **Summary and push** — shows `git log origin/<target>..HEAD`, `git diff --name-status`, and `git status` before asking to push. Nothing is pushed without confirmation.
+
+### Dry-run
+
+`smdg git move-code --dry-run` searches and prints the plan (candidate commits, the release branch that would be created) without creating a branch, cherry-picking, or touching any files.
+
+### Related commands
+
+- `smdg git pick` — search + cherry-pick only, for when you already have a release branch checked out.
+- `smdg git trace` — re-run the build command and dependency tracing on the current branch state.
+- `smdg git conflict` — guided resolution for a cherry-pick that's currently stopped on a conflict.
+- `smdg git summary` — show the commit/diff summary against a target branch and optionally push.
+
+### Multi-repository
+
+Pass `--repos <path...>` to run the same scope search + cherry-pick + build across several repository checkouts in one pass; a final `Repo / Status` table is printed at the end.
+
+### Safety rules
+
+- Never merges the whole source branch into the target.
+- Never cherry-picks the parent commits of a merge commit automatically.
+- Never checks out a file from `origin/<source>` latest — dependency fixes always check out from the *specific* commit that introduced the file.
+- Always shows the diff before pushing, and always asks for confirmation before `git push`.
+- Never continues a cherry-pick past a conflict without an explicit choice.

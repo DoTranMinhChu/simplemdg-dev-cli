@@ -9,6 +9,20 @@ npm install -g .\simplemdg-dev-cli-2.4.0.tgz --force
 smdg -V
 ```
 
+## Building from source
+
+The CLI backend (`src/`) and the CF DB Studio frontend (`studio/`, a standalone React + Vite + TypeScript project) build separately but are wired together by the root scripts:
+
+```powershell
+npm run build          # builds studio/ (Vite -> dist/core/db/studio-dist) then the CLI (tsc -> dist/)
+npm run build:studio   # studio only
+npm run build:cli      # CLI only
+npm run dev:cli        # run the CLI from source with tsx (no build step)
+npm run dev:studio     # Vite dev server for the Studio UI (hot reload)
+```
+
+`npm pack` / `npm install -g` run `prepack`, which runs the full `build`, so the packaged CLI always ships with a built Studio UI. See `smdg cf db studio --dev-ui` below for the frontend dev workflow.
+
 ## Prerequisites & auto-install
 
 Some commands rely on external CLIs: `cf` (Cloud Foundry), `cds` (SAP CAP), and `git`. The CLI checks for these **before** running an interactive flow — so you are not asked for credentials only to fail at the end. If a tool is missing, it offers to install it via a detected package manager (`choco`/`brew` for `cf`, `winget`/`choco`/`scoop`/`brew`/`apt-get` for `git`, `npm -g` for `@sap/cds-dk`), or prints the official install link when no manager is available. After installing a tool, open a new terminal so PATH refreshes.
@@ -50,7 +64,19 @@ smdg gitlab login
 smdg gitlab clone
 smdg gitlab pull
 smdg cf db studio
+smdg git move-code
 ```
+
+## Git move-code (release dependency tracing)
+
+`smdg git move-code` guides moving a scoped set of commits from one branch to another (typically `staging` → `uat`/`qas`) across a microservice repo, without ever merging the whole source branch. See [USER_GUIDE.md](USER_GUIDE.md#git-move-code-release-dependency-tracing) for the full walkthrough (scope search, normal vs. merge commits, conflict resolution, build/dependency tracing, and push).
+
+```powershell
+smdg git move-code --source staging --target uat --scope SJS-2158
+smdg git move-code --dry-run
+```
+
+Related subcommands: `smdg git pick`, `smdg git trace`, `smdg git conflict`, `smdg git summary`.
 
 ## GitLab sync
 
@@ -78,7 +104,7 @@ smdg cf login
 smdg cf db studio
 ```
 
-Studio starts a local web server bound to `127.0.0.1` only (auto-selects a free port) and opens your browser. It is a DBeaver / SAP HANA Database Explorer–style IDE:
+Studio starts a local web server bound to `127.0.0.1` only (auto-selects a free port), serves a React + Vite frontend (`studio/`) as static assets, and opens your browser. The backend is a plain Node HTTP server exposing a local JSON/SSE API (`src/core/db/db-studio-server.ts`); the React app never receives database/CF/GitLab passwords or tokens — only connection/target/tab ids, with the backend decrypting secrets internally. It is a DBeaver / SAP HANA Database Explorer–style IDE:
 
 - opens on a **Welcome page**; SQL / Data / Structure tabs open only on demand (closable, with dirty indicators)
 - **DBeaver-style lazy object tree**: connection → Catalog → Schemas → schema → Tables/Views/Procedures/Functions/Synonyms, loaded only when expanded, with per-folder search and count badges
@@ -95,13 +121,17 @@ Studio starts a local web server bound to `127.0.0.1` only (auto-selects a free 
 
 IDE-grade workflow:
 
-- **workspace tabs** that drag-to-reorder, pin, and restore on next launch (auto-saved to `~/.simplemdg/db-studio-workspace.json`) — unsaved SQL survives a refresh/restart; right-click a tab for Close / Close Others / Close to Right / Pin / Rename / Duplicate
-- **search highlight** on every list (connections, object tree, saved queries) with debounce, Enter-to-search, Esc-to-clear, and "No results found"
-- **quick-filter SQL preview** in the data grid: **Show SQL** (formatted, dialect-correct, with WHERE/ORDER BY/LIMIT/OFFSET), **Copy**, **Open in SQL Console**
-- **SQL editor**: line numbers, **Run dropdown** (Run Selected / Current Statement / All / Explain), `Ctrl+Enter` runs selected/current, `F5` runs all, server-side **Format**, `Ctrl+S` saves (updates linked file or Save As)
-- **grid editing**: `Ctrl+Z`/`Ctrl+Y` undo/redo of pending edits, `Delete` marks a row, `Enter`/`Tab` confirm-and-move, a sticky **change-summary bar** with **Show Changes** (per-cell old→new review)
-- **command palette** (`Ctrl+Shift+P`), keyboard-shortcut help, and a **Settings** panel (restore-workspace, default row limit/schema, read-only default, query timeout, auto-save delay…) stored in `~/.simplemdg/db-studio-settings.json`
-- **breadcrumbs**, **cell value viewer** (pretty-prints JSON), and **copy helpers** (name / full name / SELECT / INSERT / UPDATE templates)
+- **workspace tabs** (pin, close, close others/close to the right, rename, duplicate, restore on next launch — auto-saved to `~/.simplemdg/db-studio-workspace.json`); unsaved SQL survives a refresh/restart
+- **search** on every list (connections, object tree, saved queries, history) with debounce and Esc-to-clear
+- **SQL editor** with `Ctrl+Enter`/Run button, server-side **Format**, save to a named query (updates the linked saved query or Save As)
+- **grid editing**: click a column header to sort, double-click a cell to edit, insert/delete rows, a sticky **pending-changes bar** (edits/inserts/deletes counts) with **Save** / **Revert** — failed rows in a partial save stay pending with an error marker instead of being silently dropped
+- **object tree context menu**: Open Data/Structure, Generate SELECT/COUNT (opens in a SQL tab), Copy SELECT/INSERT/UPDATE, Copy Name/Full Name
+- a **Settings** panel (restore-workspace, default row limit/schema, read-only default, query timeout, auto-save delay, max history items, auto-format, production warning) stored in `~/.simplemdg/db-studio-settings.json` — read-only-by-default and restore-workspace are applied on launch
+- **Cell Value Inspector** (double-click a non-editable cell): detects JSON/HTML/date/number/url/base64/text, with formatted/raw views and copy helpers (raw / formatted / SQL literal)
+- **BTP import wizard** ends on a review step (display name, environment, color, favorite) before saving and testing the connection
+- Welcome page shows recent connections and recent saved queries, and a **Disconnect** link when a CF session is active
+
+Not yet ported from the previous build (tracked as follow-up, not lost — just deferred out of the first React milestone): tab drag-to-reorder and tab groups, the command palette, per-cell undo/redo history, the SQL "Run ▾" selection-aware dropdown (Run Selected/Current/Explain — Run currently executes the whole editor), per-cell right-click menu with active-cell keyboard navigation, the "Show generated SQL" filter preview popover, the pending-changes "Show Changes" diff review modal, and the connection sidebar's group-by selector.
 
 ### Commands
 
@@ -116,7 +146,9 @@ smdg cf db console        # interactive terminal SQL console (/help for commands
 
 In the Studio, click **+ New** in the Connections sidebar to add a direct connection without leaving the browser.
 
-`smdg cf db studio` options: `--port <port>` (preferred port), `--read-only`, `--timeout <ms>`.
+`smdg cf db studio` options: `--port <port>` (preferred port), `--read-only`, `--timeout <ms>`, `--debug-cf`.
+
+Frontend development: `--dev-ui` starts the backend in API-only mode and prints instructions to run the Vite dev server (`cd studio && npm run dev`) separately, which proxies `/api/*` to the backend so hot reload works without CORS. `--api-only` starts just the JSON/SSE API with no UI and no browser — useful for scripting or when working on `studio/` against an already-running backend.
 
 ### Local cache files
 

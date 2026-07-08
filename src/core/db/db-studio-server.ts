@@ -1,8 +1,10 @@
 import http from "node:http";
 import net from "node:net";
+import path from "node:path";
+import fs from "fs-extra";
 import { execa } from "execa";
 import chalk from "chalk";
-import { renderStudioHtml } from "./db-studio-html";
+import { findNearestRepository } from "../repository";
 import { StudioConnectionPool } from "./db-connection";
 import {
   duplicateConnection,
@@ -72,7 +74,74 @@ export type TStudioServerOptions = {
   readOnly?: boolean;
   queryTimeoutMs?: number;
   debugCf?: boolean;
+  /** Serve only the JSON/SSE API — no static UI, no browser auto-open. Used by `--dev-ui`/`--api-only` so a separately-run Vite dev server owns the frontend. */
+  apiOnly?: boolean;
 };
+
+const STUDIO_DIST_DIRNAME = path.join("dist", "core", "db", "studio-dist");
+
+/**
+ * Locate the built React Studio assets. Anchored to the CLI package root (not
+ * `__dirname` directly) so this resolves identically whether the CLI is
+ * running compiled (`node dist/index.js`) or via `tsx src/index.ts` — in the
+ * latter case `__dirname` points at `src/core/db`, but the built assets still
+ * live under `<packageRoot>/dist/core/db/studio-dist`.
+ */
+async function resolveStudioDistPath(): Promise<string | undefined> {
+  const repository = await findNearestRepository(__dirname);
+  if (!repository) return undefined;
+  return path.join(repository.repositoryPath, STUDIO_DIST_DIRNAME);
+}
+
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".map": "application/json; charset=utf-8",
+};
+
+/**
+ * Serve the built React Studio (SPA fallback: unknown paths without a file
+ * extension resolve to index.html).
+ */
+async function serveStudioAsset(pathname: string, res: http.ServerResponse): Promise<void> {
+  const distPath = await resolveStudioDistPath();
+  const requestedExt = path.extname(pathname);
+
+  if (distPath && (await fs.pathExists(distPath))) {
+    // Prevent path traversal: resolve then verify the result stays inside distPath.
+    const relative = requestedExt ? pathname.replace(/^\/+/, "") : "index.html";
+    const resolved = path.normalize(path.join(distPath, relative));
+
+    if (resolved === distPath || resolved.startsWith(distPath + path.sep)) {
+      const filePath = (await fs.pathExists(resolved)) && (await fs.stat(resolved)).isFile() ? resolved : path.join(distPath, "index.html");
+
+      if (await fs.pathExists(filePath)) {
+        const contentType = MIME_TYPES[path.extname(filePath)] ?? "application/octet-stream";
+        const contents = await fs.readFile(filePath);
+        res.writeHead(200, { "content-type": contentType });
+        res.end(contents);
+        return;
+      }
+    }
+  }
+
+  res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+  res.end(
+    "<!doctype html><html><body style=\"font-family:sans-serif;padding:40px;color:#334\"><h2>CF DB Studio UI is not built</h2>" +
+      "<p>Run <code>npm run build:studio</code> (or <code>npm run build</code>) from the repository root, then restart <code>smdg cf db studio</code>.</p>" +
+      "<p>For frontend development, run <code>smdg cf db studio --dev-ui</code> and follow the printed instructions.</p></body></html>",
+  );
+}
 
 export type TStudioServerHandle = {
   url: string;
@@ -281,8 +350,11 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
     const method = req.method ?? "GET";
 
     if (pathname === "/" && method === "GET") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(renderStudioHtml({ readOnlyDefault: serverReadOnlyDefault }));
+      if (options.apiOnly) {
+        sendJson(res, { error: "This server is running in --api-only mode. Start the Vite dev server separately: cd studio && npm run dev" }, 404);
+        return;
+      }
+      await serveStudioAsset(pathname, res);
       return;
     }
 
@@ -1134,6 +1206,12 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
       return;
     }
 
+    // Static assets + SPA client-side routes (anything else that's a GET, not under /api).
+    if (method === "GET" && !pathname.startsWith("/api/") && !options.apiOnly) {
+      await serveStudioAsset(pathname, res);
+      return;
+    }
+
     res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ error: "Not found" }));
   };
@@ -1152,13 +1230,23 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
   await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
 
   const url = `http://127.0.0.1:${port}`;
-  console.log(chalk.green(`SimpleMDG CF DB Studio: ${url}`));
+
+  if (options.apiOnly) {
+    console.log(chalk.green(`SimpleMDG CF DB Studio API: ${url}`));
+    console.log(chalk.gray("Running in --api-only mode (no UI is served here)."));
+    console.log(chalk.gray("In another terminal, run:"));
+    console.log(chalk.cyan("  cd studio && npm run dev"));
+    console.log(chalk.gray(`Vite will proxy /api/* to ${url}.`));
+  } else {
+    console.log(chalk.green(`SimpleMDG CF DB Studio: ${url}`));
+  }
+
   if (serverReadOnlyDefault) {
     console.log(chalk.yellow("Read-only mode is ON. Write/DDL statements are blocked."));
   }
   console.log(chalk.gray("Server is bound to 127.0.0.1 only. Press Ctrl+C to stop."));
 
-  if (!process.env.SMDG_STUDIO_NO_OPEN) {
+  if (!options.apiOnly && !process.env.SMDG_STUDIO_NO_OPEN) {
     await openBrowser(url);
   }
 

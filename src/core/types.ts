@@ -137,12 +137,20 @@ export type TNpmrcCache = {
   outputFileNames: string[];
 };
 
+export type TGitCache = {
+  buildCommandsByRepo: Record<string, string>;
+  scopeHistory: string[];
+  sourceBranches: string[];
+  targetBranches: string[];
+};
+
 export type TSimpleMdgCache = {
   variables: Record<string, string[]>;
   overrides: Record<string, string[]>;
   cloudFoundry: TCloudFoundryCache;
   cds: TCdsCache;
   npmrc: TNpmrcCache;
+  git: TGitCache;
 };
 
 export type TParsedCloudFoundryEnvironment = {
