@@ -1,10 +1,13 @@
 import chalk from "chalk";
 import { Command } from "commander";
+import { execa } from "execa";
 import { searchableSelectChoice } from "../core/prompts";
 import { analyzeSession, deriveTurns } from "../core/ai/ai-session-analysis";
 import { ingestAiSessions } from "../core/ai/ai-session-ingestion";
 import { AiSessionStore, aiStudioStorageDir } from "../core/ai/ai-session-store";
 import { startAiStudioServer } from "../core/ai/studio/ai-studio-server";
+import { openProjectFolder, openProjectInVsCode } from "../core/ai/ai-session-command-service";
+import { getSessionLauncher } from "../core/ai/launchers/claude-session-launcher";
 import type { TAiSession } from "../core/ai/ai-types";
 
 async function openStoreOrExit(): Promise<AiSessionStore> {
@@ -216,6 +219,130 @@ async function runExportCommand(sessionIdArg: string | undefined, options: { for
   console.log(exported.content);
 }
 
+async function resolveSessionArg(sessionIdArg: string | undefined): Promise<TAiSession | undefined> {
+  const store = await openStoreOrExit();
+  await ingestAiSessions(store);
+  const sessionId = sessionIdArg ?? (await pickSessionInteractively(store));
+  if (!sessionId) {
+    console.log("No AI sessions found yet.");
+    store.close();
+    return undefined;
+  }
+  const session = store.getSession(sessionId);
+  store.close();
+  if (!session) {
+    console.error(chalk.red(`Session not found: ${sessionId}`));
+    process.exitCode = 1;
+    return undefined;
+  }
+  return session;
+}
+
+async function runResumeCommand(sessionIdArg: string | undefined, options: { newTerminal?: boolean; copy?: boolean }): Promise<void> {
+  const session = await resolveSessionArg(sessionIdArg);
+  if (!session) return;
+
+  const launcher = getSessionLauncher(session.provider);
+  if (!launcher) {
+    console.error(chalk.red(`Resuming ${session.provider} sessions is not supported yet (no verified resume command for this provider).`));
+    process.exitCode = 1;
+    return;
+  }
+
+  const capability = await launcher.canResume(session);
+  if (!capability.canResume) {
+    console.error(chalk.red(capability.reason ?? "This session cannot be resumed."));
+    process.exitCode = 1;
+    return;
+  }
+
+  if (options.copy) {
+    const launch = launcher.buildResumeCommand(session, { includeChangeDirectory: true });
+    console.log("");
+    console.log(chalk.bold("Resume command:"));
+    console.log(chalk.cyan(launch.command));
+    console.log("");
+    return;
+  }
+
+  if (options.newTerminal) {
+    const result = await launcher.openInTerminal(session);
+    if (!result.ok) {
+      console.error(chalk.red(result.error ?? "Failed to open a new terminal."));
+      process.exitCode = 1;
+      return;
+    }
+    console.log(chalk.green("Opened a new terminal window resuming this session."));
+    return;
+  }
+
+  const launch = launcher.buildResumeCommand(session, { includeChangeDirectory: false });
+  console.log(chalk.gray(`Resuming session in ${session.cwd} ...`));
+  const result = await execa(launch.executable, launch.args, { cwd: session.cwd, stdio: "inherit", reject: false });
+  process.exitCode = result.exitCode ?? 0;
+}
+
+async function runContinueCommand(sessionIdArg: string | undefined, options: { newTerminal?: boolean }): Promise<void> {
+  const session = await resolveSessionArg(sessionIdArg);
+  if (!session) return;
+
+  const launcher = getSessionLauncher(session.provider);
+  if (!launcher) {
+    console.error(chalk.red(`Continuing ${session.provider} sessions is not supported yet.`));
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(chalk.yellow("Note: --continue resumes the most recent session in this project, which may not be the exact session you selected."));
+
+  if (options.newTerminal) {
+    const result = await launcher.openContinueInTerminal(session);
+    if (!result.ok) {
+      console.error(chalk.red(result.error ?? "Failed to open a new terminal."));
+      process.exitCode = 1;
+      return;
+    }
+    console.log(chalk.green("Opened a new terminal window continuing the latest session in this project."));
+    return;
+  }
+
+  const launch = launcher.buildContinueCommand(session, { includeChangeDirectory: false });
+  console.log(chalk.gray(`Continuing the latest session in ${session.cwd} ...`));
+  const result = await execa(launch.executable, launch.args, { cwd: session.cwd, stdio: "inherit", reject: false });
+  process.exitCode = result.exitCode ?? 0;
+}
+
+async function runOpenCommand(sessionIdArg: string | undefined, options: { vscode?: boolean }): Promise<void> {
+  const session = await resolveSessionArg(sessionIdArg);
+  if (!session) return;
+
+  const result = options.vscode ? await openProjectInVsCode(session.cwd) : await openProjectFolder(session.cwd);
+  if (!result.ok) {
+    console.error(chalk.red(result.error ?? "Failed to open the project."));
+    process.exitCode = 1;
+    return;
+  }
+  console.log(chalk.green(options.vscode ? "Opened the project in VS Code." : "Opened the project folder."));
+}
+
+async function runCopyCommandCommand(sessionIdArg: string | undefined): Promise<void> {
+  const session = await resolveSessionArg(sessionIdArg);
+  if (!session) return;
+
+  const launcher = getSessionLauncher(session.provider);
+  if (!launcher) {
+    console.error(chalk.red(`Resuming ${session.provider} sessions is not supported yet.`));
+    process.exitCode = 1;
+    return;
+  }
+
+  const launch = launcher.buildResumeCommand(session, { includeChangeDirectory: true });
+  console.log("");
+  console.log(chalk.bold("Copy and run this to resume the session:"));
+  console.log(chalk.cyan(launch.command));
+  console.log("");
+}
+
 export function registerAiCommands(program: Command): void {
   const ai = program.command("ai").description("Local AI coding session observability (Claude Code + Codex)");
 
@@ -255,4 +382,24 @@ export function registerAiCommands(program: Command): void {
     .description("Export one session as Markdown or JSON (prompts interactively if omitted)")
     .option("--format <format>", "markdown|json", "markdown")
     .action(runExportCommand);
+
+  ai.command("resume [sessionId]")
+    .description("Resume a Claude Code session (prompts interactively if omitted)")
+    .option("--new-terminal", "Open a new terminal window instead of resuming in this one")
+    .option("--copy", "Print the resume command instead of running it")
+    .action(runResumeCommand);
+
+  ai.command("continue [sessionId]")
+    .description("Continue the most recent session in a project (claude --continue)")
+    .option("--new-terminal", "Open a new terminal window instead of continuing in this one")
+    .action(runContinueCommand);
+
+  ai.command("open [sessionId]")
+    .description("Open a session's project folder (prompts interactively if omitted)")
+    .option("--vscode", "Open in VS Code instead of the OS file explorer")
+    .action(runOpenCommand);
+
+  ai.command("copy-command [sessionId]")
+    .description("Print the resume command for a session without running it")
+    .action(runCopyCommandCommand);
 }

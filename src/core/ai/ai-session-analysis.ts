@@ -1,6 +1,7 @@
 import { redactSecrets } from "./ai-secret-redaction";
 import type {
   TAiObservation,
+  TAiSession,
   TAiTurn,
   TErrorGroup,
   TFileImpact,
@@ -328,4 +329,72 @@ export function analyzeSession(sessionId: string, observations: TAiObservation[]
     commandsRun,
     loopFindings: [],
   };
+}
+
+// --- Continuation prompt --------------------------------------------------------
+
+/**
+ * Builds a "resume with context" prompt for pasting into a new/continued Claude Code session.
+ * Every section is sourced from `analysis`/`turns` (already observed-only per classifySessionOutcome
+ * and analyzeErrors/analyzeVerification) — this never invents claims about what was accomplished.
+ */
+export function buildContinuationPrompt(session: TAiSession, turns: TAiTurn[], analysis: TSessionAnalysis): string {
+  const lines: string[] = [];
+  const realTurns = turns.filter((turn) => !turn.isContext);
+  const lastTurn = realTurns[realTurns.length - 1];
+
+  lines.push(`Continuing work from a previous Claude Code session in "${session.project}" (${session.cwd}).`);
+  if (session.gitBranch) lines.push(`Git branch: ${session.gitBranch}.`);
+  lines.push("");
+
+  lines.push(`Previous session outcome: ${analysis.outcome}.`);
+  for (const item of analysis.outcomeEvidence) lines.push(`- ${item}`);
+  lines.push("");
+
+  if (lastTurn) {
+    lines.push(`Last request in that session (turn ${lastTurn.index}):`);
+    lines.push(`"${redactSecrets(lastTurn.userRequest)}"`);
+    lines.push("");
+  }
+
+  const failedChecks = analysis.verification.filter((check) => check.status === "fail");
+  if (failedChecks.length > 0) {
+    lines.push("Unresolved verification failures (observed):");
+    for (const check of failedChecks) lines.push(`- ${check.label} failed.`);
+    lines.push("");
+  }
+
+  const topErrors = analysis.errorGroups.slice(0, 5);
+  if (topErrors.length > 0) {
+    lines.push("Errors observed in the previous session:");
+    for (const group of topErrors) lines.push(`- [${group.category}] ${group.message}${group.count > 1 ? ` (x${group.count})` : ""}`);
+    lines.push("");
+  }
+
+  const recentFiles = [...analysis.fileImpact].sort((a, b) => b.lastTurnIndex - a.lastTurnIndex).slice(0, 8);
+  if (recentFiles.length > 0) {
+    lines.push("Files touched, most recently edited first:");
+    for (const file of recentFiles) lines.push(`- ${file.path} (${file.edits} edit${file.edits === 1 ? "" : "s"}, ${file.reads} read${file.reads === 1 ? "" : "s"})`);
+    lines.push("");
+  }
+
+  lines.push("Recommended next action:");
+  lines.push(recommendNextAction(analysis));
+  lines.push("");
+  lines.push("(Generated from observed commands and their actual output in the previous session — not assumed from assistant text alone.)");
+
+  return lines.join("\n");
+}
+
+function recommendNextAction(analysis: TSessionAnalysis): string {
+  if (analysis.verification.some((check) => check.status === "fail")) {
+    return "Re-run the failing verification command(s) above and fix the underlying issue before continuing.";
+  }
+  if (analysis.errorGroups.length > 0) {
+    return "Review the errors above and confirm whether they were resolved before starting new work.";
+  }
+  if (analysis.verification.length === 0) {
+    return "No verification (typecheck/build/test/lint) was observed in the previous session — consider running one to confirm the current state before continuing.";
+  }
+  return "Continue from where the previous session left off.";
 }

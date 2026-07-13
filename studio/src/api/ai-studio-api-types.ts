@@ -46,6 +46,9 @@ export type TAiSession = {
   sourceFile: string;
   analysisStatus: "pending" | "complete" | "partial" | "failed";
   userScore: "good" | "bad" | "";
+  pinned: boolean;
+  favorite: boolean;
+  outcome: TSessionOutcome;
 };
 
 export type TAiTurn = {
@@ -163,3 +166,39 @@ export type TIngestionResult = {
 };
 
 export type TSessionListResponse = { sessions: TAiSession[]; nextCursor?: string };
+
+// --- Session launcher / resume ---------------------------------------------------
+
+export type TShellKind = "powershell" | "cmd" | "bash" | "zsh" | "unknown";
+
+export type TAiSessionLaunchCommand = {
+  provider: "claude";
+  sessionId: string;
+  sessionName?: string;
+  workingDirectory: string;
+  command: string;
+  executable: string;
+  args: string[];
+  shell: TShellKind;
+};
+
+export type TAiSessionLaunchResponse = {
+  provider: TAiProvider;
+  canResume: boolean;
+  reason?: string;
+  workingDirectory: string;
+  workingDirectoryExists: boolean;
+  commands?: {
+    resume: TAiSessionLaunchCommand;
+    resumeWithWorkingDirectory: TAiSessionLaunchCommand;
+    continueLatestInProject: TAiSessionLaunchCommand;
+  };
+  capabilities: {
+    copyCommand: boolean;
+    openTerminal: boolean;
+    openProject: boolean;
+    openVsCode: boolean;
+  };
+};
+
+export type TAiActionResult = { ok: boolean; error?: string };

@@ -187,17 +187,35 @@ Reads sessions read-only from `~/.claude/projects/**/*.jsonl` (Claude Code) and 
 
 Secrets (Bearer/JWT tokens, API keys, GitLab/GitHub tokens, AWS keys, private key blocks, and plain-text "password:"/"pin:"/"token:" mentions) are redacted by default everywhere — CLI, API, and exports. A per-tab "Show sensitive content" toggle reveals the original text for that session only, as an explicit local action.
 
+### Resume & launch
+
+Find an old session and get back to work in one or two clicks — from the session workspace header, a session row's hover icon/right-click menu, or the "Continue working" widget on the welcome screen:
+
+- **Resume in Claude Code** — opens a new terminal window running `claude --resume <sessionId>` in the session's project folder. Always resumes by the real session ID (verified against the installed `claude` CLI: `--resume <name>` only pre-filters Claude's own picker, it does not silently resume a named session — so Studio never offers that as a distinct action)
+- **Continue latest session in project** — `claude --continue`, clearly labeled as resuming the most recent session in that project, which may not be the exact one you picked
+- **Copy command** (with or without the `cd`/`Set-Location` prefix) — copies the exact, shell-appropriate command instead of running it; the app always shows what was copied
+- **Open project folder** / **Open project in VS Code** — graceful, non-crashing errors if the folder is gone or `code` isn't on PATH
+- **Copy suggested continuation prompt** — a "resume with context" prompt built only from that session's observed outcome, verification results, errors, and files touched (never from the assistant's own claims)
+- **Pin** / **Favorite** — Studio-only metadata; never modifies the underlying Claude/Codex session file
+- A confirmation dialog previews the exact command before any terminal is opened, with an opt-out ("don't ask again") for people who resume often
+- Provider-gated: Codex sessions currently show no resume action at all rather than a guessed/incorrect command — only Claude Code has a verified resume flow today
+
 ### Commands
 
 ```powershell
-smdg ai studio              # open the local browser Studio
-smdg ai sessions             # list recent sessions in the terminal
-smdg ai inspect <sessionId>  # detailed summary of one session (prompts if omitted)
-smdg ai doctor               # ingestion status, parser diagnostics, storage location
-smdg ai scan                 # re-scan ~/.claude and ~/.codex for new/changed sessions
-smdg ai export <sessionId>   # export one session as Markdown or JSON (prompts if omitted)
+smdg ai studio                  # open the local browser Studio
+smdg ai sessions                 # list recent sessions in the terminal
+smdg ai inspect <sessionId>      # detailed summary of one session (prompts if omitted)
+smdg ai doctor                   # ingestion status, parser diagnostics, storage location
+smdg ai scan                     # re-scan ~/.claude and ~/.codex for new/changed sessions
+smdg ai export <sessionId>       # export one session as Markdown or JSON (prompts if omitted)
+smdg ai resume [sessionId]       # resume a Claude Code session (prompts if omitted)
+smdg ai continue [sessionId]     # continue the latest session in that project (claude --continue)
+smdg ai open [sessionId]         # open the session's project folder (--vscode to open in VS Code)
+smdg ai copy-command [sessionId] # print the resume command without running it
 ```
 
 `smdg ai studio` options: `--port <port>`, `--dev-ui` (API-only + Vite dev server instructions), `--api-only`.
+`smdg ai resume`/`continue` options: `--new-terminal` (open a new terminal window instead of resuming in the current one), `--copy` (print the command instead of running it, `resume` only).
 
-Not yet built (tracked as follow-up — this is a first, Phase 1 milestone, not the full spec): the Graph view, loop/dead-end detection, context-quality and instruction-compliance analyzers, session comparison, project-level analytics, prompt-quality analysis, and rule/skill recommendations. The session list, turns, timeline, tool/error/file/verification analysis, redaction, incremental ingestion, and exports are all real and working today, including against real session history.
+Not yet built (tracked as follow-up — this is a first, Phase 1 milestone, not the full spec): the Graph view, loop/dead-end detection, context-quality and instruction-compliance analyzers, session comparison, project-level analytics, prompt-quality analysis, rule/skill recommendations, the global quick-launch picker (Ctrl+K) and command palette (Ctrl+Shift+P), session aliases, and renaming a Claude session from within Studio. The session list, turns, timeline, tool/error/file/verification analysis, redaction, incremental ingestion, exports, and the resume/launch actions above are all real and working today, including against real session history.

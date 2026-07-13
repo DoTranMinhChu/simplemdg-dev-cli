@@ -160,6 +160,19 @@ Passwords are encrypted with a key derived from the current Windows user + machi
 5. Open **Timeline** for a straight chronological view, with filters to hide reasoning or show only errors/tool activity.
 6. Click **Export Markdown** on the Overview tab to save a shareable summary (secrets redacted).
 
+### Getting back to old work
+
+Every session view has a **▶ Resume in Claude Code** button, plus a **More ▾** menu — the same actions are also on each session row in the sidebar (hover for a quick-resume icon, right-click for the full menu) and on the "Continue working" widget shown when no session is selected:
+
+- **Resume in Claude Code** opens a new terminal window already running `claude --resume <sessionId>` in the right project folder. A confirmation dialog shows you the exact command first (with a "don't ask again" option) — nothing runs silently.
+- **Continue latest session in project** runs `claude --continue` instead — useful when you want "wherever I left off in this project", not this exact session.
+- **Copy Resume Command** / **Copy Resume Command (with cd)** copy the command instead of running it, so you can paste it into a terminal you already have open.
+- **Copy Suggested Continuation Prompt** builds a "resume with context" prompt from that session's own observed outcome, verification results, errors, and touched files — handy to paste as your first message in the new session.
+- **Pin** and the star **Favorite** toggle are Studio-only bookmarks; they never touch the underlying Claude/Codex session file.
+- **Open Project Folder** / **Open Project in VS Code** fail gracefully (with a clear message) if the folder is gone or `code` isn't installed — they never crash the Studio.
+
+Codex sessions don't show a resume action yet — there's no verified `codex` resume command to offer, so Studio says so plainly instead of guessing one.
+
 ### Privacy
 
 Everything stays on your machine. The server binds to `127.0.0.1` only, session files are opened read-only and never modified, and data lives in `~/.simplemdg/ai-studio/traces.db`. Session titles, error messages, commands, and observation text are redacted by default (Bearer/JWT tokens, API keys, GitLab/GitHub tokens, AWS keys, private key blocks, plain-text "password:"/"pin:"/"token:" mentions). Each session workspace has a **"Show sensitive content"** checkbox to reveal the original text for that session only — an explicit, local, per-view action, not a default.
@@ -167,16 +180,22 @@ Everything stays on your machine. The server binds to `127.0.0.1` only, session 
 ### Terminal alternatives
 
 ```powershell
-smdg ai sessions              # table of recent sessions
-smdg ai inspect <sessionId>   # one session's summary (prompts you to pick one if omitted)
-smdg ai doctor                # ingestion status + parser diagnostics + storage location
-smdg ai scan                  # re-scan for new/changed session files
-smdg ai export <sessionId>    # Markdown/JSON export to stdout
+smdg ai sessions               # table of recent sessions
+smdg ai inspect <sessionId>    # one session's summary (prompts you to pick one if omitted)
+smdg ai doctor                 # ingestion status + parser diagnostics + storage location
+smdg ai scan                   # re-scan for new/changed session files
+smdg ai export <sessionId>     # Markdown/JSON export to stdout
+smdg ai resume [sessionId]     # resume a Claude Code session right from the terminal
+smdg ai continue [sessionId]   # claude --continue in that session's project
+smdg ai open [sessionId]       # open the project folder (--vscode for VS Code instead)
+smdg ai copy-command [sessionId]  # print the resume command without running it
 ```
+
+`smdg ai resume`/`continue` prompt you to pick a session if you omit the ID, then resume it directly in your current terminal (add `--new-terminal` to open a separate window instead, or `--copy` on `resume` to just print the command).
 
 `smdg ai studio` requires Node.js 22.5+ (for the built-in `node:sqlite` module used for local storage); every other `smdg` command keeps working on older Node versions. If you're on an older Node, `smdg ai doctor`/`studio` will tell you clearly instead of crashing.
 
-Not yet built: the Graph view, loop/dead-end detection, context-quality and instruction-compliance checks, session comparison, project-level analytics, and rule/skill recommendations from repeated findings. These are tracked as follow-up phases, not abandoned.
+Not yet built: the Graph view, loop/dead-end detection, context-quality and instruction-compliance checks, session comparison, project-level analytics, rule/skill recommendations from repeated findings, the global quick-launch picker (Ctrl+K), a command palette (Ctrl+Shift+P), session aliases, and renaming a Claude session from within Studio. These are tracked as follow-up phases, not abandoned.
 
 ## Git move-code (release dependency tracing)
 

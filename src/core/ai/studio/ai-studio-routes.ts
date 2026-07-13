@@ -1,8 +1,11 @@
 import type http from "node:http";
-import { analyzeSession, deriveTurns } from "../ai-session-analysis";
+import { analyzeSession, buildContinuationPrompt, deriveTurns } from "../ai-session-analysis";
 import { ingestAiSessions } from "../ai-session-ingestion";
 import { redactSecrets } from "../ai-secret-redaction";
 import { exportSession } from "../ai-session-export";
+import { openProjectFolder, openProjectInVsCode, type TShellKind } from "../ai-session-command-service";
+import { buildSessionLaunchResponse } from "../ai-session-launch";
+import { getSessionLauncher } from "../launchers/claude-session-launcher";
 import { aiStudioStorageDir } from "../ai-session-store";
 import type { AiSessionStore } from "../ai-session-store";
 import type { TAiObservation } from "../ai-types";
@@ -94,6 +97,7 @@ export async function handleAiStudioApi(req: http.IncomingMessage, res: http.Ser
         project: params.get("project") || undefined,
         search: params.get("search") || undefined,
         hasErrors: params.get("hasErrors") === "true",
+        pinnedOnly: params.get("pinnedOnly") === "true",
       },
       cursor: params.get("cursor") || undefined,
       limit,
@@ -161,6 +165,60 @@ export async function handleAiStudioApi(req: http.IncomingMessage, res: http.Ser
       }
       store.setScore(sessionId, value);
       sendJson(res, { ok: true });
+      return true;
+    }
+
+    if (subPath === "/pin" && method === "POST") {
+      const body = await readJsonBody(req);
+      store.setFlag(sessionId, "pinned", body.value !== false);
+      sendJson(res, { ok: true });
+      return true;
+    }
+
+    if (subPath === "/favorite" && method === "POST") {
+      const body = await readJsonBody(req);
+      store.setFlag(sessionId, "favorite", body.value !== false);
+      sendJson(res, { ok: true });
+      return true;
+    }
+
+    if (subPath === "/launch" && method === "GET") {
+      const shell = (url.searchParams.get("shell") as TShellKind | null) ?? undefined;
+      const launch = await buildSessionLaunchResponse(session, shell ?? undefined);
+      sendJson(res, launch);
+      return true;
+    }
+
+    if (subPath === "/open-terminal" && method === "POST") {
+      const launcher = getSessionLauncher(session.provider);
+      if (!launcher) {
+        sendJson(res, { ok: false, error: `Resuming ${session.provider} sessions is not supported yet.` });
+        return true;
+      }
+      const body = await readJsonBody(req);
+      const mode = getString(body, "mode") === "continue" ? "continue" : "resume";
+      const result = mode === "continue" ? await launcher.openContinueInTerminal(session) : await launcher.openInTerminal(session);
+      sendJson(res, result);
+      return true;
+    }
+
+    if (subPath === "/open-project" && method === "POST") {
+      const result = await openProjectFolder(session.cwd);
+      sendJson(res, result);
+      return true;
+    }
+
+    if (subPath === "/open-vscode" && method === "POST") {
+      const result = await openProjectInVsCode(session.cwd);
+      sendJson(res, result);
+      return true;
+    }
+
+    if (subPath === "/continuation-prompt" && method === "GET") {
+      const observations = store.getObservations(sessionId);
+      const turns = deriveTurns(observations);
+      const analysis = analyzeSession(sessionId, observations);
+      sendJson(res, { prompt: buildContinuationPrompt(session, turns, analysis) });
       return true;
     }
 

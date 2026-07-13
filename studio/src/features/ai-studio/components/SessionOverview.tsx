@@ -57,130 +57,140 @@ export function SessionOverview({ session, analysis }: { session: TAiSession; an
         ) : null}
       </div>
 
-      <h2 style={{ margin: "10px 0 6px" }}>{session.title}</h2>
+      <div className="ai-card">
+        <h2 style={{ margin: "0 0 6px" }}>{session.title}</h2>
 
-      <div className="kvs" style={{ marginBottom: 16 }}>
-        <div className="k">Duration</div>
-        <div>{formatDuration(session.durationMs)}</div>
-        <div className="k">Tokens</div>
-        <div>
-          {(session.inputTokens + session.outputTokens).toLocaleString()} ({session.inputTokens.toLocaleString()} in / {session.outputTokens.toLocaleString()} out)
-          {session.cacheReadTokens ? ` · ${session.cacheReadTokens.toLocaleString()} cache-read` : ""}
+        <div className="kvs" style={{ marginBottom: 16 }}>
+          <div className="k">Duration</div>
+          <div>{formatDuration(session.durationMs)}</div>
+          <div className="k">Tokens</div>
+          <div>
+            {(session.inputTokens + session.outputTokens).toLocaleString()} ({session.inputTokens.toLocaleString()} in / {session.outputTokens.toLocaleString()} out)
+            {session.cacheReadTokens ? ` · ${session.cacheReadTokens.toLocaleString()} cache-read` : ""}
+          </div>
+          <div className="k">Turns</div>
+          <div>{session.turnCount}</div>
+          <div className="k">Tool calls</div>
+          <div>{session.toolCallCount}</div>
+          <div className="k">Errors</div>
+          <div>{session.errorCount}</div>
+          <div className="k">Model</div>
+          <div>{session.model || "unknown"}</div>
         </div>
-        <div className="k">Turns</div>
-        <div>{session.turnCount}</div>
-        <div className="k">Tool calls</div>
-        <div>{session.toolCallCount}</div>
-        <div className="k">Errors</div>
-        <div>{session.errorCount}</div>
-        <div className="k">Model</div>
-        <div>{session.model || "unknown"}</div>
+
+        <div className="row" style={{ alignItems: "center", gap: 10 }}>
+          <span className={outcomeBadgeClass(analysis.outcome)}>{outcomeLabel(analysis.outcome)}</span>
+          <span className="note">derived from observed verification evidence below — not from the assistant's own claims</span>
+        </div>
       </div>
 
-      <div className="row" style={{ marginBottom: 16, alignItems: "center", gap: 10 }}>
-        <span className={outcomeBadgeClass(analysis.outcome)}>{outcomeLabel(analysis.outcome)}</span>
-        <span className="note">derived from observed verification evidence below — not from the assistant's own claims</span>
+      <div className="ai-card">
+        <h3>Outcome evidence</h3>
+        {analysis.outcomeEvidence.length ? (
+          <ul>
+            {analysis.outcomeEvidence.map((evidence, index) => (
+              <li key={index}>{evidence}</li>
+            ))}
+          </ul>
+        ) : (
+          <EmptyState>No evidence captured.</EmptyState>
+        )}
       </div>
 
-      <h3>Outcome evidence</h3>
-      {analysis.outcomeEvidence.length ? (
-        <ul>
-          {analysis.outcomeEvidence.map((evidence, index) => (
-            <li key={index}>{evidence}</li>
-          ))}
-        </ul>
-      ) : (
-        <EmptyState>No evidence captured.</EmptyState>
-      )}
+      <div className="ai-card">
+        <h3>Verification</h3>
+        {analysis.verification.length ? (
+          <div className="kvs">
+            {analysis.verification.map((check, index) => (
+              <div key={index} style={{ display: "contents" }}>
+                <div className="k">{check.label}</div>
+                <div>
+                  {verificationIcon(check.status)} {check.status}
+                  {check.durationMs ? ` · ${formatDuration(check.durationMs)}` : ""}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState>No typecheck/build/test/lint commands were observed in this session.</EmptyState>
+        )}
+      </div>
 
-      <h3>Verification</h3>
-      {analysis.verification.length ? (
-        <div className="kvs">
-          {analysis.verification.map((check, index) => (
-            <div key={index} style={{ display: "contents" }}>
-              <div className="k">{check.label}</div>
-              <div>
-                {verificationIcon(check.status)} {check.status}
-                {check.durationMs ? ` · ${formatDuration(check.durationMs)}` : ""}
+      <div className="ai-card">
+        <h3>Errors ({analysis.errorGroups.length} groups)</h3>
+        {analysis.errorGroups.length ? (
+          analysis.errorGroups.map((group, index) => (
+            <div key={index} className="errbox" style={{ marginBottom: 8 }}>
+              <b>{group.category}</b> · {group.count}x{group.affectedTurnIndexes.length ? ` · turns ${group.affectedTurnIndexes.join(", ")}` : ""}
+              <div className="note" style={{ marginTop: 3 }}>
+                {group.message}
               </div>
             </div>
-          ))}
-        </div>
-      ) : (
-        <EmptyState>No typecheck/build/test/lint commands were observed in this session.</EmptyState>
-      )}
+          ))
+        ) : (
+          <EmptyState>No tool-reported errors.</EmptyState>
+        )}
+      </div>
 
-      <h3>Errors ({analysis.errorGroups.length} groups)</h3>
-      {analysis.errorGroups.length ? (
-        analysis.errorGroups.map((group, index) => (
-          <div key={index} className="errbox" style={{ marginBottom: 8 }}>
-            <b>{group.category}</b> · {group.count}x{group.affectedTurnIndexes.length ? ` · turns ${group.affectedTurnIndexes.join(", ")}` : ""}
-            <div className="note" style={{ marginTop: 3 }}>
-              {group.message}
-            </div>
-          </div>
-        ))
-      ) : (
-        <EmptyState>No tool-reported errors.</EmptyState>
-      )}
-
-      <h3>Files affected ({analysis.fileImpact.length})</h3>
-      {analysis.fileImpact.length ? (
-        <table className="grid" style={{ marginBottom: 16 }}>
-          <thead>
-            <tr>
-              <th>Path</th>
-              <th className="num">Reads</th>
-              <th className="num">Edits</th>
-            </tr>
-          </thead>
-          <tbody>
-            {analysis.fileImpact.slice(0, 100).map((file) => (
-              <tr key={file.path}>
-                <td title={file.path}>{file.path}</td>
-                <td className="num">{file.reads}</td>
-                <td className="num">{file.edits}</td>
+      <div className="ai-card">
+        <h3>Files affected ({analysis.fileImpact.length})</h3>
+        {analysis.fileImpact.length ? (
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>Path</th>
+                <th className="num">Reads</th>
+                <th className="num">Edits</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <EmptyState>No file reads/edits detected.</EmptyState>
-      )}
+            </thead>
+            <tbody>
+              {analysis.fileImpact.slice(0, 100).map((file) => (
+                <tr key={file.path}>
+                  <td title={file.path}>{file.path}</td>
+                  <td className="num">{file.reads}</td>
+                  <td className="num">{file.edits}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState>No file reads/edits detected.</EmptyState>
+        )}
+      </div>
 
-      <h3>Tool usage</h3>
-      {analysis.toolUsage.length ? (
-        <table className="grid" style={{ marginBottom: 16 }}>
-          <thead>
-            <tr>
-              <th>Tool</th>
-              <th className="num">Calls</th>
-              <th className="num">Time</th>
-              <th className="num">Errors</th>
-            </tr>
-          </thead>
-          <tbody>
-            {analysis.toolUsage.slice(0, 30).map((tool) => (
-              <tr key={tool.name}>
-                <td>{tool.name}</td>
-                <td className="num">{tool.callCount}</td>
-                <td className="num">{formatDuration(tool.totalDurationMs)}</td>
-                <td className="num">{tool.errorCount || ""}</td>
+      <div className="ai-card">
+        <h3>Tool usage</h3>
+        {analysis.toolUsage.length ? (
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>Tool</th>
+                <th className="num">Calls</th>
+                <th className="num">Time</th>
+                <th className="num">Errors</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <EmptyState>No tool calls recorded.</EmptyState>
-      )}
+            </thead>
+            <tbody>
+              {analysis.toolUsage.slice(0, 30).map((tool) => (
+                <tr key={tool.name}>
+                  <td>{tool.name}</td>
+                  <td className="num">{tool.callCount}</td>
+                  <td className="num">{formatDuration(tool.totalDurationMs)}</td>
+                  <td className="num">{tool.errorCount || ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState>No tool calls recorded.</EmptyState>
+        )}
+      </div>
 
       {analysis.commandsRun.length ? (
-        <>
+        <div className="ai-card">
           <h3>Commands run</h3>
-          <pre className="cell-pre wrap" style={{ marginBottom: 16 }}>
-            {analysis.commandsRun.slice(0, 50).join("\n")}
-          </pre>
-        </>
+          <pre className="cell-pre wrap">{analysis.commandsRun.slice(0, 50).join("\n")}</pre>
+        </div>
       ) : null}
 
       <div className="row" style={{ gap: 8, marginTop: 10, marginBottom: 20 }}>

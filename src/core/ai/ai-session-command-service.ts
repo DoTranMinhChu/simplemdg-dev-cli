@@ -1,0 +1,205 @@
+import path from "node:path";
+import fs from "fs-extra";
+import { execa } from "execa";
+import { isCommandAvailable } from "../tooling";
+import type { TAiSession } from "./ai-types";
+
+export type TShellKind = "powershell" | "cmd" | "bash" | "zsh" | "unknown";
+
+export type TBuildResumeCommandOptions = {
+  shell?: TShellKind;
+  includeChangeDirectory?: boolean;
+  preferSessionName?: boolean;
+};
+
+export type TAiSessionLaunchCommand = {
+  provider: "claude";
+  sessionId: string;
+  sessionName?: string;
+  workingDirectory: string;
+  command: string;
+  executable: string;
+  args: string[];
+  shell: TShellKind;
+};
+
+/** Extracts the bare Claude session id from our internal id (`claude:<uuid>` or `claude:<uuid>:agent:<agentId>`). */
+export function claudeRawSessionId(session: TAiSession): string {
+  const parts = session.id.split(":");
+  return parts[1] ?? session.id;
+}
+
+export function detectDefaultShell(): TShellKind {
+  if (process.platform === "win32") return "powershell";
+  const shellPath = process.env.SHELL ?? "";
+  if (shellPath.includes("zsh")) return "zsh";
+  if (shellPath.includes("bash")) return "bash";
+  return process.platform === "darwin" ? "zsh" : "bash";
+}
+
+/** Wraps a value for safe interpolation into a *displayed* (copy-to-clipboard) shell command line. Never used for actual process spawning — those always use argument arrays. */
+function quoteForShell(value: string, shell: TShellKind): string {
+  if (shell === "powershell") return `'${value.replace(/'/g, "''")}'`;
+  if (shell === "cmd") return `"${value.replace(/"/g, '""')}"`;
+  // bash/zsh/unknown: single-quote, escaping embedded single quotes the POSIX-safe way.
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function changeDirectoryLine(workingDirectory: string, shell: TShellKind): string {
+  if (shell === "powershell") return `Set-Location ${quoteForShell(workingDirectory, shell)}`;
+  if (shell === "cmd") return `cd /d ${quoteForShell(workingDirectory, shell)}`;
+  return `cd ${quoteForShell(workingDirectory, shell)}`;
+}
+
+function joinLines(lines: string[], shell: TShellKind): string {
+  if (shell === "bash" || shell === "zsh") return lines.join(" && \\\n");
+  return lines.join("\n");
+}
+
+/**
+ * `preferSessionName` is accepted for API-shape completeness (per the original design) but is
+ * deliberately never used to change the resume target: verified against the installed `claude`
+ * CLI (`claude --help`), `-r, --resume [value]` only resumes deterministically when `value` is an
+ * exact session ID — passing any other string (like a title) just opens Claude's own interactive
+ * picker pre-filtered by that text, not a silent named resume. Since our whole point is a
+ * one-click, exact resume, we always resume by the real session ID and show the title only as
+ * display text, never as the `--resume` argument.
+ */
+export function buildResumeCommand(session: TAiSession, options: TBuildResumeCommandOptions = {}): TAiSessionLaunchCommand {
+  const shell = options.shell ?? detectDefaultShell();
+  const rawSessionId = claudeRawSessionId(session);
+  const identifier = rawSessionId;
+  void options.preferSessionName;
+
+  const args = ["--resume", identifier];
+  const commandLine = `claude --resume ${quoteForShell(identifier, shell)}`;
+  const lines = options.includeChangeDirectory ? [changeDirectoryLine(session.cwd, shell), commandLine] : [commandLine];
+
+  return {
+    provider: "claude",
+    sessionId: rawSessionId,
+    sessionName: session.title || undefined,
+    workingDirectory: session.cwd,
+    command: joinLines(lines, shell),
+    executable: "claude",
+    args,
+    shell,
+  };
+}
+
+export function buildContinueCommand(session: TAiSession, options: TBuildResumeCommandOptions = {}): TAiSessionLaunchCommand {
+  const shell = options.shell ?? detectDefaultShell();
+  const commandLine = "claude --continue";
+  const lines = options.includeChangeDirectory !== false ? [changeDirectoryLine(session.cwd, shell), commandLine] : [commandLine];
+
+  return {
+    provider: "claude",
+    sessionId: claudeRawSessionId(session),
+    workingDirectory: session.cwd,
+    command: joinLines(lines, shell),
+    executable: "claude",
+    args: ["--continue"],
+    shell,
+  };
+}
+
+export type TPathCheckResult = { exists: boolean; isDirectory: boolean };
+
+export async function checkWorkingDirectory(workingDirectory: string): Promise<TPathCheckResult> {
+  try {
+    const stat = await fs.stat(workingDirectory);
+    return { exists: true, isDirectory: stat.isDirectory() };
+  } catch {
+    return { exists: false, isDirectory: false };
+  }
+}
+
+export async function isClaudeCliAvailable(): Promise<boolean> {
+  return isCommandAvailable("claude");
+}
+
+/**
+ * Opens a new, interactive terminal window running the resume/continue command, then returns
+ * immediately — Claude Code must stay interactive in that window, so this never waits for it or
+ * pipes its stdio into our own process. Windows only for now (Windows Terminal > PowerShell >
+ * cmd); macOS/Linux use a best-effort `open`/`x-terminal-emulator` fallback.
+ */
+export async function openTerminalWithCommand(launch: TAiSessionLaunchCommand): Promise<{ ok: boolean; error?: string }> {
+  const cwd = launch.workingDirectory;
+
+  try {
+    if (process.platform === "win32") {
+      if (await isCommandAvailable("wt")) {
+        await execa("wt.exe", ["-d", cwd, "powershell.exe", "-NoExit", "-Command", buildPowerShellInlineCommand(launch)], { detached: true, stdio: "ignore" });
+        return { ok: true };
+      }
+      await execa("powershell.exe", ["-NoExit", "-Command", buildPowerShellInlineCommand(launch)], { cwd, detached: true, stdio: "ignore" });
+      return { ok: true };
+    }
+
+    if (process.platform === "darwin") {
+      const script = `tell application "Terminal" to do script "cd ${appleScriptQuote(cwd)} && ${launch.executable} ${launch.args.map((arg) => shellQuotePosix(arg)).join(" ")}"`;
+      await execa("osascript", ["-e", script], { detached: true, stdio: "ignore" });
+      return { ok: true };
+    }
+
+    // Linux: no universal terminal launcher; try the most common one and report clearly if absent.
+    if (await isCommandAvailable("x-terminal-emulator")) {
+      await execa("x-terminal-emulator", ["-e", `bash -lc "cd ${shellQuotePosix(cwd)} && ${launch.executable} ${launch.args.map(shellQuotePosix).join(" ")}; exec bash"`], {
+        detached: true,
+        stdio: "ignore",
+      });
+      return { ok: true };
+    }
+
+    return { ok: false, error: "No supported terminal launcher found on this Linux desktop (tried x-terminal-emulator)." };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function buildPowerShellInlineCommand(launch: TAiSessionLaunchCommand): string {
+  const quotedArgs = launch.args.map((arg) => `'${arg.replace(/'/g, "''")}'`);
+  return [launch.executable, ...quotedArgs].join(" ");
+}
+
+function shellQuotePosix(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function appleScriptQuote(value: string): string {
+  return `\\"${value.replace(/"/g, '\\\\"')}\\"`;
+}
+
+export async function openProjectFolder(workingDirectory: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    if (process.platform === "win32") {
+      await execa("explorer.exe", [workingDirectory], { reject: false });
+      return { ok: true };
+    }
+    if (process.platform === "darwin") {
+      await execa("open", [workingDirectory]);
+      return { ok: true };
+    }
+    await execa("xdg-open", [workingDirectory]);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function openProjectInVsCode(workingDirectory: string): Promise<{ ok: boolean; error?: string }> {
+  if (!(await isCommandAvailable("code"))) {
+    return { ok: false, error: "VS Code command-line launcher ('code') was not found on PATH." };
+  }
+  try {
+    await execa("code", [workingDirectory], { detached: true, stdio: "ignore" });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export function projectDirName(workingDirectory: string): string {
+  return path.basename(workingDirectory) || workingDirectory;
+}

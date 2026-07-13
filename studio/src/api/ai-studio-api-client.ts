@@ -1,4 +1,16 @@
-import type { TAiDoctorReport, TAiObservation, TAiOverview, TAiSession, TAiTurn, TIngestionResult, TSessionAnalysis, TSessionListResponse } from "./ai-studio-api-types";
+import type {
+  TAiActionResult,
+  TAiDoctorReport,
+  TAiObservation,
+  TAiOverview,
+  TAiSession,
+  TAiSessionLaunchResponse,
+  TAiTurn,
+  TIngestionResult,
+  TSessionAnalysis,
+  TSessionListResponse,
+  TShellKind,
+} from "./ai-studio-api-types";
 
 class ApiError extends Error {}
 
@@ -41,7 +53,7 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
   return query ? `?${query}` : "";
 }
 
-export type TSessionFilter = { provider?: string; project?: string; search?: string; hasErrors?: boolean };
+export type TSessionFilter = { provider?: string; project?: string; search?: string; hasErrors?: boolean; pinnedOnly?: boolean };
 
 export const aiStudioApi = {
   getOverview: () => get<TAiOverview>("/api/ai/overview"),
@@ -64,6 +76,23 @@ export const aiStudioApi = {
   setScore: (sessionId: string, value: "good" | "bad") => post<{ ok: boolean }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/score`, { value }),
 
   exportUrl: (sessionId: string) => `/api/ai/sessions/${encodeURIComponent(sessionId)}/export`,
+
+  setPinned: (sessionId: string, value: boolean) => post<{ ok: boolean }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/pin`, { value }),
+
+  setFavorite: (sessionId: string, value: boolean) => post<{ ok: boolean }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/favorite`, { value }),
+
+  getLaunch: (sessionId: string, shell?: TShellKind) =>
+    get<TAiSessionLaunchResponse>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/launch${qs({ shell })}`),
+
+  openTerminal: (sessionId: string, mode: "resume" | "continue" = "resume") =>
+    post<TAiActionResult>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/open-terminal`, { mode }),
+
+  openProject: (sessionId: string) => post<TAiActionResult>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/open-project`),
+
+  openVsCode: (sessionId: string) => post<TAiActionResult>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/open-vscode`),
+
+  getContinuationPrompt: (sessionId: string) =>
+    get<{ prompt: string }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/continuation-prompt`),
 };
 
 export { ApiError };

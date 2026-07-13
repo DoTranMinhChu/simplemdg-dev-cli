@@ -5,8 +5,10 @@ import type { TAiOverview, TAiSession } from "../../../api/ai-studio-api-types";
 export type TToastKind = "ok" | "err" | "warn";
 export type TToast = { id: string; message: string; kind: TToastKind };
 
-export type TAiWorkspaceTabKind = "overview" | "turns" | "timeline";
+export type TAiWorkspaceTabKind = "overview" | "turns" | "timeline" | "graph";
 export type TAiWorkspaceTab = { sessionId: string; kind: TAiWorkspaceTabKind };
+
+export type TAiPage = "overview" | "sessions" | "projects" | "doctor";
 
 type TAiStudioStoreValue = {
   sessions: TAiSession[];
@@ -25,6 +27,12 @@ type TAiStudioStoreValue = {
   selectSession: (sessionId: string | undefined) => void;
   activeTabKind: TAiWorkspaceTabKind;
   setActiveTabKind: (kind: TAiWorkspaceTabKind) => void;
+
+  currentPage: TAiPage;
+  setCurrentPage: (page: TAiPage) => void;
+
+  /** Patches a session's fields in the in-memory list (e.g. after toggling pin/favorite) without a full reload. */
+  patchSession: (sessionId: string, patch: Partial<TAiSession>) => void;
 
   refreshing: boolean;
   refreshAll: () => Promise<void>;
@@ -45,6 +53,7 @@ export function AiStudioStoreProvider({ children }: { children: React.ReactNode 
   const [overview, setOverview] = useState<TAiOverview | undefined>();
   const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>();
   const [activeTabKind, setActiveTabKind] = useState<TAiWorkspaceTabKind>("overview");
+  const [currentPage, setCurrentPage] = useState<TAiPage>("overview");
   const [refreshing, setRefreshing] = useState(false);
   const [toasts, setToasts] = useState<TToast[]>([]);
 
@@ -109,6 +118,11 @@ export function AiStudioStoreProvider({ children }: { children: React.ReactNode 
   const selectSession = useCallback((sessionId: string | undefined) => {
     setSelectedSessionId(sessionId);
     setActiveTabKind("overview");
+    if (sessionId) setCurrentPage("sessions");
+  }, []);
+
+  const patchSession = useCallback((sessionId: string, patch: Partial<TAiSession>) => {
+    setSessions((prev) => prev.map((session) => (session.id === sessionId ? { ...session, ...patch } : session)));
   }, []);
 
   const refreshAll = useCallback(async () => {
@@ -140,6 +154,9 @@ export function AiStudioStoreProvider({ children }: { children: React.ReactNode 
       selectSession,
       activeTabKind,
       setActiveTabKind,
+      currentPage,
+      setCurrentPage,
+      patchSession,
       refreshing,
       refreshAll,
       toasts,
@@ -160,6 +177,8 @@ export function AiStudioStoreProvider({ children }: { children: React.ReactNode 
       selectedSessionId,
       selectSession,
       activeTabKind,
+      currentPage,
+      patchSession,
       refreshing,
       refreshAll,
       toasts,

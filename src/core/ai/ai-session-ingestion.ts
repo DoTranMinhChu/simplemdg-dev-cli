@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import fsExtra from "fs-extra";
 import { getAiSessionProviders } from "./ai-session-provider";
-import { deriveTurns } from "./ai-session-analysis";
+import { analyzeVerification, classifySessionOutcome, deriveTurns } from "./ai-session-analysis";
 import { AiSessionStore } from "./ai-session-store";
 import type { TIngestionResult, TParserDiagnostic, TSessionFile } from "./ai-types";
 
@@ -73,8 +73,10 @@ export async function ingestAiSessions(store: AiSessionStore): Promise<TIngestio
         const toolCallCount = parsed.observations.filter((observation) => TOOL_TYPES.has(observation.type)).length;
         const errorCount = parsed.observations.filter((observation) => observation.isError).length;
         const durationMs = computeSessionDuration(parsed.session.startedAt, parsed.session.endedAt);
+        const verification = analyzeVerification(parsed.observations);
+        const { outcome } = classifySessionOutcome({ errorCount, verification });
 
-        store.saveSession(parsed, { durationMs, turnCount: turns.filter((turn) => !turn.isContext).length, toolCallCount, errorCount });
+        store.saveSession(parsed, { durationMs, turnCount: turns.filter((turn) => !turn.isContext).length, toolCallCount, errorCount, outcome });
         store.markFileIngested({ path: file.path, modifiedAtMs: file.modifiedAtMs, sizeBytes: file.sizeBytes, provider: provider.id, lastIngestedAt: new Date().toISOString() });
         filesIngested += 1;
       } catch (error) {

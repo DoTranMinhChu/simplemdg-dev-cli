@@ -5,11 +5,15 @@ import { useAiStudioStore } from "../state/ai-studio-store";
 import { SessionOverview } from "./SessionOverview";
 import { TurnList } from "./TurnList";
 import { SessionTimeline } from "./SessionTimeline";
+import { SessionQuickActions } from "./SessionQuickActions";
+import { SessionGraph } from "../graph/SessionGraph";
+import type { TAiWorkspaceTabKind } from "../state/ai-studio-store";
 import type { TAiObservation, TAiSession, TAiTurn, TSessionAnalysis } from "../../../api/ai-studio-api-types";
 
-const TABS: Array<{ kind: "overview" | "turns" | "timeline"; label: string }> = [
+const TABS: Array<{ kind: TAiWorkspaceTabKind; label: string }> = [
   { kind: "overview", label: "Overview" },
   { kind: "turns", label: "Turns" },
+  { kind: "graph", label: "Graph" },
   { kind: "timeline", label: "Timeline" },
 ];
 
@@ -60,8 +64,13 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
     );
   }
 
+  const lastRealTurn = [...turns].reverse().find((turn) => !turn.isContext);
+
   return (
     <div className="tabpane">
+      <div className="row" style={{ padding: "10px 10px 0" }}>
+        <SessionQuickActions session={session} lastUserPrompt={lastRealTurn?.userRequest} />
+      </div>
       <div className="tabbar-row">
         <div className="tabbar">
           {TABS.map((tab) => (
@@ -80,6 +89,10 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
           <SessionOverview session={session} analysis={analysis} />
         ) : activeTabKind === "turns" ? (
           <TurnList turns={turns} observations={observations} />
+        ) : activeTabKind === "graph" ? (
+          // Keyed on sessionId so switching sessions resets the internal turn-selection/camera state
+          // instead of carrying over a turn index that may not exist in the new session's turns.
+          <SessionGraph key={sessionId} sessionId={sessionId} turns={turns} observations={observations} />
         ) : (
           <SessionTimeline observations={observations} />
         )}

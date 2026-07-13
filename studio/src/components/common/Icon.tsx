@@ -27,6 +27,15 @@ const ICON_PATHS: Record<string, string> = {
   filter: "M3 5h18l-7 8v6l-4 2v-8z",
   undo: "M9 7L4 12l5 5|M4 12h11a5 5 0 0 1 0 10h-3",
   history: "M12 3a9 9 0 1 0 9 9|M12 7v5l3 3|M3 3v5h5",
+  copy: "M9 9h11v11H9z|M5 15V4h11",
+  terminal: "M4 4h16v16H4z|M7 15l4-4-4-4|M13 16h4",
+  pin: "M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7z|M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  code: "M8 6l-6 6 6 6|M16 6l6 6-6 6",
+  play: "M6 4l14 8-14 8V4z",
+  minus: "M5 12h14",
+  maximize: "M8 3H4v4|M16 3h4v4|M8 21H4v-4|M16 21h4v-4",
+  activity: "M3 12h4l3 8 4-16 3 8h4",
+  panel: "M3 4h18v16H3z|M9 4v16",
 };
 
 export function Icon({ name, className }: { name: string; className?: string }): React.ReactElement {

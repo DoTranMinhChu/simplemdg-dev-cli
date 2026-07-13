@@ -22,4 +22,32 @@
   --insbg: #0f2e18;
   --sidebar-width: 320px;
   --sidebar-rail: 44px;
+
+  /* Phase 1 design tokens (AI Studio redesign) — additive only. Unused by any existing rule, so
+     this has zero visual effect until a new selector below consumes one; never repurpose these
+     names inside an existing (DB Studio) rule body. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+
+  /* Graph view — kinds without a natural fit among the existing status/brand colors */
+  --violet: #8b5cf6;
+  --teal: #14b8a6;
+  --pink: #ec4899;
 }

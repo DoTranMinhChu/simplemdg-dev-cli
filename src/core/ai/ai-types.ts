@@ -74,6 +74,13 @@ export type TAiSession = {
 
   /** Manual user rating, kept separate from any derived outcome. */
   userScore: "good" | "bad" | "";
+
+  /** Studio-only metadata (never written back to the provider's session file). */
+  pinned: boolean;
+  favorite: boolean;
+
+  /** Cached mirror of the same evidence-only classification computed at analysis time (see classifySessionOutcome) — lets the session list show it without loading every observation per row. */
+  outcome: TSessionOutcome;
 };
 
 export type TAiTurn = {
@@ -111,7 +118,10 @@ export type TSessionFile = {
 };
 
 export type TParsedAiSession = {
-  session: Omit<TAiSession, "analysisStatus" | "userScore" | "turnCount" | "durationMs" | "toolCallCount" | "errorCount" | "observationCount">;
+  session: Omit<
+    TAiSession,
+    "analysisStatus" | "userScore" | "pinned" | "favorite" | "outcome" | "turnCount" | "durationMs" | "toolCallCount" | "errorCount" | "observationCount"
+  >;
   observations: TAiObservation[];
 };
 

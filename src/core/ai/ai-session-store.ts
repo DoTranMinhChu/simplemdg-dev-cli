@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "fs-extra";
+import { analyzeVerification, classifySessionOutcome } from "./ai-session-analysis";
 import { redactSecrets } from "./ai-secret-redaction";
 import type { TAiObservation, TAiSession, TIngestedSessionFile, TParsedAiSession, TParserDiagnostic } from "./ai-types";
 
@@ -37,7 +38,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   error_count INTEGER NOT NULL,
   parent_session_id TEXT NOT NULL DEFAULT '',
   source_file TEXT NOT NULL,
-  analysis_status TEXT NOT NULL DEFAULT 'complete'
+  analysis_status TEXT NOT NULL DEFAULT 'complete',
+  outcome TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_cwd ON sessions(cwd);
@@ -67,6 +69,13 @@ CREATE TABLE IF NOT EXISTS scores (
   timestamp TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS session_flags (
+  session_id TEXT PRIMARY KEY,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  favorite INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS ingested_files (
   path TEXT PRIMARY KEY,
   modified_at_ms REAL NOT NULL,
@@ -92,11 +101,20 @@ export function aiStudioStorageDir(): string {
   return path.join(os.homedir(), ".simplemdg", "ai-studio");
 }
 
+/** Adds the `outcome` column to a pre-existing `sessions` table (databases created before this field existed). A no-op on fresh databases, where SCHEMA already declares the column. */
+function migrateOutcomeColumn(db: TSqliteDatabase): void {
+  const columns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "outcome")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN outcome TEXT NOT NULL DEFAULT ''");
+  }
+}
+
 export type TSessionFilter = {
   provider?: string;
   project?: string;
   search?: string;
   hasErrors?: boolean;
+  pinnedOnly?: boolean;
 };
 
 export type TSessionRow = TAiSession;
@@ -118,11 +136,25 @@ export class AiSessionStore {
     await fs.ensureDir(dir);
     const db = new DatabaseSync(path.join(dir, "traces.db"));
     db.exec(SCHEMA);
-    return new AiSessionStore(db);
+    migrateOutcomeColumn(db);
+    const store = new AiSessionStore(db);
+    store.backfillOutcomes();
+    return store;
   }
 
   close(): void {
     this.db.close();
+  }
+
+  /** One-time backfill for rows persisted before `outcome` existed (sentinel `''`, distinct from the real `"unknown"` value) — a no-op once every row has been classified. */
+  private backfillOutcomes(): void {
+    const stale = this.db.prepare("SELECT id, error_count FROM sessions WHERE outcome = ''").all() as Array<{ id: string; error_count: number }>;
+    for (const row of stale) {
+      const observations = this.getObservations(row.id);
+      const verification = analyzeVerification(observations);
+      const { outcome } = classifySessionOutcome({ errorCount: Number(row.error_count), verification });
+      this.db.prepare("UPDATE sessions SET outcome = ? WHERE id = ?").run(outcome, row.id);
+    }
   }
 
   // --- Incremental ingestion tracking ------------------------------------
@@ -177,7 +209,10 @@ export class AiSessionStore {
 
   // --- Session + observation persistence ----------------------------------
 
-  saveSession(parsed: TParsedAiSession, derived: { durationMs: number; turnCount: number; toolCallCount: number; errorCount: number }): void {
+  saveSession(
+    parsed: TParsedAiSession,
+    derived: { durationMs: number; turnCount: number; toolCallCount: number; errorCount: number; outcome: TAiSession["outcome"] },
+  ): void {
     const { session, observations } = parsed;
     this.db.exec("BEGIN");
     try {
@@ -186,8 +221,8 @@ export class AiSessionStore {
           `INSERT OR REPLACE INTO sessions
            (id, provider, project, cwd, title, model, git_branch, started_at, ended_at, duration_ms,
             input_tokens, output_tokens, cache_read_tokens, turn_count, observation_count, tool_call_count,
-            error_count, parent_session_id, source_file, analysis_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            error_count, parent_session_id, source_file, analysis_status, outcome)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           session.id,
@@ -210,6 +245,7 @@ export class AiSessionStore {
           session.parentSessionId ?? "",
           session.sourceFile,
           "complete",
+          derived.outcome,
         );
       this.db.prepare("DELETE FROM observations WHERE session_id = ?").run(session.id);
       const insert = this.db.prepare(
@@ -267,6 +303,9 @@ export class AiSessionStore {
     if (options.filter?.hasErrors) {
       conditions.push("s.error_count > 0");
     }
+    if (options.filter?.pinnedOnly) {
+      conditions.push("f.pinned = 1");
+    }
     if (options.filter?.search) {
       conditions.push("(s.title LIKE ? OR s.project LIKE ? OR s.model LIKE ? OR s.cwd LIKE ?)");
       const like = `%${options.filter.search}%`;
@@ -280,8 +319,10 @@ export class AiSessionStore {
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const rows = this.db
       .prepare(
-        `SELECT s.*, COALESCE(sc.value, '') AS user_score
-         FROM sessions s LEFT JOIN scores sc ON sc.session_id = s.id
+        `SELECT s.*, COALESCE(sc.value, '') AS user_score, COALESCE(f.pinned, 0) AS pinned, COALESCE(f.favorite, 0) AS favorite
+         FROM sessions s
+         LEFT JOIN scores sc ON sc.session_id = s.id
+         LEFT JOIN session_flags f ON f.session_id = s.id
          ${where}
          ORDER BY s.started_at DESC
          LIMIT ?`,
@@ -298,9 +339,24 @@ export class AiSessionStore {
 
   getSession(sessionId: string): TAiSession | undefined {
     const row = this.db
-      .prepare(`SELECT s.*, COALESCE(sc.value, '') AS user_score FROM sessions s LEFT JOIN scores sc ON sc.session_id = s.id WHERE s.id = ?`)
+      .prepare(
+        `SELECT s.*, COALESCE(sc.value, '') AS user_score, COALESCE(f.pinned, 0) AS pinned, COALESCE(f.favorite, 0) AS favorite
+         FROM sessions s
+         LEFT JOIN scores sc ON sc.session_id = s.id
+         LEFT JOIN session_flags f ON f.session_id = s.id
+         WHERE s.id = ?`,
+      )
       .get(sessionId) as Record<string, unknown> | undefined;
     return row ? rowToSession(row) : undefined;
+  }
+
+  setFlag(sessionId: string, flag: "pinned" | "favorite", value: boolean): void {
+    const existing = this.db.prepare("SELECT pinned, favorite FROM session_flags WHERE session_id = ?").get(sessionId) as { pinned: number; favorite: number } | undefined;
+    const pinned = flag === "pinned" ? value : Boolean(existing?.pinned);
+    const favorite = flag === "favorite" ? value : Boolean(existing?.favorite);
+    this.db
+      .prepare("INSERT OR REPLACE INTO session_flags (session_id, pinned, favorite, updated_at) VALUES (?, ?, ?, ?)")
+      .run(sessionId, pinned ? 1 : 0, favorite ? 1 : 0, new Date().toISOString());
   }
 
   listProjects(): Array<{ project: string; sessionCount: number }> {
@@ -373,6 +429,9 @@ function rowToSession(row: Record<string, unknown>): TAiSession {
     sourceFile: String(row.source_file),
     analysisStatus: row.analysis_status as TAiSession["analysisStatus"],
     userScore: (row.user_score as TAiSession["userScore"]) ?? "",
+    pinned: Boolean(row.pinned),
+    favorite: Boolean(row.favorite),
+    outcome: (row.outcome as TAiSession["outcome"]) || "unknown",
   };
 }
 

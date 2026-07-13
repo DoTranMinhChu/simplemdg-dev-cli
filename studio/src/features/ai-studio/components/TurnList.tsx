@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { EmptyState } from "../../../components/common/EmptyState";
+import { observationsForTurn } from "../observations-for-turn";
+import { observationTypeIcon } from "../observation-icon";
 import type { TAiObservation, TAiTurn } from "../../../api/ai-studio-api-types";
 
 function formatDuration(ms: number): string {
@@ -15,37 +17,10 @@ function clip(text: string, length: number): string {
   return single.length > length ? `${single.slice(0, length)}…` : single;
 }
 
-/** Observations belonging to a turn's [startedAt, endedAt] window — the same approximation the backend uses for ?turnIndex=. */
-function observationsForTurn(observations: TAiObservation[], turn: TAiTurn): TAiObservation[] {
-  const start = Date.parse(turn.startedAt);
-  const end = turn.endedAt ? Date.parse(turn.endedAt) : start;
-  if (!Number.isFinite(start)) return [];
-  return observations.filter((observation) => {
-    const time = Date.parse(observation.startedAt);
-    return Number.isFinite(time) && time >= start && time <= end + 1;
-  });
-}
-
-function typeIcon(observation: TAiObservation): string {
-  const icons: Record<string, string> = {
-    user: "👤",
-    assistant: "💬",
-    reasoning: "🧠",
-    "tool-call": "🔧",
-    "shell-command": "▶",
-    "mcp-call": "🔌",
-    skill: "✨",
-    subagent: "🤖",
-    command: "⌘",
-    error: "⚠",
-  };
-  return icons[observation.type] ?? "•";
-}
-
 function ObservationRow({ observation }: { observation: TAiObservation }): React.ReactElement {
   return (
     <div className={`trow${observation.isError ? " row-err" : ""}`} style={{ cursor: "default" }}>
-      <div className="trow-icon">{typeIcon(observation)}</div>
+      <div className="trow-icon">{observationTypeIcon(observation.type)}</div>
       <div className="trow-main">
         <div className="trow-title">
           {observation.name}
