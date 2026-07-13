@@ -118,9 +118,13 @@ export function parseClaudeSession(filePath: string, content: string): TParsedAi
             pending.durationMs = elapsed(pending.startedAt, timestamp);
             const audit: Record<string, unknown> = {};
             if (pending.metadata === "__subagent__") {
-              // The launched agent's id is reported in the result text as `agentId: <id>`; it links
-              // to the separate subagent transcript file (claude:<session>:agent:<id>).
-              const agentId = pending.output.match(/agentId:\s*['"]?([a-z0-9]{6,})/i)?.[1];
+              // The launched agent's id links to its separate subagent transcript file
+              // (claude:<session>:agent:<id>). It lives structured on `toolUseResult`, a sibling
+              // of `message` on this same JSONL record (Claude Code's own metadata, not part of
+              // the API message the model saw) — far more reliable than the free-text result the
+              // model itself received, which doesn't consistently mention the id at all. The regex
+              // fallback is kept for any transcript shape where `toolUseResult` is absent.
+              const agentId = str(obj(line.toolUseResult).agentId) || pending.output.match(/agentId:\s*['"]?([a-z0-9]{6,})/i)?.[1];
               if (agentId) audit.agentId = agentId;
             }
             if (block.is_error === true) {
