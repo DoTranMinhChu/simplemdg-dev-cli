@@ -1,6 +1,6 @@
 # SimpleMDG Dev CLI
 
-SimpleMDG local development helper for npm install workflows, SAP CAP, Cloud Foundry/BTP, request tracing, GitLab sync, and BTP database exploration.
+SimpleMDG local development helper for npm install workflows, SAP CAP, Cloud Foundry/BTP, request tracing, GitLab sync, BTP database exploration, and local AI coding session observability.
 
 ## Install local package
 
@@ -167,3 +167,37 @@ HANA and PostgreSQL drivers are optional dependencies. If a driver is missing, t
 ```powershell
 npm i -g pg @sap/hana-client
 ```
+
+## AI Studio
+
+A local, private observability Studio for your Claude Code and Codex sessions — not just a transcript viewer, but analysis: what the agent did, what it verified, where it made errors, and what to improve next time.
+
+```powershell
+smdg ai studio
+```
+
+Reads sessions read-only from `~/.claude/projects/**/*.jsonl` (Claude Code) and `~/.codex/sessions/**/rollout-*.jsonl` (Codex), parses them into sessions → turns → observations, and stores them in a local SQLite database (`~/.simplemdg/ai-studio/traces.db`, via Node's built-in `node:sqlite` — **requires Node.js 22.5+**; other `smdg` commands keep working on older Node, only `ai studio` needs the newer runtime). Ingestion is incremental (only new/changed files are re-parsed) and a malformed session file is skipped with a diagnostic, never stopping ingestion of the rest.
+
+- **Session list** — provider/project/error filters, free-text search, cursor pagination
+- **Session Overview** — duration, tokens (incl. cache-read), tool/error counts, an **outcome** (successful / partially-successful / failed / unverified) computed only from observed verification commands (typecheck/build/test/lint) — never from the assistant's own "done" claim — plus grouped errors, file read/edit impact, and tool-usage stats
+- **Turns** — the session grouped into human-prompt → agent-response turns (expand a turn to see its tool calls/reasoning/output)
+- **Timeline** — chronological observations with filters (hide reasoning, only errors, only tool/shell activity)
+- **Export** — Markdown or JSON, secrets redacted by default
+- Manual **good/bad** rating per session, kept separate from the derived outcome
+
+Secrets (Bearer/JWT tokens, API keys, GitLab/GitHub tokens, AWS keys, private key blocks, and plain-text "password:"/"pin:"/"token:" mentions) are redacted by default everywhere — CLI, API, and exports. A per-tab "Show sensitive content" toggle reveals the original text for that session only, as an explicit local action.
+
+### Commands
+
+```powershell
+smdg ai studio              # open the local browser Studio
+smdg ai sessions             # list recent sessions in the terminal
+smdg ai inspect <sessionId>  # detailed summary of one session (prompts if omitted)
+smdg ai doctor               # ingestion status, parser diagnostics, storage location
+smdg ai scan                 # re-scan ~/.claude and ~/.codex for new/changed sessions
+smdg ai export <sessionId>   # export one session as Markdown or JSON (prompts if omitted)
+```
+
+`smdg ai studio` options: `--port <port>`, `--dev-ui` (API-only + Vite dev server instructions), `--api-only`.
+
+Not yet built (tracked as follow-up — this is a first, Phase 1 milestone, not the full spec): the Graph view, loop/dead-end detection, context-quality and instruction-compliance analyzers, session comparison, project-level analytics, prompt-quality analysis, and rule/skill recommendations. The session list, turns, timeline, tool/error/file/verification analysis, redaction, incremental ingestion, and exports are all real and working today, including against real session history.

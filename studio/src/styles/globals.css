@@ -291,6 +291,13 @@ svg.ic {
    min-width: 0;
    min-height: 0;
    overflow: hidden;
+   /* Containment for any .tabpane child (position:absolute; inset:0) that doesn't have a closer
+      positioned ancestor of its own — e.g. AI Studio's SessionWorkspace, where .tabpane is a
+      direct child. DB Studio's per-tab wrapper divs already set position:relative themselves,
+      which wins over this since it's closer, so this is a no-op there. Without this, .tabpane
+      escapes to the viewport and visually covers the sidebar (a real bug caught by browser
+      testing, not a hypothetical). */
+   position: relative;
 }
 
 body.resizing-sidebar,

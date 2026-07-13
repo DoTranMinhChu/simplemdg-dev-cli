@@ -25,6 +25,7 @@ import { registerNpmrcCommands } from "./commands/npmrc.command";
 import { registerGitLabCommands } from "./commands/gitlab.command";
 import { registerCacheCommands } from "./commands/cache.command";
 import { registerGitCommands } from "./commands/git.command";
+import { registerAiCommands } from "./commands/ai.command";
 import { enableInteractiveNavigation, runGroupNavigator } from "./core/navigator";
 import type { TInstallCommandOptions, TKeyValueMap } from "./types-local";
 
@@ -434,6 +435,7 @@ registerNpmrcCommands(program);
 registerGitLabCommands(program);
 registerCacheCommands(program);
 registerGitCommands(program);
+registerAiCommands(program);
 
 // Turn every group command (cf, cf db, cds, npmrc, gitlab, ...) into an
 // interactive menu so a partial command like `smdg cf` or `smdg cf db` lists

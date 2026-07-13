@@ -147,6 +147,37 @@ Saved queries live in `~/.simplemdg/db-queries/` and history in `~/.simplemdg/db
 
 Passwords are encrypted with a key derived from the current Windows user + machine. A cache file copied to another machine cannot be decrypted, and the password is never sent to the browser.
 
+## AI Studio
+
+`smdg ai studio` opens a local, private browser UI for analyzing your own Claude Code and Codex history — what an agent actually did across a session, whether it was verified, and where it wasted time.
+
+### Recommended flow
+
+1. Run `smdg ai studio` — it scans `~/.claude/projects` and `~/.codex/sessions`, ingests anything new, and opens the browser.
+2. Pick a session in the left sidebar (search or filter by provider/project/errors).
+3. Read the **Overview** tab first: duration, tokens, the derived **outcome**, and *why* — it's built from observed typecheck/build/test/lint commands, never from the assistant just saying "done".
+4. Open **Turns** to see the session broken into human-prompt → agent-response turns; expand a turn to see its tool calls and output.
+5. Open **Timeline** for a straight chronological view, with filters to hide reasoning or show only errors/tool activity.
+6. Click **Export Markdown** on the Overview tab to save a shareable summary (secrets redacted).
+
+### Privacy
+
+Everything stays on your machine. The server binds to `127.0.0.1` only, session files are opened read-only and never modified, and data lives in `~/.simplemdg/ai-studio/traces.db`. Session titles, error messages, commands, and observation text are redacted by default (Bearer/JWT tokens, API keys, GitLab/GitHub tokens, AWS keys, private key blocks, plain-text "password:"/"pin:"/"token:" mentions). Each session workspace has a **"Show sensitive content"** checkbox to reveal the original text for that session only — an explicit, local, per-view action, not a default.
+
+### Terminal alternatives
+
+```powershell
+smdg ai sessions              # table of recent sessions
+smdg ai inspect <sessionId>   # one session's summary (prompts you to pick one if omitted)
+smdg ai doctor                # ingestion status + parser diagnostics + storage location
+smdg ai scan                  # re-scan for new/changed session files
+smdg ai export <sessionId>    # Markdown/JSON export to stdout
+```
+
+`smdg ai studio` requires Node.js 22.5+ (for the built-in `node:sqlite` module used for local storage); every other `smdg` command keeps working on older Node versions. If you're on an older Node, `smdg ai doctor`/`studio` will tell you clearly instead of crashing.
+
+Not yet built: the Graph view, loop/dead-end detection, context-quality and instruction-compliance checks, session comparison, project-level analytics, and rule/skill recommendations from repeated findings. These are tracked as follow-up phases, not abandoned.
+
 ## Git move-code (release dependency tracing)
 
 `smdg git move-code` is a release dependency tracing assistant: it moves a **scoped** set of commits from one branch to another across a microservice repository — typically `staging` → `uat` or `qas` — without ever merging the whole source branch and without blindly cherry-picking unrelated commits.
