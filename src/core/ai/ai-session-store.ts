@@ -2,7 +2,9 @@ import os from "node:os";
 import path from "node:path";
 import fs from "fs-extra";
 import { analyzeVerification, classifySessionOutcome } from "./ai-session-analysis";
+import { computeQuickGrade } from "./ai-session-advisor";
 import { redactSecrets } from "./ai-secret-redaction";
+import { getContextWindowTokens } from "./ai-model-context-windows";
 import type { TAiObservation, TAiSession, TIngestedSessionFile, TParsedAiSession, TParserDiagnostic } from "./ai-types";
 
 type TSqliteStatement = {
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   input_tokens INTEGER NOT NULL,
   output_tokens INTEGER NOT NULL,
   cache_read_tokens INTEGER NOT NULL,
+  cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
   turn_count INTEGER NOT NULL,
   observation_count INTEGER NOT NULL,
   tool_call_count INTEGER NOT NULL,
@@ -109,6 +112,14 @@ function migrateOutcomeColumn(db: TSqliteDatabase): void {
   }
 }
 
+/** Adds the `cache_creation_tokens` column to a pre-existing `sessions` table. Pre-migration rows default to 0 (undercounts their true cache-write spend, same tradeoff `migrateOutcomeColumn` makes for `outcome`) until the source file is re-ingested. */
+function migrateCacheCreationColumn(db: TSqliteDatabase): void {
+  const columns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "cache_creation_tokens")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+}
+
 export type TSessionFilter = {
   provider?: string;
   project?: string;
@@ -137,6 +148,7 @@ export class AiSessionStore {
     const db = new DatabaseSync(path.join(dir, "traces.db"));
     db.exec(SCHEMA);
     migrateOutcomeColumn(db);
+    migrateCacheCreationColumn(db);
     const store = new AiSessionStore(db);
     store.backfillOutcomes();
     return store;
@@ -220,9 +232,9 @@ export class AiSessionStore {
         .prepare(
           `INSERT OR REPLACE INTO sessions
            (id, provider, project, cwd, title, model, git_branch, started_at, ended_at, duration_ms,
-            input_tokens, output_tokens, cache_read_tokens, turn_count, observation_count, tool_call_count,
+            input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, turn_count, observation_count, tool_call_count,
             error_count, parent_session_id, source_file, analysis_status, outcome)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           session.id,
@@ -238,6 +250,7 @@ export class AiSessionStore {
           session.inputTokens,
           session.outputTokens,
           session.cacheReadTokens,
+          session.cacheCreationTokens,
           derived.turnCount,
           observations.length,
           derived.toolCallCount,
@@ -319,7 +332,8 @@ export class AiSessionStore {
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const rows = this.db
       .prepare(
-        `SELECT s.*, COALESCE(sc.value, '') AS user_score, COALESCE(f.pinned, 0) AS pinned, COALESCE(f.favorite, 0) AS favorite
+        `SELECT s.*, COALESCE(sc.value, '') AS user_score, COALESCE(f.pinned, 0) AS pinned, COALESCE(f.favorite, 0) AS favorite,
+                (SELECT COUNT(*) FROM sessions c WHERE c.parent_session_id = s.id) AS sub_agent_count
          FROM sessions s
          LEFT JOIN scores sc ON sc.session_id = s.id
          LEFT JOIN session_flags f ON f.session_id = s.id
@@ -340,7 +354,8 @@ export class AiSessionStore {
   getSession(sessionId: string): TAiSession | undefined {
     const row = this.db
       .prepare(
-        `SELECT s.*, COALESCE(sc.value, '') AS user_score, COALESCE(f.pinned, 0) AS pinned, COALESCE(f.favorite, 0) AS favorite
+        `SELECT s.*, COALESCE(sc.value, '') AS user_score, COALESCE(f.pinned, 0) AS pinned, COALESCE(f.favorite, 0) AS favorite,
+                (SELECT COUNT(*) FROM sessions c WHERE c.parent_session_id = s.id) AS sub_agent_count
          FROM sessions s
          LEFT JOIN scores sc ON sc.session_id = s.id
          LEFT JOIN session_flags f ON f.session_id = s.id
@@ -348,6 +363,22 @@ export class AiSessionStore {
       )
       .get(sessionId) as Record<string, unknown> | undefined;
     return row ? rowToSession(row) : undefined;
+  }
+
+  /** Direct children (sub-agent sessions) of `parentId`, oldest spawned first — the whole-session orchestration tree's rows. */
+  listChildSessions(parentId: string): TAiSession[] {
+    const rows = this.db
+      .prepare(
+        `SELECT s.*, COALESCE(sc.value, '') AS user_score, COALESCE(f.pinned, 0) AS pinned, COALESCE(f.favorite, 0) AS favorite,
+                (SELECT COUNT(*) FROM sessions c WHERE c.parent_session_id = s.id) AS sub_agent_count
+         FROM sessions s
+         LEFT JOIN scores sc ON sc.session_id = s.id
+         LEFT JOIN session_flags f ON f.session_id = s.id
+         WHERE s.parent_session_id = ?
+         ORDER BY s.started_at ASC`,
+      )
+      .all(parentId) as Array<Record<string, unknown>>;
+    return rows.map(rowToSession);
   }
 
   setFlag(sessionId: string, flag: "pinned" | "favorite", value: boolean): void {
@@ -407,7 +438,7 @@ export class AiSessionStore {
 }
 
 function rowToSession(row: Record<string, unknown>): TAiSession {
-  return {
+  const session: TAiSession = {
     id: String(row.id),
     provider: row.provider as TAiSession["provider"],
     project: String(row.project),
@@ -421,18 +452,25 @@ function rowToSession(row: Record<string, unknown>): TAiSession {
     inputTokens: Number(row.input_tokens),
     outputTokens: Number(row.output_tokens),
     cacheReadTokens: Number(row.cache_read_tokens),
+    cacheCreationTokens: Number(row.cache_creation_tokens ?? 0),
     turnCount: Number(row.turn_count),
     observationCount: Number(row.observation_count),
     toolCallCount: Number(row.tool_call_count),
     errorCount: Number(row.error_count),
     parentSessionId: String(row.parent_session_id ?? "") || undefined,
+    subAgentCount: Number(row.sub_agent_count ?? 0),
     sourceFile: String(row.source_file),
     analysisStatus: row.analysis_status as TAiSession["analysisStatus"],
     userScore: (row.user_score as TAiSession["userScore"]) ?? "",
     pinned: Boolean(row.pinned),
     favorite: Boolean(row.favorite),
     outcome: (row.outcome as TAiSession["outcome"]) || "unknown",
+    contextWindowTokens: getContextWindowTokens(String(row.model)),
   };
+  const quickGrade = computeQuickGrade(session);
+  session.advisorGrade = quickGrade?.grade;
+  session.advisorScore = quickGrade?.score;
+  return session;
 }
 
 function rowToObservation(row: Record<string, unknown>): TAiObservation {

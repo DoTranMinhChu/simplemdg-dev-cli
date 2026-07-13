@@ -169,6 +169,7 @@ function buildParsedSession(input: {
   parentSessionId?: string;
   observations: TAiObservation[];
 }): TParsedAiSession {
+  // Codex's usage payload has no cache-write/creation concept — always 0, distinct from "unknown".
   for (const observation of input.observations) {
     observation.sessionId = input.id;
     observation.id = `${input.id}:${observation.idx}`;
@@ -191,6 +192,7 @@ function buildParsedSession(input: {
       inputTokens: input.inputTokens,
       outputTokens: input.outputTokens,
       cacheReadTokens: input.cacheReadTokens,
+      cacheCreationTokens: 0,
       parentSessionId: input.parentSessionId,
       sourceFile: input.file,
     },

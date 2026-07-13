@@ -3,17 +3,12 @@ import { Button } from "../../../components/common/Button";
 import { EmptyState } from "../../../components/common/EmptyState";
 import { aiStudioApi } from "../../../api/ai-studio-api-client";
 import { useAiStudioStore } from "../state/ai-studio-store";
-import type { TAiSession, TSessionAnalysis } from "../../../api/ai-studio-api-types";
-
-function formatDuration(ms: number): string {
-  if (!ms) return "0s";
-  const totalSeconds = Math.round(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-}
+import { formatDuration } from "../format";
+import { SessionAdvisorCard } from "./SessionAdvisorCard";
+import { SessionEconomicsCard } from "./SessionEconomicsCard";
+import { SessionAgentTree } from "./SessionAgentTree";
+import { SessionActivityTimeline } from "./SessionActivityTimeline";
+import type { TAiSession, TAiTurn, TSessionAdvisor, TSessionAnalysis } from "../../../api/ai-studio-api-types";
 
 function outcomeLabel(outcome: string): string {
   return outcome.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -33,7 +28,17 @@ function verificationIcon(status: string): React.ReactElement {
   return <span style={{ color: "var(--faint)" }}>?</span>;
 }
 
-export function SessionOverview({ session, analysis }: { session: TAiSession; analysis: TSessionAnalysis }): React.ReactElement {
+export function SessionOverview({
+  session,
+  analysis,
+  advisor,
+  turns,
+}: {
+  session: TAiSession;
+  analysis: TSessionAnalysis;
+  advisor?: TSessionAdvisor;
+  turns: TAiTurn[];
+}): React.ReactElement {
   const { toast } = useAiStudioStore();
   const [score, setScore] = useState(session.userScore);
 
@@ -83,6 +88,15 @@ export function SessionOverview({ session, analysis }: { session: TAiSession; an
           <span className="note">derived from observed verification evidence below — not from the assistant's own claims</span>
         </div>
       </div>
+
+      {advisor ? (
+        <>
+          <SessionAdvisorCard advisor={advisor} />
+          <SessionAgentTree session={session} advisor={advisor} />
+          <SessionEconomicsCard advisor={advisor} />
+        </>
+      ) : null}
+      <SessionActivityTimeline turns={turns} />
 
       <div className="ai-card">
         <h3>Outcome evidence</h3>

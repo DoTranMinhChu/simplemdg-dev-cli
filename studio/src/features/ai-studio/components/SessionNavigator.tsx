@@ -10,22 +10,7 @@ import { useVirtualList } from "../use-virtual-list";
 import { LaunchConfirmModal } from "./LaunchConfirmModal";
 import { SessionRow } from "./SessionRow";
 import { ProjectPicker } from "./ProjectPicker";
-import { ProviderChip } from "./ProviderChip";
 import type { TAiSession } from "../../../api/ai-studio-api-types";
-
-function formatDuration(ms: number): string {
-  if (!ms) return "0s";
-  const totalSeconds = Math.round(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-}
-
-function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(2)}M`;
-  if (count >= 1_000) return `${Math.round(count / 1000)}K`;
-  return String(count);
-}
 
 export function SessionNavigator(): React.ReactElement {
   const { sessions, sessionsLoading, sessionsError, nextCursor, filter, setFilter, loadMoreSessions, selectedSessionId, selectSession, refreshing, refreshAll, toast, patchSession } =
@@ -105,14 +90,6 @@ export function SessionNavigator(): React.ReactElement {
                 event.stopPropagation();
                 setMenu({ x: event.clientX, y: event.clientY, session, items: [] });
               }}
-              meta={
-                <>
-                  <ProviderChip provider={session.provider} /> {session.project}
-                  {session.gitBranch ? ` · ${session.gitBranch}` : ""} · {formatDuration(session.durationMs)} · {formatTokens(session.inputTokens + session.outputTokens)} tok ·{" "}
-                  {session.toolCallCount} tools
-                  {session.errorCount > 0 ? <span className="ai-row-error"> · {session.errorCount} errors</span> : null}
-                </>
-              }
             />
           ))}
           {virtualWindow.bottomPadding > 0 ? <div style={{ height: virtualWindow.bottomPadding }} /> : null}

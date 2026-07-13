@@ -8,6 +8,10 @@ import { useAiStudioStore } from "../state/ai-studio-store";
  * its only screen. Below 768px, `.ai-sessions-layout`'s CSS shows the list OR the workspace, never
  * both (see globals.css) — the "Back to sessions" button below is how you get back to the list on
  * that layout; it's hidden by default and only shown by that same mobile CSS.
+ *
+ * `.ai-session-detail-area` gives SessionWorkspace's `.tabpane` (position:absolute; inset:0) a
+ * closer positioned ancestor than `.workspace` — without it, `.tabpane` fills the whole `.workspace`
+ * and visually covers the back button, which sits above it in `.ai-session-detail-shell`.
  */
 export function AiSessionsPage(): React.ReactElement {
   const { selectedSessionId, selectSession } = useAiStudioStore();
@@ -19,12 +23,16 @@ export function AiSessionsPage(): React.ReactElement {
       </aside>
       <div className="workspace">
         {selectedSessionId ? (
-          <>
-            <button type="button" className="ai-mobile-back" onClick={() => selectSession(undefined)}>
-              ← Sessions
-            </button>
-            <SessionWorkspace sessionId={selectedSessionId} />
-          </>
+          <div className="ai-session-detail-shell">
+            <div className="ai-mobile-back-bar">
+              <button type="button" className="ai-mobile-back" onClick={() => selectSession(undefined)}>
+                ← Sessions
+              </button>
+            </div>
+            <div className="ai-session-detail-area">
+              <SessionWorkspace sessionId={selectedSessionId} />
+            </div>
+          </div>
         ) : (
           <div className="welcome">
             <h1>Sessions</h1>

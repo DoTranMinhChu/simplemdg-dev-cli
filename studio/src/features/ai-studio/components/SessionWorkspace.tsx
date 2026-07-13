@@ -8,7 +8,7 @@ import { SessionTimeline } from "./SessionTimeline";
 import { SessionQuickActions } from "./SessionQuickActions";
 import { SessionGraph } from "../graph/SessionGraph";
 import type { TAiWorkspaceTabKind } from "../state/ai-studio-store";
-import type { TAiObservation, TAiSession, TAiTurn, TSessionAnalysis } from "../../../api/ai-studio-api-types";
+import type { TAiObservation, TAiSession, TAiTurn, TSessionAdvisor, TSessionAnalysis } from "../../../api/ai-studio-api-types";
 
 const TABS: Array<{ kind: TAiWorkspaceTabKind; label: string }> = [
   { kind: "overview", label: "Overview" },
@@ -23,6 +23,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
   const [turns, setTurns] = useState<TAiTurn[]>([]);
   const [observations, setObservations] = useState<TAiObservation[]>([]);
   const [analysis, setAnalysis] = useState<TSessionAnalysis | undefined>();
+  const [advisor, setAdvisor] = useState<TSessionAdvisor | undefined>();
   const [loading, setLoading] = useState(true);
   const [revealSecrets, setRevealSecrets] = useState(false);
 
@@ -34,13 +35,15 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
       aiStudioApi.getTurns(sessionId, revealSecrets),
       aiStudioApi.getObservations(sessionId, { reveal: revealSecrets }),
       aiStudioApi.getAnalysis(sessionId),
+      aiStudioApi.getAdvisor(sessionId),
     ])
-      .then(([sessionResponse, turnsResponse, observationsResponse, analysisResponse]) => {
+      .then(([sessionResponse, turnsResponse, observationsResponse, analysisResponse, advisorResponse]) => {
         if (cancelled) return;
         setSession(sessionResponse.session);
         setTurns(turnsResponse.turns);
         setObservations(observationsResponse.observations);
         setAnalysis(analysisResponse);
+        setAdvisor(advisorResponse);
       })
       .catch((error) => {
         if (!cancelled) toast(error instanceof Error ? error.message : String(error), "err");
@@ -86,7 +89,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
       </div>
       <div className="pane-body">
         {activeTabKind === "overview" ? (
-          <SessionOverview session={session} analysis={analysis} />
+          <SessionOverview session={session} analysis={analysis} advisor={advisor} turns={turns} />
         ) : activeTabKind === "turns" ? (
           <TurnList turns={turns} observations={observations} />
         ) : activeTabKind === "graph" ? (

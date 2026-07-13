@@ -38,17 +38,62 @@ export type TAiSession = {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  cacheCreationTokens: number;
   turnCount: number;
   observationCount: number;
   toolCallCount: number;
   errorCount: number;
   parentSessionId?: string;
+  subAgentCount: number;
   sourceFile: string;
   analysisStatus: "pending" | "complete" | "partial" | "failed";
   userScore: "good" | "bad" | "";
   pinned: boolean;
   favorite: boolean;
   outcome: TSessionOutcome;
+  contextWindowTokens: number;
+  advisorGrade?: "A" | "B" | "C" | "D" | "F";
+  advisorScore?: number;
+};
+
+export type TAdvisorDimension = { label: string; score: number };
+
+export type TAdvisorRecommendation = {
+  category: "context" | "cache" | "model-fit" | "orchestration";
+  severity: "warning" | "critical";
+  title: string;
+  detail: string;
+  metric?: string;
+};
+
+export type TSessionAgent = {
+  sessionId: string;
+  agentId: string;
+  type: string;
+  model: string;
+  tokens: number;
+  toolCallCount: number;
+  durationMs: number;
+  status: "running" | "done";
+  spawnReason?: string;
+  depth: number;
+};
+
+export type TSessionAdvisor = {
+  neutral: boolean;
+  grade: "A" | "B" | "C" | "D" | "F" | "";
+  score: number;
+  dimensions: TAdvisorDimension[];
+  recommendations: TAdvisorRecommendation[];
+  agents: TSessionAgent[];
+  tokenEconomics: {
+    totalTokens: number;
+    byAgent: Array<{ label: string; tokens: number }>;
+    byModel: Array<{ label: string; tokens: number }>;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    cacheReusePercent: number | undefined;
+  };
 };
 
 export type TAiTurn = {

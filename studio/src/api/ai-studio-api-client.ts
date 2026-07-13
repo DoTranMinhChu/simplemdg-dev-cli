@@ -7,6 +7,7 @@ import type {
   TAiSessionLaunchResponse,
   TAiTurn,
   TIngestionResult,
+  TSessionAdvisor,
   TSessionAnalysis,
   TSessionListResponse,
   TShellKind,
@@ -72,6 +73,8 @@ export const aiStudioApi = {
     get<{ observations: TAiObservation[] }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/observations${qs({ turnIndex: options?.turnIndex, reveal: options?.reveal })}`),
 
   getAnalysis: (sessionId: string) => get<TSessionAnalysis>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/analysis`),
+
+  getAdvisor: (sessionId: string) => get<TSessionAdvisor>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/advisor`),
 
   setScore: (sessionId: string, value: "good" | "bad") => post<{ ok: boolean }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/score`, { value }),
 

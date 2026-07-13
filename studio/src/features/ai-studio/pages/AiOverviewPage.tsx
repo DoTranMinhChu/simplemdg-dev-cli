@@ -1,17 +1,12 @@
 import { useAiStudioStore } from "../state/ai-studio-store";
 import { ContinueWorkingWidget } from "../components/ContinueWorkingWidget";
+import { formatTokens } from "../format";
 
 function formatDuration(ms: number): string {
   if (!ms) return "0h";
   const hours = Math.floor(ms / 3_600_000);
   const minutes = Math.round((ms % 3_600_000) / 60_000);
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-}
-
-function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  if (count >= 1_000) return `${Math.round(count / 1000)}K`;
-  return String(count);
 }
 
 /** The dashboard home: today's numbers, then a one-or-two-click way back into recent/pinned work. */

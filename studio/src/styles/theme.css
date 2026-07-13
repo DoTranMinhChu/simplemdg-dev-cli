@@ -50,4 +50,14 @@
   --violet: #8b5cf6;
   --teal: #14b8a6;
   --pink: #ec4899;
+
+  /* Session-economics agent identity palette (orchestration tree, token economics bar) — index 0
+     is always "main", so it's pinned to --accent for a stable/recognizable anchor color; the rest
+     rotate through the existing hues above rather than inventing new ones. */
+  --a0: var(--accent);
+  --a1: var(--amber);
+  --a2: var(--teal);
+  --a3: var(--violet);
+  --a4: var(--pink);
+  --a5: var(--green);
 }

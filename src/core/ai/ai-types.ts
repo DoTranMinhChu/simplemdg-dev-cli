@@ -60,6 +60,8 @@ export type TAiSession = {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  /** Tokens spent writing new cache entries (Anthropic's `cache_creation_input_tokens`); already folded into `inputTokens` too — kept separate only so cache-reuse-rate can be computed. Always 0 for providers without a cache-write concept (Codex). */
+  cacheCreationTokens: number;
 
   turnCount: number;
   observationCount: number;
@@ -67,6 +69,8 @@ export type TAiSession = {
   errorCount: number;
 
   parentSessionId?: string;
+  /** Count of sessions with `parentSessionId === this.id`, computed at query time via a correlated subquery — not a stored column. */
+  subAgentCount: number;
 
   sourceFile: string;
 
@@ -81,6 +85,13 @@ export type TAiSession = {
 
   /** Cached mirror of the same evidence-only classification computed at analysis time (see classifySessionOutcome) — lets the session list show it without loading every observation per row. */
   outcome: TSessionOutcome;
+
+  /** Best-effort model max-context-window estimate (see ai-model-context-windows.ts) — not billing data, applied at read time, never persisted. */
+  contextWindowTokens: number;
+
+  /** Cheap Advisor grade estimate (see computeQuickGrade in ai-session-advisor.ts) — computed at read time from this row alone, so it omits the orchestration dimension and can differ slightly from the full grade returned by GET .../advisor. undefined when the session hasn't done enough to score. */
+  advisorGrade?: "A" | "B" | "C" | "D" | "F";
+  advisorScore?: number;
 };
 
 export type TAiTurn = {
@@ -120,7 +131,18 @@ export type TSessionFile = {
 export type TParsedAiSession = {
   session: Omit<
     TAiSession,
-    "analysisStatus" | "userScore" | "pinned" | "favorite" | "outcome" | "turnCount" | "durationMs" | "toolCallCount" | "errorCount" | "observationCount"
+    | "analysisStatus"
+    | "userScore"
+    | "pinned"
+    | "favorite"
+    | "outcome"
+    | "turnCount"
+    | "durationMs"
+    | "toolCallCount"
+    | "errorCount"
+    | "observationCount"
+    | "subAgentCount"
+    | "contextWindowTokens"
   >;
   observations: TAiObservation[];
 };
@@ -250,4 +272,53 @@ export type TSessionAnalysis = {
   fileImpact: TFileImpact[];
   commandsRun: string[];
   loopFindings: TLoopFinding[];
+};
+
+// --- Advisor layer (derived, heuristic scoring — always labelled as an estimate,
+// never treated as billing/ground-truth data) ------------------------------------
+
+export type TAdvisorDimension = { label: string; score: number };
+
+export type TAdvisorRecommendation = {
+  category: "context" | "cache" | "model-fit" | "orchestration";
+  severity: "warning" | "critical";
+  title: string;
+  detail: string;
+  metric?: string;
+};
+
+/** One node in the whole-session orchestration tree — the main session itself (depth 0) plus
+ *  each of its sub-agent sessions (depth >= 1). Distinct from the per-turn Graph view's
+ *  observation tree: this shows the session hierarchy, not one turn's tool-call tree. */
+export type TSessionAgent = {
+  sessionId: string;
+  agentId: string;
+  type: string;
+  model: string;
+  tokens: number;
+  toolCallCount: number;
+  durationMs: number;
+  /** Approximated from `endedAt` recency — there is no true live/running signal in this ingestion-based architecture. */
+  status: "running" | "done";
+  spawnReason?: string;
+  depth: number;
+};
+
+export type TSessionAdvisor = {
+  /** True when the session has too little activity to score meaningfully — the UI hides the whole Advisor section rather than showing a misleading grade. */
+  neutral: boolean;
+  grade: "A" | "B" | "C" | "D" | "F" | "";
+  score: number;
+  dimensions: TAdvisorDimension[];
+  recommendations: TAdvisorRecommendation[];
+  agents: TSessionAgent[];
+  tokenEconomics: {
+    totalTokens: number;
+    byAgent: Array<{ label: string; tokens: number }>;
+    byModel: Array<{ label: string; tokens: number }>;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    /** undefined when there's too little cache signal to report a meaningful percentage. */
+    cacheReusePercent: number | undefined;
+  };
 };

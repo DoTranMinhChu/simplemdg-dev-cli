@@ -59,6 +59,7 @@ export function parseClaudeSession(filePath: string, content: string): TParsedAi
   let inputTokens = 0;
   let outputTokens = 0;
   let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
   let pendingObsTokens = 0;
   let userIdx = -1;
   let assistantIdx = -1;
@@ -142,6 +143,7 @@ export function parseClaudeSession(filePath: string, content: string): TParsedAi
         inputTokens += num(usage.input_tokens) + num(usage.cache_creation_input_tokens);
         outputTokens += num(usage.output_tokens);
         cacheReadTokens += num(usage.cache_read_input_tokens);
+        cacheCreationTokens += num(usage.cache_creation_input_tokens);
         pendingObsTokens = num(usage.output_tokens);
       }
 
@@ -202,6 +204,7 @@ export function parseClaudeSession(filePath: string, content: string): TParsedAi
     inputTokens,
     outputTokens,
     cacheReadTokens,
+    cacheCreationTokens,
     file: filePath,
     gitBranch,
     parentSessionId: subagentId ? `claude:${sessionId}` : undefined,
@@ -221,6 +224,7 @@ function buildParsedSession(input: {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  cacheCreationTokens: number;
   file: string;
   gitBranch: string;
   parentSessionId?: string;
@@ -248,6 +252,7 @@ function buildParsedSession(input: {
       inputTokens: input.inputTokens,
       outputTokens: input.outputTokens,
       cacheReadTokens: input.cacheReadTokens,
+      cacheCreationTokens: input.cacheCreationTokens,
       parentSessionId: input.parentSessionId,
       sourceFile: input.file,
     },

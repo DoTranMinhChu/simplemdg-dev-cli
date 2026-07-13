@@ -52,14 +52,15 @@ export function GraphDetailPopup({
   onViewSubagentSession: (sessionId: string) => void;
 }): React.ReactElement | null {
   const popoverRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ left: anchorRect.right + 10, top: anchorRect.top });
+  const [position, setPosition] = useState({ left: Math.max(8, Math.min(anchorRect.right + 10, window.innerWidth - 8)), top: anchorRect.top });
 
   useLayoutEffect(() => {
     const popover = popoverRef.current;
     const width = popover?.offsetWidth ?? 320;
     const height = popover?.offsetHeight ?? 260;
     const preferRight = anchorRect.right + 10 + width <= window.innerWidth - 8;
-    const left = preferRight ? anchorRect.right + 10 : Math.max(8, anchorRect.left - 10 - width);
+    const rawLeft = preferRight ? anchorRect.right + 10 : anchorRect.left - 10 - width;
+    const left = Math.min(Math.max(8, rawLeft), Math.max(8, window.innerWidth - width - 8));
     const top = Math.min(Math.max(8, anchorRect.top), window.innerHeight - height - 8);
     setPosition({ left, top });
   }, [anchorRect]);

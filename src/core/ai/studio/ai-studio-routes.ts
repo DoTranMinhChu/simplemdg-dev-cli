@@ -1,5 +1,6 @@
 import type http from "node:http";
 import { analyzeSession, buildContinuationPrompt, deriveTurns } from "../ai-session-analysis";
+import { computeAdvisor } from "../ai-session-advisor";
 import { ingestAiSessions } from "../ai-session-ingestion";
 import { redactSecrets } from "../ai-secret-redaction";
 import { exportSession } from "../ai-session-export";
@@ -153,6 +154,13 @@ export async function handleAiStudioApi(req: http.IncomingMessage, res: http.Ser
     if (subPath === "/analysis" && method === "GET") {
       const observations = store.getObservations(sessionId);
       sendJson(res, analyzeSession(sessionId, observations));
+      return true;
+    }
+
+    if (subPath === "/advisor" && method === "GET") {
+      const children = store.listChildSessions(sessionId);
+      const observations = store.getObservations(sessionId);
+      sendJson(res, computeAdvisor(session, children, observations));
       return true;
     }
 

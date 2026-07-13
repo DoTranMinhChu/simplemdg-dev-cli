@@ -50,6 +50,7 @@ export function ContinueWorkingWidget(): React.ReactElement | null {
     <SessionRow
       key={session.id}
       session={session}
+      variant="compact"
       onClick={() => selectSession(session.id)}
       onResume={(event) => {
         event.stopPropagation();
