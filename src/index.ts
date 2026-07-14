@@ -4,6 +4,7 @@ import path from "node:path";
 import { Command } from "commander";
 import prompts from "prompts";
 import fs from "fs-extra";
+import { getDirname } from "./core/esm-paths";
 import { askRootHelpMode, openUserGuideInBrowser, printUserGuide } from "./core/guide";
 import { installRepository } from "./core/install";
 import { scanRepositoryVariables } from "./core/scanner";
@@ -26,7 +27,8 @@ import { registerGitLabCommands } from "./commands/gitlab.command";
 import { registerCacheCommands } from "./commands/cache.command";
 import { registerGitCommands } from "./commands/git.command";
 import { registerAiCommands } from "./commands/ai.command";
-import { enableInteractiveNavigation, runGroupNavigator } from "./core/navigator";
+import { enableInteractiveNavigation } from "./core/navigator";
+import { launchInteractiveShell } from "./terminal/services/terminal-launcher";
 import type { TInstallCommandOptions, TKeyValueMap } from "./types-local";
 
 const program = new Command();
@@ -322,6 +324,8 @@ async function runInstallCommand(options: TInstallCommandOptions): Promise<void>
   process.exitCode = installResult.exitCode;
 }
 
+const __dirname = getDirname(import.meta.url);
+
 function readCliVersion(): string {
   // Single source of truth: read the version from package.json at runtime so
   // `smdg -V` always matches the package. Works in dev (src via tsx) and when
@@ -437,6 +441,13 @@ registerCacheCommands(program);
 registerGitCommands(program);
 registerAiCommands(program);
 
+program
+  .command("shell")
+  .description("Open the SimpleMDG Developer Console (interactive shell)")
+  .action(async () => {
+    await launchInteractiveShell(program, readCliVersion());
+  });
+
 // Turn every group command (cf, cf db, cds, npmrc, gitlab, ...) into an
 // interactive menu so a partial command like `smdg cf` or `smdg cf db` lists
 // its subcommands to pick from instead of printing help.
@@ -446,7 +457,7 @@ async function runCli(): Promise<void> {
   const userArguments = process.argv.slice(2);
 
   if (userArguments.length === 0) {
-    await runGroupNavigator(program);
+    await launchInteractiveShell(program, readCliVersion());
     return;
   }
 

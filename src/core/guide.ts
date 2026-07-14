@@ -4,10 +4,13 @@ import { spawn } from "node:child_process";
 import fs from "fs-extra";
 import chalk from "chalk";
 import prompts from "prompts";
+import { getDirname } from "./esm-paths";
 
 const GUIDE_FILE_NAME = "USER_GUIDE.md";
 
 type TGuideMode = "terminal" | "web" | "commander-help";
+
+const __dirname = getDirname(import.meta.url);
 
 function getPackageRootPath(): string {
   return path.resolve(__dirname, "..", "..");

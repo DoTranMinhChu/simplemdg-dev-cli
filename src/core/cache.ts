@@ -50,6 +50,10 @@ const EMPTY_CACHE: TSimpleMdgCache = {
     sourceBranches: ["staging"],
     targetBranches: ["uat", "qas"],
   },
+  terminal: {
+    theme: undefined,
+    headerMode: "compact",
+  },
 };
 
 function cloneEmptyCache(): TSimpleMdgCache {
@@ -180,6 +184,10 @@ export async function readCache(): Promise<TSimpleMdgCache> {
       scopeHistory: cache.git?.scopeHistory ?? EMPTY_CACHE.git.scopeHistory,
       sourceBranches: cache.git?.sourceBranches ?? EMPTY_CACHE.git.sourceBranches,
       targetBranches: cache.git?.targetBranches ?? EMPTY_CACHE.git.targetBranches,
+    },
+    terminal: {
+      theme: cache.terminal?.theme,
+      headerMode: cache.terminal?.headerMode ?? EMPTY_CACHE.terminal.headerMode,
     },
   };
 }
@@ -375,5 +383,17 @@ export async function rememberGitSourceBranch(branch: string): Promise<void> {
 export async function rememberGitTargetBranch(branch: string): Promise<void> {
   const cache = await readCache();
   cache.git.targetBranches = uniqueLatest([branch, ...cache.git.targetBranches]);
+  await writeCache(cache);
+}
+
+export async function rememberTerminalTheme(theme: TSimpleMdgCache["terminal"]["theme"]): Promise<void> {
+  const cache = await readCache();
+  cache.terminal.theme = theme;
+  await writeCache(cache);
+}
+
+export async function rememberTerminalHeaderMode(headerMode: TSimpleMdgCache["terminal"]["headerMode"]): Promise<void> {
+  const cache = await readCache();
+  cache.terminal.headerMode = headerMode;
   await writeCache(cache);
 }

@@ -5,6 +5,7 @@ import fs from "fs-extra";
 import { execa } from "execa";
 import chalk from "chalk";
 import { findNearestRepository } from "../repository";
+import { getDirname } from "../esm-paths";
 import { StudioConnectionPool } from "./db-connection";
 import { classifyDatabaseError } from "./db-error";
 import {
@@ -80,6 +81,7 @@ export type TStudioServerOptions = {
 };
 
 const STUDIO_DIST_DIRNAME = path.join("dist", "core", "db", "studio-dist");
+const __dirname = getDirname(import.meta.url);
 
 /**
  * Locate the built React Studio assets. Anchored to the CLI package root (not

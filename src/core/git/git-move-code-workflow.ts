@@ -1,6 +1,4 @@
 import chalk from "chalk";
-import prompts from "prompts";
-import { searchableSelectChoice } from "../prompts";
 import { ensureExternalTool } from "../tooling";
 import {
   rememberGitBuildCommand,
@@ -44,11 +42,13 @@ import type {
   TGitLogRange,
   TGitMoveCodeInput,
   TGitMoveCodeRepoResult,
+  TWorkflowContext,
 } from "./git-types";
 
-function printStep(current: number, total: number, label: string): void {
-  console.log("");
-  console.log(chalk.bold.cyan(`Step ${current}/${total}  ${label}`));
+/** Rethrow if the whole workflow was cancelled (Ctrl+C); otherwise this was just the user
+ * backing out of one sub-prompt (Escape), so the caller should keep going / retry. */
+function isWholeWorkflowCancelled(ctx: TWorkflowContext): boolean {
+  return ctx.signal.aborted;
 }
 
 export function formatCommitLine(commit: TGitCandidateCommit): string {
@@ -58,7 +58,7 @@ export function formatCommitLine(commit: TGitCandidateCommit): string {
 }
 
 /** Interactive: gather one or more scope searches and return the combined, deduped candidate list. */
-export async function searchScopeInteractive(cwd: string, range: TGitLogRange, input: TGitMoveCodeInput): Promise<TGitCandidateCommit[]> {
+export async function searchScopeInteractive(cwd: string, range: TGitLogRange, input: TGitMoveCodeInput, ctx: TWorkflowContext): Promise<TGitCandidateCommit[]> {
   let combined: TGitCandidateCommit[] = [];
 
   // Non-interactive shortcut: flags were passed directly on the command line.
@@ -82,7 +82,7 @@ export async function searchScopeInteractive(cwd: string, range: TGitLogRange, i
 
   // Fully interactive mode.
   for (;;) {
-    const mode = await searchableSelectChoice({
+    const mode = await ctx.interaction.select({
       message: "How do you want to search scope?",
       choices: [
         { title: "Keyword / Jira ticket / feature name", value: "keyword" },
@@ -100,66 +100,69 @@ export async function searchScopeInteractive(cwd: string, range: TGitLogRange, i
 
     try {
       if (mode === "keyword") {
-        const keyword = await searchableSelectChoice({
+        const keyword = await ctx.interaction.input({
           message: "Keyword / Jira ticket / feature name",
-          choices: [],
-          validateCustomValue: (value) => (value.trim() ? true : "Value is required"),
+          validate: (value) => (value.trim() ? true : "Value is required"),
         });
         await rememberGitScope(keyword);
         combined = combined.concat(await searchCommitsByKeyword(cwd, range, keyword));
       } else if (mode === "path") {
-        const pathSpec = await searchableSelectChoice({
+        const pathSpec = await ctx.interaction.input({
           message: "File or folder path",
-          choices: [],
-          validateCustomValue: (value) => (value.trim() ? true : "Value is required"),
+          validate: (value) => (value.trim() ? true : "Value is required"),
         });
         combined = combined.concat(await searchCommitsByPath(cwd, range, pathSpec));
       } else if (mode === "symbol") {
-        const symbol = await searchableSelectChoice({
+        const symbol = await ctx.interaction.input({
           message: "Symbol / class / function / type / API name",
-          choices: [],
-          validateCustomValue: (value) => (value.trim() ? true : "Value is required"),
+          validate: (value) => (value.trim() ? true : "Value is required"),
         });
         const { files, commits } = await searchCommitsBySymbol(cwd, range, symbol);
         if (files.length) {
-          console.log(chalk.gray(`Matched ${files.length} file(s) on origin/${range.source}: ${files.slice(0, 5).join(", ")}${files.length > 5 ? ", ..." : ""}`));
+          ctx.interaction.notify({
+            level: "muted",
+            message: `Matched ${files.length} file(s) on origin/${range.source}: ${files.slice(0, 5).join(", ")}${files.length > 5 ? ", ..." : ""}`,
+          });
         }
         combined = combined.concat(commits);
       } else if (mode === "manual") {
-        const hash = await searchableSelectChoice({
+        const hash = await ctx.interaction.input({
           message: "Commit hash",
-          choices: [],
-          validateCustomValue: (value) => (value.trim() ? true : "Value is required"),
+          validate: (value) => (value.trim() ? true : "Value is required"),
         });
         combined.push(await resolveManualCommit(cwd, range, hash));
       }
     } catch (error) {
-      console.log(chalk.yellow(error instanceof Error ? error.message : String(error)));
+      if (isWholeWorkflowCancelled(ctx)) {
+        throw error;
+      }
+      ctx.interaction.notify({ level: "warn", message: error instanceof Error ? error.message : String(error) });
     }
 
     combined = dedupeCommits(combined);
-    console.log(chalk.gray(`Found ${combined.length} candidate commit(s) so far.`));
+    ctx.interaction.notify({ level: "muted", message: `Found ${combined.length} candidate commit(s) so far.` });
   }
 
   return combined;
 }
 
-async function inspectCommitFiles(cwd: string, commit: TGitCandidateCommit): Promise<void> {
+async function inspectCommitFiles(cwd: string, commit: TGitCandidateCommit, ctx: TWorkflowContext): Promise<void> {
   const withFiles = await loadCommitFiles(cwd, commit);
-  console.log("");
-  console.log(chalk.bold(formatCommitLine(commit)));
+  const lines: string[] = [formatCommitLine(commit)];
 
   if (commit.kind === "merge") {
     const { mainline, others } = describeMergeParents(commit);
-    console.log(chalk.gray(`Parent 1 (mainline): ${mainline}`));
-    others.forEach((parent, index) => console.log(chalk.gray(`Parent ${index + 2}: ${parent}`)));
-    console.log(chalk.gray("This is a merge commit. Git needs the mainline parent."));
-    console.log(chalk.gray("The default for this workflow is -m 1."));
+    lines.push(chalk.gray(`Parent 1 (mainline): ${mainline}`));
+    others.forEach((parent, index) => lines.push(chalk.gray(`Parent ${index + 2}: ${parent}`)));
+    lines.push(chalk.gray("This is a merge commit. Git needs the mainline parent."));
+    lines.push(chalk.gray("The default for this workflow is -m 1."));
   }
 
   for (const file of withFiles.files ?? []) {
-    console.log(`  ${file.status.padEnd(4)} ${file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}`);
+    lines.push(`  ${file.status.padEnd(4)} ${file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}`);
   }
+
+  ctx.interaction.notify({ level: "info", message: lines.join("\n") });
 }
 
 /** Recommend a selection strategy based on the mix of normal/merge candidates (spec section 6). */
@@ -176,18 +179,20 @@ export async function selectCommitsInteractive(
   cwd: string,
   candidates: TGitCandidateCommit[],
   onSearchAgain: () => Promise<TGitCandidateCommit[]>,
+  ctx: TWorkflowContext,
 ): Promise<TGitCandidateCommit[] | undefined> {
   let pool = candidates;
 
   for (;;) {
-    console.log("");
-    console.log(chalk.bold(`Candidate commits (${pool.length}):`));
-    pool.forEach((commit) => console.log(formatCommitLine(commit)));
+    ctx.interaction.notify({
+      level: "info",
+      message: [chalk.bold(`Candidate commits (${pool.length}):`), ...pool.map((commit) => formatCommitLine(commit))].join("\n"),
+    });
 
     const normalCount = pool.filter((commit) => commit.kind === "normal").length;
     const mergeCount = pool.filter((commit) => commit.kind === "merge").length;
 
-    const action = await searchableSelectChoice({
+    const action = await ctx.interaction.select({
       message: "What do you want to do?",
       choices: [
         { title: "Pick recommended commits", value: "recommended" },
@@ -209,20 +214,23 @@ export async function selectCommitsInteractive(
     }
 
     if (action === "inspect") {
-      const hash = await searchableSelectChoice({
+      const hash = await ctx.interaction.select({
         message: "Inspect which commit?",
         choices: pool.map((commit) => ({ title: formatCommitLine(commit), value: commit.hash })),
         allowCustomValue: false,
       });
       const commit = pool.find((item) => item.hash === hash);
-      if (commit) await inspectCommitFiles(cwd, commit);
+      if (commit) await inspectCommitFiles(cwd, commit, ctx);
       continue;
     }
 
     if (action === "recommended") {
       const recommended = recommendCommits(pool);
       if (normalCount && mergeCount) {
-        console.log(chalk.gray("Mixed result: pick normal commits first, then inspect merge commits — pick a merge only if it carries additional required changes."));
+        ctx.interaction.notify({
+          level: "muted",
+          message: "Mixed result: pick normal commits first, then inspect merge commits — pick a merge only if it carries additional required changes.",
+        });
       }
       return recommended;
     }
@@ -238,36 +246,32 @@ export async function selectCommitsInteractive(
       if (!merges.length) return normals;
 
       for (const merge of merges) {
-        await inspectCommitFiles(cwd, merge);
+        await inspectCommitFiles(cwd, merge, ctx);
       }
 
-      const response = await prompts({
-        type: "multiselect",
-        name: "hashes",
+      const chosenHashes = await ctx.interaction.multiSelect({
         message: "Also include these merge commits? (they may contain additional required changes)",
         choices: merges.map((commit) => ({ title: formatCommitLine(commit), value: commit.hash })),
         hint: "Space to toggle, Enter to confirm",
       });
 
-      const chosenHashes = new Set<string>(response.hashes ?? []);
-      return [...normals, ...merges.filter((commit) => chosenHashes.has(commit.hash))];
+      const chosenHashSet = new Set(chosenHashes);
+      return [...normals, ...merges.filter((commit) => chosenHashSet.has(commit.hash))];
     }
 
     if (action === "manual") {
-      const response = await prompts({
-        type: "multiselect",
-        name: "hashes",
+      const chosenHashes = await ctx.interaction.multiSelect({
         message: "Select commits to cherry-pick",
         choices: pool.map((commit) => ({ title: formatCommitLine(commit), value: commit.hash })),
         hint: "Space to toggle, Enter to confirm",
       });
 
-      const chosenHashes = new Set<string>(response.hashes ?? []);
-      if (!chosenHashes.size) {
-        console.log(chalk.yellow("No commits selected."));
+      const chosenHashSet = new Set(chosenHashes);
+      if (!chosenHashSet.size) {
+        ctx.interaction.notify({ level: "warn", message: "No commits selected." });
         continue;
       }
-      return pool.filter((commit) => chosenHashes.has(commit.hash));
+      return pool.filter((commit) => chosenHashSet.has(commit.hash));
     }
   }
 }
@@ -278,7 +282,7 @@ export function toChronologicalOrder(selected: TGitCandidateCommit[], discoveryO
   return [...selected].sort((left, right) => (order.get(right.hash) ?? 0) - (order.get(left.hash) ?? 0));
 }
 
-export async function resolveConflictInteractive(cwd: string): Promise<"continue" | "abort"> {
+export async function resolveConflictInteractive(cwd: string, ctx: TWorkflowContext): Promise<"continue" | "abort"> {
   for (;;) {
     const conflicts = await getConflictFiles(cwd);
 
@@ -287,11 +291,12 @@ export async function resolveConflictInteractive(cwd: string): Promise<"continue
     }
 
     for (const conflict of conflicts) {
-      console.log("");
-      console.log(chalk.red(`Conflict: ${conflict.path} (${conflict.code})`));
-      console.log(chalk.gray(describeConflictKind(conflict.kind)));
+      ctx.interaction.notify({
+        level: "error",
+        message: `Conflict: ${conflict.path} (${conflict.code})\n${chalk.gray(describeConflictKind(conflict.kind))}`,
+      });
 
-      const action = await searchableSelectChoice({
+      const action = await ctx.interaction.select({
         message: `For file: ${conflict.path}`,
         choices: [
           { title: "Keep deleted file", value: "keep-deleted" },
@@ -306,13 +311,16 @@ export async function resolveConflictInteractive(cwd: string): Promise<"continue
       if (action === "usages") {
         const term = conflict.path.split("/").pop() ?? conflict.path;
         const usages = await searchUsages(cwd, term.replace(/\.[a-z0-9]+$/i, ""));
-        console.log(usages.length ? usages.map((file) => `  ${file}`).join("\n") : chalk.gray("No remaining references found."));
+        ctx.interaction.notify({
+          level: "info",
+          message: usages.length ? usages.map((file) => `  ${file}`).join("\n") : chalk.gray("No remaining references found."),
+        });
         continue;
       }
 
       if (action === "status") {
         const status = await getPorcelainStatus(cwd);
-        console.log(status.map((line) => `  ${line}`).join("\n"));
+        ctx.interaction.notify({ level: "info", message: status.map((line) => `  ${line}`).join("\n") });
         continue;
       }
 
@@ -334,37 +342,83 @@ export async function resolveConflictInteractive(cwd: string): Promise<"continue
   }
 }
 
-export async function executeCherryPicks(cwd: string, commits: TGitCandidateCommit[]): Promise<{ aborted: boolean }> {
-  for (const commit of commits) {
-    console.log("");
-    console.log(chalk.bold("Picking:"));
-    console.log(formatCommitLine(commit));
+export async function executeCherryPicks(cwd: string, commits: TGitCandidateCommit[], ctx: TWorkflowContext): Promise<{ aborted: boolean }> {
+  return ctx.interaction.progress({ label: "Cherry-picking" }, async (report) => {
+    for (let index = 0; index < commits.length; index += 1) {
+      const commit = commits[index];
+      report({ current: index + 1, total: commits.length, label: `Cherry-picking ${commit.shortHash}` });
+      ctx.interaction.notify({ level: "info", message: `Picking:\n${formatCommitLine(commit)}` });
 
-    for (;;) {
-      const outcome = await cherryPickCommit(cwd, commit);
+      for (;;) {
+        const outcome = await cherryPickCommit(cwd, commit);
 
-      if (outcome.result === "success") {
-        console.log(chalk.green("Picked successfully."));
-        break;
-      }
+        if (outcome.result === "success") {
+          ctx.interaction.notify({ level: "success", message: "Picked successfully." });
+          break;
+        }
 
-      if (outcome.result === "empty") {
-        console.log(chalk.yellow("This cherry-pick is empty. The changes may already exist."));
-        const choice = await searchableSelectChoice({
-          message: "Options",
+        if (outcome.result === "empty") {
+          ctx.interaction.notify({ level: "warn", message: "This cherry-pick is empty. The changes may already exist." });
+          const choice = await ctx.interaction.select({
+            message: "Options",
+            choices: [
+              { title: "Skip", value: "skip" },
+              { title: "Abort", value: "abort" },
+              { title: "Inspect status", value: "status" },
+            ],
+            allowCustomValue: false,
+          });
+
+          if (choice === "status") {
+            const status = await getPorcelainStatus(cwd);
+            ctx.interaction.notify({ level: "info", message: status.map((line) => `  ${line}`).join("\n") || chalk.gray("(clean)") });
+            continue;
+          }
+          if (choice === "abort") {
+            await cherryPickAbort(cwd);
+            return { aborted: true };
+          }
+          await cherryPickSkip(cwd);
+          break;
+        }
+
+        if (outcome.result === "conflict") {
+          ctx.interaction.notify({ level: "warn", message: "Conflict detected." });
+          const decision = await resolveConflictInteractive(cwd, ctx);
+          if (decision === "abort") {
+            return { aborted: true };
+          }
+          const continued = await cherryPickContinue(cwd);
+          if (continued.result === "success") {
+            ctx.interaction.notify({ level: "success", message: "Picked successfully after resolving conflicts." });
+            break;
+          }
+          if (continued.result === "conflict") {
+            continue; // more conflicts surfaced; loop back into resolution
+          }
+          if (continued.result === "empty") {
+            ctx.interaction.notify({ level: "warn", message: "Resulting change is empty after conflict resolution." });
+            await cherryPickSkip(cwd);
+            break;
+          }
+          ctx.interaction.notify({ level: "error", message: continued.stderr || continued.stdout });
+          return { aborted: true };
+        }
+
+        // failure
+        ctx.interaction.notify({ level: "error", message: "Cherry-pick failed." });
+        const status = await getPorcelainStatus(cwd);
+        ctx.interaction.notify({ level: "muted", message: `${outcome.stderr || outcome.stdout}\n${status.map((line) => `  ${line}`).join("\n")}` });
+
+        const choice = await ctx.interaction.select({
+          message: "How do you want to proceed?",
           choices: [
-            { title: "Skip", value: "skip" },
-            { title: "Abort", value: "abort" },
-            { title: "Inspect status", value: "status" },
+            { title: "Skip this commit (git cherry-pick --skip)", value: "skip" },
+            { title: "Abort remaining picks (git cherry-pick --abort)", value: "abort" },
           ],
           allowCustomValue: false,
         });
 
-        if (choice === "status") {
-          const status = await getPorcelainStatus(cwd);
-          console.log(status.map((line) => `  ${line}`).join("\n") || chalk.gray("(clean)"));
-          continue;
-        }
         if (choice === "abort") {
           await cherryPickAbort(cwd);
           return { aborted: true };
@@ -372,58 +426,13 @@ export async function executeCherryPicks(cwd: string, commits: TGitCandidateComm
         await cherryPickSkip(cwd);
         break;
       }
-
-      if (outcome.result === "conflict") {
-        console.log(chalk.yellow("Conflict detected."));
-        const decision = await resolveConflictInteractive(cwd);
-        if (decision === "abort") {
-          return { aborted: true };
-        }
-        const continued = await cherryPickContinue(cwd);
-        if (continued.result === "success") {
-          console.log(chalk.green("Picked successfully after resolving conflicts."));
-          break;
-        }
-        if (continued.result === "conflict") {
-          continue; // more conflicts surfaced; loop back into resolution
-        }
-        if (continued.result === "empty") {
-          console.log(chalk.yellow("Resulting change is empty after conflict resolution."));
-          await cherryPickSkip(cwd);
-          break;
-        }
-        console.log(chalk.red(continued.stderr || continued.stdout));
-        return { aborted: true };
-      }
-
-      // failure
-      console.log(chalk.red("Cherry-pick failed."));
-      console.log(chalk.gray(outcome.stderr || outcome.stdout));
-      const status = await getPorcelainStatus(cwd);
-      console.log(status.map((line) => `  ${line}`).join("\n"));
-
-      const choice = await searchableSelectChoice({
-        message: "How do you want to proceed?",
-        choices: [
-          { title: "Skip this commit (git cherry-pick --skip)", value: "skip" },
-          { title: "Abort remaining picks (git cherry-pick --abort)", value: "abort" },
-        ],
-        allowCustomValue: false,
-      });
-
-      if (choice === "abort") {
-        await cherryPickAbort(cwd);
-        return { aborted: true };
-      }
-      await cherryPickSkip(cwd);
-      break;
     }
-  }
 
-  return { aborted: false };
+    return { aborted: false };
+  });
 }
 
-async function resolveBuildCommand(cwd: string, input: TGitMoveCodeInput): Promise<string | undefined> {
+async function resolveBuildCommand(cwd: string, input: TGitMoveCodeInput, ctx: TWorkflowContext): Promise<string | undefined> {
   if (input.buildCommand) return input.buildCommand;
 
   const remembered = await getRememberedGitBuildCommand(cwd);
@@ -434,7 +443,7 @@ async function resolveBuildCommand(cwd: string, input: TGitMoveCodeInput): Promi
     { title: "Skip build", value: "__skip__" },
   ];
 
-  const choice = await searchableSelectChoice({
+  const choice = await ctx.interaction.select({
     message: "Build command",
     choices,
     allowCustomValue: false,
@@ -443,32 +452,37 @@ async function resolveBuildCommand(cwd: string, input: TGitMoveCodeInput): Promi
   if (choice === "__skip__") return undefined;
 
   if (choice === "__custom__") {
-    const response = await prompts({ type: "text", name: "command", message: "Custom build command", validate: (value: string) => (value.trim() ? true : "Value is required") });
-    if (!response.command) return undefined;
-    return String(response.command).trim();
+    try {
+      return await ctx.interaction.input({
+        message: "Custom build command",
+        validate: (value) => (value.trim() ? true : "Value is required"),
+      });
+    } catch {
+      return undefined; // cancelled — original behavior treats this the same as "skip build"
+    }
   }
 
   return choice;
 }
 
 /** Run the build command and, on failure, interactively trace + fix missing dependencies; re-runs until it passes or the user stops. */
-export async function runBuildAndTraceDependencies(cwd: string, range: TGitLogRange, scope: string, buildCommand: string): Promise<boolean> {
+export async function runBuildAndTraceDependencies(cwd: string, range: TGitLogRange, scope: string, buildCommand: string, ctx: TWorkflowContext): Promise<boolean> {
   for (;;) {
-    console.log(chalk.gray(`Running: ${buildCommand}`));
-    const build = await runBuildCommand(cwd, buildCommand);
+    ctx.interaction.notify({ level: "muted", message: `Running: ${buildCommand}` });
+    const build = await runBuildCommand(cwd, buildCommand, ctx.signal);
 
     if (build.success) {
-      console.log(chalk.green("Build: PASS"));
+      ctx.interaction.notify({ level: "success", message: "Build: PASS" });
       return true;
     }
 
-    console.log(chalk.red("Build: FAIL"));
+    ctx.interaction.notify({ level: "error", message: "Build: FAIL" });
     const combinedOutput = `${build.stdout}\n${build.stderr}`;
     const issues = parseBuildErrors(combinedOutput);
 
     if (!issues.length) {
-      console.log(chalk.gray(combinedOutput.slice(0, 4000)));
-      const proceed = await searchableSelectChoice({
+      ctx.interaction.notify({ level: "muted", message: combinedOutput.slice(0, 4000) });
+      const proceed = await ctx.interaction.select({
         message: "Build failed and no known dependency pattern was recognized. What next?",
         choices: [
           { title: "Retry build", value: "retry" },
@@ -485,12 +499,12 @@ export async function runBuildAndTraceDependencies(cwd: string, range: TGitLogRa
     let fixedAny = false;
 
     for (const issue of issues) {
-      const fixed = await traceAndFixDependency(cwd, range, scope, issue);
+      const fixed = await traceAndFixDependency(cwd, range, scope, issue, ctx);
       fixedAny = fixedAny || fixed;
     }
 
     if (!fixedAny) {
-      const proceed = await searchableSelectChoice({
+      const proceed = await ctx.interaction.select({
         message: "No dependency fixes were applied. Retry build, continue anyway, or abort?",
         choices: [
           { title: "Retry build", value: "retry" },
@@ -506,38 +520,39 @@ export async function runBuildAndTraceDependencies(cwd: string, range: TGitLogRa
   }
 }
 
-async function traceAndFixDependency(cwd: string, range: TGitLogRange, scope: string, issue: TBuildIssue): Promise<boolean> {
+async function traceAndFixDependency(cwd: string, range: TGitLogRange, scope: string, issue: TBuildIssue, ctx: TWorkflowContext): Promise<boolean> {
   if (issue.kind === "missing-module") {
-    console.log("");
-    console.log(chalk.yellow(`Missing module: '${issue.importPath}'${issue.importerFile ? ` (imported from ${issue.importerFile})` : ""}`));
+    ctx.interaction.notify({
+      level: "warn",
+      message: `Missing module: '${issue.importPath}'${issue.importerFile ? ` (imported from ${issue.importerFile})` : ""}`,
+    });
     const candidateFiles = await resolveMissingModuleCandidates(cwd, range.source, issue);
 
     if (!candidateFiles.length) {
-      console.log(chalk.gray("Could not resolve a candidate file on the source branch."));
+      ctx.interaction.notify({ level: "muted", message: "Could not resolve a candidate file on the source branch." });
       return false;
     }
 
-    return offerDependencyFix(cwd, range, scope, candidateFiles, `Add missing dependency for ${scope}`);
+    return offerDependencyFix(cwd, range, scope, candidateFiles, `Add missing dependency for ${scope}`, ctx);
   }
 
   if (issue.kind === "type-mismatch" && issue.symbol) {
-    console.log("");
-    console.log(chalk.yellow(`Type/member mismatch: ${issue.message}`));
+    ctx.interaction.notify({ level: "warn", message: `Type/member mismatch: ${issue.message}` });
     const { files } = await findSymbolSourceCommits(cwd, range, issue.symbol);
 
     if (!files.length) {
-      console.log(chalk.gray(`No files on origin/${range.source} reference '${issue.symbol}'.`));
+      ctx.interaction.notify({ level: "muted", message: `No files on origin/${range.source} reference '${issue.symbol}'.` });
       return false;
     }
 
-    return offerDependencyFix(cwd, range, scope, files, `Align ${issue.symbol} dependencies for ${scope}`);
+    return offerDependencyFix(cwd, range, scope, files, `Align ${issue.symbol} dependencies for ${scope}`, ctx);
   }
 
-  console.log(chalk.gray(`Unrecognized build issue: ${issue.kind === "unknown" ? issue.message : ""}`));
+  ctx.interaction.notify({ level: "muted", message: `Unrecognized build issue: ${issue.kind === "unknown" ? issue.message : ""}` });
   return false;
 }
 
-async function offerDependencyFix(cwd: string, range: TGitLogRange, scope: string, files: string[], defaultMessage: string): Promise<boolean> {
+async function offerDependencyFix(cwd: string, range: TGitLogRange, scope: string, files: string[], defaultMessage: string, ctx: TWorkflowContext): Promise<boolean> {
   // Find the most relevant (most recent) source commit touching any candidate file.
   let bestCommit: TGitCandidateCommit | undefined;
   let bestFiles: string[] = [];
@@ -551,17 +566,16 @@ async function offerDependencyFix(cwd: string, range: TGitLogRange, scope: strin
   }
 
   if (!bestCommit) {
-    console.log(chalk.gray(`No source commits found for: ${files.join(", ")}`));
+    ctx.interaction.notify({ level: "muted", message: `No source commits found for: ${files.join(", ")}` });
     return false;
   }
 
-  console.log("");
-  console.log(chalk.bold("Found dependency source commit:"));
-  console.log(formatCommitLine(bestCommit));
-  console.log("Files:");
-  bestFiles.forEach((file) => console.log(`  A ${file}`));
+  ctx.interaction.notify({
+    level: "info",
+    message: [chalk.bold("Found dependency source commit:"), formatCommitLine(bestCommit), "Files:", ...bestFiles.map((file) => `  A ${file}`)].join("\n"),
+  });
 
-  const action = await searchableSelectChoice({
+  const action = await ctx.interaction.select({
     message: "How do you want to add the missing dependency?",
     choices: [
       { title: "Checkout selected missing files (recommended)", value: "checkout-files" },
@@ -577,15 +591,15 @@ async function offerDependencyFix(cwd: string, range: TGitLogRange, scope: strin
   if (action === "skip") return false;
 
   if (action === "inspect") {
-    await inspectCommitFiles(cwd, bestCommit);
-    return offerDependencyFix(cwd, range, scope, files, defaultMessage);
+    await inspectCommitFiles(cwd, bestCommit, ctx);
+    return offerDependencyFix(cwd, range, scope, files, defaultMessage, ctx);
   }
 
   if (action === "cherry-pick") {
-    console.log(chalk.yellow("Cherry-picking the entire dependency commit may pull unrelated scope."));
+    ctx.interaction.notify({ level: "warn", message: "Cherry-picking the entire dependency commit may pull unrelated scope." });
     const outcome = await cherryPickCommit(cwd, bestCommit);
     if (outcome.result === "conflict") {
-      const decision = await resolveConflictInteractive(cwd);
+      const decision = await resolveConflictInteractive(cwd, ctx);
       if (decision === "abort") return false;
       await cherryPickContinue(cwd);
     }
@@ -594,70 +608,68 @@ async function offerDependencyFix(cwd: string, range: TGitLogRange, scope: strin
 
   // checkout-files (default/recommended)
   await checkoutFilesFromCommit(cwd, bestCommit.hash, bestFiles);
-  const response = await prompts({ type: "text", name: "message", message: "Commit message", initial: defaultMessage });
-  await commitDependencyFix(cwd, String(response.message || defaultMessage));
-  console.log(chalk.green("Dependency fix committed."));
+  let message: string;
+  try {
+    message = await ctx.interaction.input({ message: "Commit message", initial: defaultMessage });
+  } catch {
+    message = defaultMessage; // cancelled — original behavior falls back to the default message rather than aborting
+  }
+  await commitDependencyFix(cwd, message || defaultMessage);
+  ctx.interaction.notify({ level: "success", message: "Dependency fix committed." });
   return true;
 }
 
-export async function showSummaryAndPush(cwd: string, targetBranch: string, releaseBranch: string): Promise<void> {
-  console.log("");
-  console.log(chalk.bold("Release branch:"));
-  console.log(releaseBranch);
-
+export async function showSummaryAndPush(cwd: string, targetBranch: string, releaseBranch: string, ctx: TWorkflowContext): Promise<void> {
   const log = await runGitSilent(["log", `origin/${targetBranch}..HEAD`, "--oneline"], cwd);
-  console.log("");
-  console.log(chalk.bold("Commits ahead of target:"));
-  console.log(log.stdout.trim() || chalk.gray("(none)"));
-
   const diff = await runGitSilent(["diff", `origin/${targetBranch}..HEAD`, "--name-status"], cwd);
-  console.log("");
-  console.log(chalk.bold("Changed files:"));
-  console.log(diff.stdout.trim() || chalk.gray("(none)"));
-
   const status = await getPorcelainStatus(cwd);
+
+  const summaryLines = [
+    chalk.bold("Release branch:"),
+    releaseBranch,
+    "",
+    chalk.bold("Commits ahead of target:"),
+    log.stdout.trim() || chalk.gray("(none)"),
+    "",
+    chalk.bold("Changed files:"),
+    diff.stdout.trim() || chalk.gray("(none)"),
+  ];
+
   if (status.length) {
-    console.log("");
-    console.log(chalk.bold("Working tree status:"));
-    console.log(status.map((line) => `  ${line}`).join("\n"));
+    summaryLines.push("", chalk.bold("Working tree status:"), status.map((line) => `  ${line}`).join("\n"));
   }
 
-  const confirmPush = await searchableSelectChoice({
-    message: "Push release branch to origin?",
-    choices: [
-      { title: "Yes", value: "yes" },
-      { title: "No", value: "no" },
-    ],
-    allowCustomValue: false,
-  });
+  ctx.interaction.notify({ level: "info", message: summaryLines.join("\n") });
 
-  if (confirmPush !== "yes") {
-    console.log(chalk.gray("Not pushed. You can push later with:"));
-    console.log(chalk.gray(`  git push origin ${releaseBranch} --set-upstream`));
+  const confirmPush = await ctx.interaction.confirm({ message: "Push release branch to origin?" });
+
+  if (!confirmPush) {
+    ctx.interaction.notify({
+      level: "muted",
+      message: `Not pushed. You can push later with:\n  git push origin ${releaseBranch} --set-upstream`,
+    });
     return;
   }
 
   await pushBranch(cwd, releaseBranch);
-  console.log(chalk.green(`Pushed ${releaseBranch} to origin.`));
-  console.log("");
-  console.log(chalk.bold("Create merge request:"));
-  console.log(`${releaseBranch} -> ${targetBranch}`);
+  ctx.interaction.notify({
+    level: "success",
+    message: `Pushed ${releaseBranch} to origin.\n\nCreate merge request:\n${releaseBranch} -> ${targetBranch}`,
+  });
 }
 
-export async function runMoveCodeForRepository(repositoryPathInput: string, input: TGitMoveCodeInput): Promise<TGitMoveCodeRepoResult> {
+export async function runMoveCodeForRepository(repositoryPathInput: string, input: TGitMoveCodeInput, ctx: TWorkflowContext): Promise<TGitMoveCodeRepoResult> {
   await ensureExternalTool("git");
   const cwd = await getGitRepoRoot(repositoryPathInput);
 
-  console.log(chalk.bold("SimpleMDG Move Code Assistant"));
-  console.log(chalk.gray(`Repository: ${cwd}`));
-  console.log(chalk.gray(`Source: ${input.sourceBranch}`));
-  console.log(chalk.gray(`Target: ${input.targetBranch}`));
-  if (input.scope) console.log(chalk.gray(`Scope: ${input.scope}`));
-  if (input.dryRun) console.log(chalk.yellow("Dry-run mode: no branch will be created, no cherry-picks will run."));
+  const introLines = [chalk.bold("SimpleMDG Move Code Assistant"), chalk.gray(`Repository: ${cwd}`), chalk.gray(`Source: ${input.sourceBranch}`), chalk.gray(`Target: ${input.targetBranch}`)];
+  if (input.scope) introLines.push(chalk.gray(`Scope: ${input.scope}`));
+  if (input.dryRun) introLines.push(chalk.yellow("Dry-run mode: no branch will be created, no cherry-picks will run."));
+  ctx.interaction.notify({ level: "info", message: introLines.join("\n") });
 
   const totalSteps = 8;
 
-  printStep(1, totalSteps, "Fetch branches");
+  ctx.interaction.notify({ level: "step", message: "Fetch branches", current: 1, total: totalSteps });
   await fetchAllPruned(cwd);
 
   if (!(await remoteBranchExists(cwd, input.sourceBranch))) {
@@ -672,7 +684,7 @@ export async function runMoveCodeForRepository(repositoryPathInput: string, inpu
 
   if (!(await isWorkingTreeClean(cwd))) {
     if (input.dryRun) {
-      console.log(chalk.yellow("Working tree is not clean (ignored in dry-run mode)."));
+      ctx.interaction.notify({ level: "warn", message: "Working tree is not clean (ignored in dry-run mode)." });
     } else {
       throw new Error("Working tree is not clean. Commit, stash, or discard changes before moving code.");
     }
@@ -680,26 +692,25 @@ export async function runMoveCodeForRepository(repositoryPathInput: string, inpu
 
   const range: TGitLogRange = { source: input.sourceBranch, target: input.targetBranch };
 
-  printStep(2, totalSteps, "Search commits");
-  let discoveryOrder = await searchScopeInteractive(cwd, range, input);
+  ctx.interaction.notify({ level: "step", message: "Search commits", current: 2, total: totalSteps });
+  let discoveryOrder = await searchScopeInteractive(cwd, range, input, ctx);
   discoveryOrder = dedupeCommits(discoveryOrder);
 
   if (!discoveryOrder.length) {
-    console.log(chalk.yellow(`No candidate commits found for ${qualifiedRange(range)}.`));
+    ctx.interaction.notify({ level: "warn", message: `No candidate commits found for ${qualifiedRange(range)}.` });
     return { repositoryPath: cwd, status: "NO MATCH" };
   }
 
-  printStep(3, totalSteps, "Select commits");
-  const selected = await selectCommitsInteractive(cwd, discoveryOrder, () => searchScopeInteractive(cwd, range, {
-    ...input,
-    scope: undefined,
-    path: undefined,
-    symbol: undefined,
-    commit: undefined,
-  }));
+  ctx.interaction.notify({ level: "step", message: "Select commits", current: 3, total: totalSteps });
+  const selected = await selectCommitsInteractive(
+    cwd,
+    discoveryOrder,
+    () => searchScopeInteractive(cwd, range, { ...input, scope: undefined, path: undefined, symbol: undefined, commit: undefined }, ctx),
+    ctx,
+  );
 
   if (!selected || !selected.length) {
-    console.log(chalk.yellow("Aborted before selecting commits."));
+    ctx.interaction.notify({ level: "warn", message: "Aborted before selecting commits." });
     return { repositoryPath: cwd, status: "ABORTED" };
   }
 
@@ -708,21 +719,19 @@ export async function runMoveCodeForRepository(repositoryPathInput: string, inpu
   const chronological = toChronologicalOrder(selected, discoveryOrder);
 
   if (input.dryRun) {
-    console.log("");
-    console.log(chalk.bold("Dry-run plan:"));
-    console.log(`Would create release branch: ${releaseBranchName} (from ${input.targetBranch})`);
-    console.log("Would cherry-pick, in order:");
-    chronological.forEach((commit) => console.log(`  ${formatCommitLine(commit)}`));
+    const planLines = [chalk.bold("Dry-run plan:"), `Would create release branch: ${releaseBranchName} (from ${input.targetBranch})`, "Would cherry-pick, in order:"];
+    chronological.forEach((commit) => planLines.push(`  ${formatCommitLine(commit)}`));
+    ctx.interaction.notify({ level: "info", message: planLines.join("\n") });
     return { repositoryPath: cwd, status: "DRY-RUN", releaseBranch: releaseBranchName };
   }
 
-  printStep(4, totalSteps, "Create release branch");
+  ctx.interaction.notify({ level: "step", message: "Create release branch", current: 4, total: totalSteps });
   const { branch: releaseBranch } = await prepareTargetAndReleaseBranch({
     cwd,
     targetBranch: input.targetBranch,
     releaseBranchName,
     onExisting: async (branch) => {
-      const choice = await searchableSelectChoice({
+      const choice = await ctx.interaction.select({
         message: `Branch '${branch}' already exists. What do you want to do?`,
         choices: [
           { title: "Use existing branch", value: "reuse" },
@@ -734,36 +743,42 @@ export async function runMoveCodeForRepository(repositoryPathInput: string, inpu
       });
 
       if (choice === "rename") {
-        const response = await prompts({ type: "text", name: "name", message: "New release branch name", validate: (value: string) => (value.trim() ? true : "Value is required") });
-        if (!response.name) return "abort";
-        return { rename: String(response.name) };
+        try {
+          const name = await ctx.interaction.input({
+            message: "New release branch name",
+            validate: (value) => (value.trim() ? true : "Value is required"),
+          });
+          return { rename: name };
+        } catch {
+          return "abort"; // cancelled — original behavior aborts rather than proceeding without a name
+        }
       }
 
       return choice as "reuse" | "recreate" | "abort";
     },
   });
 
-  printStep(5, totalSteps, "Cherry-pick");
-  const pickResult = await executeCherryPicks(cwd, chronological);
+  ctx.interaction.notify({ level: "step", message: "Cherry-pick", current: 5, total: totalSteps });
+  const pickResult = await executeCherryPicks(cwd, chronological, ctx);
 
   if (pickResult.aborted) {
     return { repositoryPath: cwd, status: "CONFLICT", releaseBranch, message: "Cherry-pick aborted." };
   }
 
-  printStep(6, totalSteps, "Build");
-  const buildCommand = await resolveBuildCommand(cwd, input);
+  ctx.interaction.notify({ level: "step", message: "Build", current: 6, total: totalSteps });
+  const buildCommand = await resolveBuildCommand(cwd, input, ctx);
   let buildPassed = true;
 
   if (buildCommand) {
     await rememberGitBuildCommand(cwd, buildCommand);
-    printStep(7, totalSteps, "Trace dependencies");
-    buildPassed = await runBuildAndTraceDependencies(cwd, range, scopeLabel, buildCommand);
+    ctx.interaction.notify({ level: "step", message: "Trace dependencies", current: 7, total: totalSteps });
+    buildPassed = await runBuildAndTraceDependencies(cwd, range, scopeLabel, buildCommand, ctx);
   } else {
-    console.log(chalk.gray("Build skipped."));
+    ctx.interaction.notify({ level: "muted", message: "Build skipped." });
   }
 
-  printStep(8, totalSteps, "Summary");
-  await showSummaryAndPush(cwd, input.targetBranch, releaseBranch);
+  ctx.interaction.notify({ level: "step", message: "Summary", current: 8, total: totalSteps });
+  await showSummaryAndPush(cwd, input.targetBranch, releaseBranch, ctx);
 
   return {
     repositoryPath: cwd,
@@ -773,32 +788,34 @@ export async function runMoveCodeForRepository(repositoryPathInput: string, inpu
   };
 }
 
-export async function runMoveCodeWorkflow(input: TGitMoveCodeInput, repositoryPaths?: string[]): Promise<TGitMoveCodeRepoResult[]> {
+export async function runMoveCodeWorkflow(input: TGitMoveCodeInput, repositoryPaths: string[] | undefined, ctx: TWorkflowContext): Promise<TGitMoveCodeRepoResult[]> {
   const paths = repositoryPaths && repositoryPaths.length ? repositoryPaths : [input.cwd ?? process.cwd()];
   const results: TGitMoveCodeRepoResult[] = [];
 
   for (const repoPath of paths) {
     if (paths.length > 1) {
-      console.log("");
-      console.log(chalk.bold.underline(`Repository: ${repoPath}`));
+      ctx.interaction.notify({ level: "info", message: chalk.bold.underline(`Repository: ${repoPath}`) });
     }
 
     try {
-      const result = await runMoveCodeForRepository(repoPath, input);
+      const result = await runMoveCodeForRepository(repoPath, input, ctx);
       results.push(result);
     } catch (error) {
       results.push({ repositoryPath: repoPath, status: "ABORTED", message: error instanceof Error ? error.message : String(error) });
-      console.log(chalk.red(error instanceof Error ? error.message : String(error)));
+      ctx.interaction.notify({ level: "error", message: error instanceof Error ? error.message : String(error) });
+
+      if (isWholeWorkflowCancelled(ctx)) {
+        throw error;
+      }
     }
   }
 
   if (paths.length > 1) {
-    console.log("");
-    console.log(chalk.bold("Multi-repository summary:"));
     const nameWidth = Math.max(4, ...results.map((result) => result.repositoryPath.length));
-    for (const result of results) {
-      console.log(`${result.repositoryPath.padEnd(nameWidth)}  ${result.status}`);
-    }
+    ctx.interaction.notify({
+      level: "info",
+      message: [chalk.bold("Multi-repository summary:"), ...results.map((result) => `${result.repositoryPath.padEnd(nameWidth)}  ${result.status}`)].join("\n"),
+    });
   }
 
   return results;

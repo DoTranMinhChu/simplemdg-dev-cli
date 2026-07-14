@@ -5,6 +5,7 @@ import fs from "fs-extra";
 import chalk from "chalk";
 import { execa } from "execa";
 import { findNearestRepository } from "../../repository";
+import { getDirname } from "../../esm-paths";
 import { AiSessionStore } from "../ai-session-store";
 import { ingestAiSessions, watchAiSessions } from "../ai-session-ingestion";
 import { handleAiStudioApi } from "./ai-studio-routes";
@@ -40,6 +41,8 @@ const MIME_TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
   ".map": "application/json; charset=utf-8",
 };
+
+const __dirname = getDirname(import.meta.url);
 
 async function resolveStudioDistPath(): Promise<string | undefined> {
   const repository = await findNearestRepository(__dirname);

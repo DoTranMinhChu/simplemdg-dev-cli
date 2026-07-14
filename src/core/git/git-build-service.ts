@@ -3,9 +3,9 @@ import type { TGitBuildResult } from "./git-types";
 
 export const DEFAULT_BUILD_COMMANDS = ["cds build", "npm run build", "npm test"];
 
-export async function runBuildCommand(cwd: string, command: string): Promise<TGitBuildResult> {
+export async function runBuildCommand(cwd: string, command: string, signal?: AbortSignal): Promise<TGitBuildResult> {
   const { command: bin, args } = splitCommand(command);
-  const result = await runCommand(bin, args, { cwd });
+  const result = await runCommand(bin, args, { cwd, signal });
 
   return {
     success: result.exitCode === 0,

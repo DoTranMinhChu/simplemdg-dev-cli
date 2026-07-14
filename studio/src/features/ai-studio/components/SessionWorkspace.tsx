@@ -3,18 +3,30 @@ import { aiStudioApi } from "../../../api/ai-studio-api-client";
 import { EmptyState } from "../../../components/common/EmptyState";
 import { useAiStudioStore } from "../state/ai-studio-store";
 import { SessionOverview } from "./SessionOverview";
-import { TurnList } from "./TurnList";
 import { SessionTimeline } from "./SessionTimeline";
 import { SessionQuickActions } from "./SessionQuickActions";
+import { ExecutionView } from "./ExecutionView";
+import { FilesView } from "./FilesView";
+import { CommandsView } from "./CommandsView";
+import { ErrorsView } from "./ErrorsView";
+import { VerificationView } from "./VerificationView";
+import { RawView } from "./RawView";
 import { SessionGraph } from "../graph/SessionGraph";
+import { ConversationView } from "../conversation/ConversationView";
 import type { TAiWorkspaceTabKind } from "../state/ai-studio-store";
 import type { TAiObservation, TAiSession, TAiTurn, TSessionAdvisor, TSessionAnalysis } from "../../../api/ai-studio-api-types";
 
 const TABS: Array<{ kind: TAiWorkspaceTabKind; label: string }> = [
   { kind: "overview", label: "Overview" },
-  { kind: "turns", label: "Turns" },
-  { kind: "graph", label: "Graph" },
+  { kind: "conversation", label: "Conversation" },
+  { kind: "execution", label: "Execution" },
   { kind: "timeline", label: "Timeline" },
+  { kind: "graph", label: "Graph" },
+  { kind: "files", label: "Files" },
+  { kind: "commands", label: "Commands" },
+  { kind: "errors", label: "Errors" },
+  { kind: "verification", label: "Verification" },
+  { kind: "raw", label: "Raw" },
 ];
 
 export function SessionWorkspace({ sessionId }: { sessionId: string }): React.ReactElement {
@@ -26,6 +38,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
   const [advisor, setAdvisor] = useState<TSessionAdvisor | undefined>();
   const [loading, setLoading] = useState(true);
   const [revealSecrets, setRevealSecrets] = useState(false);
+  const [focusTurnIndex, setFocusTurnIndex] = useState<number | undefined>();
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +82,12 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
 
   const lastRealTurn = [...turns].reverse().find((turn) => !turn.isContext);
 
+  /** Used by Files/Commands/Errors/Verification/Execution to jump into the Conversation tab at a turn. */
+  const jumpToTurn = (turnIndex: number): void => {
+    setActiveTabKind("conversation");
+    setFocusTurnIndex(turnIndex);
+  };
+
   return (
     <div className="tabpane">
       <div className="row" style={{ padding: "10px 10px 0" }}>
@@ -90,12 +109,24 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
       <div className="pane-body">
         {activeTabKind === "overview" ? (
           <SessionOverview session={session} analysis={analysis} advisor={advisor} turns={turns} />
-        ) : activeTabKind === "turns" ? (
-          <TurnList turns={turns} observations={observations} />
+        ) : activeTabKind === "conversation" ? (
+          <ConversationView session={session} turns={turns} observations={observations} focusTurnIndex={focusTurnIndex} onFocusHandled={() => setFocusTurnIndex(undefined)} />
+        ) : activeTabKind === "execution" ? (
+          <ExecutionView observations={observations} />
         ) : activeTabKind === "graph" ? (
           // Keyed on sessionId so switching sessions resets the internal turn-selection/camera state
           // instead of carrying over a turn index that may not exist in the new session's turns.
           <SessionGraph key={sessionId} sessionId={sessionId} turns={turns} observations={observations} />
+        ) : activeTabKind === "files" ? (
+          <FilesView fileImpact={analysis.fileImpact} onJumpToTurn={jumpToTurn} />
+        ) : activeTabKind === "commands" ? (
+          <CommandsView observations={observations} cwd={session.cwd} />
+        ) : activeTabKind === "errors" ? (
+          <ErrorsView errorGroups={analysis.errorGroups} observations={observations} onJumpToTurn={jumpToTurn} />
+        ) : activeTabKind === "verification" ? (
+          <VerificationView verification={analysis.verification} observations={observations} />
+        ) : activeTabKind === "raw" ? (
+          <RawView observations={observations} />
         ) : (
           <SessionTimeline observations={observations} />
         )}

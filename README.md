@@ -11,17 +11,54 @@ smdg -V
 
 ## Building from source
 
+Requires **Node.js 22.5+** (the interactive shell and AI Studio's session store both rely on runtime features only available from that version onward).
+
 The CLI backend (`src/`) and the CF DB Studio frontend (`studio/`, a standalone React + Vite + TypeScript project) build separately but are wired together by the root scripts:
 
 ```powershell
-npm run build          # builds studio/ (Vite -> dist/core/db/studio-dist) then the CLI (tsc -> dist/)
+npm run build          # builds studio/ (Vite -> dist/core/db/studio-dist) then the CLI (tsup -> dist/)
 npm run build:studio   # studio only
-npm run build:cli      # CLI only
+npm run build:cli      # CLI only (tsup bundle; `npm run typecheck` runs strict tsc separately)
 npm run dev:cli        # run the CLI from source with tsx (no build step)
 npm run dev:studio     # Vite dev server for the Studio UI (hot reload)
+npm test               # vitest — fuzzy matching, command registry, interaction bridge, shell components
 ```
 
 `npm pack` / `npm install -g` run `prepack`, which runs the full `build`, so the packaged CLI always ships with a built Studio UI. See `smdg cf db studio --dev-ui` below for the frontend dev workflow.
+
+## Interactive shell — SimpleMDG Developer Console
+
+Running `smdg` with no arguments (or `smdg shell` explicitly) opens a persistent, keyboard-first interactive shell instead of printing help. It's an additive layer on top of the same commands documented below — every traditional invocation (`smdg cf apps`, `smdg git move-code --source staging --target uat`, CI/scripts, etc.) keeps working exactly as before, unaffected by the shell.
+
+```powershell
+smdg              # opens the console (falls back to plain output automatically when not a real TTY, e.g. in CI or a piped command)
+smdg shell        # same thing, explicit
+```
+
+What it gives you over the plain command list:
+
+- **Command palette** — press `/` to fuzzy-search every command across all groups (`cf`, `cds`, `gitlab`, `git`, `npmrc`, `ai`), with descriptions, categories, recents and favorites. Picking a command that already has a bespoke interactive screen (currently `git move-code`) runs it in place with structured steps and live progress; picking anything else briefly hands the terminal back to that command's normal interactive prompts, then returns you to the shell.
+- **`git move-code` flagship workflow** — the guided release-dependency-tracing wizard (see below) now renders as an 8-step tracker (Fetch → Search → Select → Branch → Cherry-pick → Build → Trace → Summary) with searchable/multi-select pickers and real Ctrl+C cancellation (it actually terminates an in-flight build/git process, not just the UI).
+- **Recent & history** — every command launched from the shell is recorded (redacted of anything password/token/secret-shaped) to `~/.simplemdg/history.json` and surfaced on the Home screen and in the palette.
+- **Themes** — SimpleMDG Dark / High Contrast / No Color; respects the `NO_COLOR` environment variable automatically.
+
+Keyboard shortcuts:
+
+| Key | Action |
+| --- | --- |
+| `/` | Open the command palette |
+| `Ctrl+K` | Open the command palette (alternate) |
+| `Ctrl+R` | Search command history |
+| `Ctrl+P` | Show recent commands |
+| `Ctrl+L` | Clear the visible scrollback |
+| `Ctrl+C` | Cancel the running command; press again while idle to exit |
+| `↑` / `↓` | Navigate a list, or step through input history |
+| `Enter` | Submit / select |
+| `Tab` | Autocomplete the highlighted choice |
+| `Alt+Enter` | Insert a newline in the command composer (multiline input) |
+| `Esc` | Close the palette / cancel the current prompt |
+
+`smdg cf apps > out.txt` or any non-interactive/CI invocation never launches the shell — it detects the lack of a real TTY and uses plain output, same as always.
 
 ## Prerequisites & auto-install
 

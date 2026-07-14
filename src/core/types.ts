@@ -144,6 +144,14 @@ export type TGitCache = {
   targetBranches: string[];
 };
 
+export type TTerminalThemeName = "simplemdg-dark" | "high-contrast" | "no-color";
+export type TTerminalHeaderMode = "compact" | "expanded" | "hidden";
+
+export type TTerminalCache = {
+  theme?: TTerminalThemeName;
+  headerMode: TTerminalHeaderMode;
+};
+
 export type TSimpleMdgCache = {
   variables: Record<string, string[]>;
   overrides: Record<string, string[]>;
@@ -151,6 +159,7 @@ export type TSimpleMdgCache = {
   cds: TCdsCache;
   npmrc: TNpmrcCache;
   git: TGitCache;
+  terminal: TTerminalCache;
 };
 
 export type TParsedCloudFoundryEnvironment = {

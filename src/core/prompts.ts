@@ -1,4 +1,5 @@
 import prompts from "prompts";
+import { scoreMatch } from "./fuzzy-match";
 
 const CUSTOM_VALUE_PREFIX = "__SMDG_CUSTOM_VALUE__:";
 
@@ -8,35 +9,6 @@ function normalizeValue(value: string): string {
 
 function uniqueValues(values: Array<string | undefined>): string[] {
   return [...new Set(values.map((value) => normalizeValue(value ?? "")).filter(Boolean))];
-}
-
-function scoreMatch(input: string, value: string): number {
-  const normalizedInput = input.toLowerCase().trim();
-  const normalizedValue = value.toLowerCase();
-
-  if (!normalizedInput) {
-    return 0;
-  }
-
-  if (normalizedValue === normalizedInput) {
-    return 100;
-  }
-
-  if (normalizedValue.startsWith(normalizedInput)) {
-    return 80;
-  }
-
-  if (normalizedValue.includes(normalizedInput)) {
-    return 60;
-  }
-
-  const inputParts = normalizedInput.split(/\s+/).filter(Boolean);
-
-  if (inputParts.every((part) => normalizedValue.includes(part))) {
-    return 40;
-  }
-
-  return -1;
 }
 
 function buildSearchableChoices(options: {

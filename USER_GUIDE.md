@@ -1,5 +1,95 @@
 # SimpleMDG CLI User Guide
 
+## Interactive shell — SimpleMDG Developer Console
+
+Run `smdg` with no arguments, or `smdg shell`, to open a persistent interactive console instead of the plain command list. It is purely additive: every command in this guide still works exactly as documented when typed directly (`smdg cf apps`, `smdg git move-code --source staging --target uat`, scripts, CI), whether or not you ever open the shell.
+
+The shell falls back to today's plain output automatically whenever it can't safely take over the terminal — piped/redirected output, `CI=true`, or any non-interactive invocation — so nothing breaks in automation.
+
+### Layout
+
+```text
+╭──────────────────────────────────────────────────────────────────╮
+│ SimpleMDG Developer Console                              v3.0.0 │
+│ simplemdg-dev-cli  ·  Branch: staging                           │
+╰──────────────────────────────────────────────────────────────────╯
+
+Ready
+
+Type a command, ask for help, or press / to browse actions.
+
+Environment
+✓ Git
+✓ SAP CDS CLI
+✓ Cloud Foundry CLI
+
+Recent actions
+1. git move-code
+2. cf apps
+
+Quick actions
+❯ /git move-code
+❯ /ai resume
+❯ /cf apps
+❯ /cf db studio
+
+❯
+/ Commands   Ctrl+K Palette   Ctrl+R History   Ctrl+P Recent   Ctrl+C Exit
+```
+
+The header only ever shows facts it actually detected (project name, current git branch) — never a fabricated environment. `/header compact|expanded|hidden` (persisted to `~/.simplemdg/cache.json`) controls how much of it shows.
+
+### Command palette
+
+Press `/` at any time (even mid-word — it only triggers as the very first character typed) to open a fuzzy-searchable palette across every command group: `cf`, `cds`, `gitlab`, `git`, `npmrc`, `ai`. Keep typing to filter by name, description, category, or natural-language keyword (e.g. typing `move code` or `open db` finds `/git move-code` / `/cf db studio` even if you don't remember the exact subcommand name). Arrow keys navigate, `Enter` runs the highlighted command, `Esc` closes the palette without doing anything.
+
+Only `git move-code` currently has a bespoke in-shell screen (below); picking any other command briefly hands the terminal back to that command's normal interactive prompts (identical to running it directly), then returns you to the shell when it finishes.
+
+### `git move-code` in the shell
+
+Picking `/git move-code` (or the Home screen quick action) runs the same guided workflow described in [Git move-code (release dependency tracing)](#git-move-code-release-dependency-tracing) below, rendered as a live 8-step tracker:
+
+```text
+Move Code Assistant
+
+1 ✓ Fetch branches
+2 ✓ Search commits
+3 ● Select commits
+4 ○ Create release branch
+5 ○ Cherry-pick
+6 ○ Build
+7 ○ Trace dependencies
+8 ○ Summary
+```
+
+Every prompt along the way (branch pickers, commit search/selection, conflict resolution, build-command choice, the final push confirmation) renders as a searchable list, multi-select, or Y/n confirmation instead of a plain terminal prompt — but it is the exact same underlying logic as the traditional command, so behavior (safety rules, what gets committed/pushed) is identical either way. `Ctrl+C` cancels the run — it aborts any in-flight git/build process, not just the on-screen UI.
+
+### Keyboard shortcuts
+
+| Key | Action |
+| --- | --- |
+| `/` | Open the command palette |
+| `Ctrl+K` | Open the command palette (alternate binding) |
+| `Ctrl+R` | Search command history |
+| `Ctrl+P` | Show recent commands |
+| `Ctrl+L` | Clear the visible scrollback |
+| `Ctrl+C` | Cancel the running command; press again while idle to exit the shell |
+| `↑` / `↓` | Navigate a list, or step through your input history when the composer is empty |
+| `Enter` | Submit the current input, or select the highlighted item |
+| `Tab` | Autocomplete to the highlighted choice in a searchable list |
+| `Alt+Enter` | Insert a newline in the command composer (multiline input) |
+| `Esc` | Close the palette, or cancel the current prompt |
+
+`Shift+Enter` is supported for multiline input where the terminal reports it distinctly from plain `Enter`, but this is not universal across terminals in raw input mode — `Alt+Enter` is the reliable binding on every terminal we test against (Windows Terminal, PowerShell 5.1/7, VS Code's integrated terminal).
+
+### History, recents, and favorites
+
+Every command launched from the shell is recorded to `~/.simplemdg/history.json` — command path, project, timestamp, duration, and success/failure. Values that look like a password/token/secret/API key are never written, even redacted-in-part. `Ctrl+R` searches this history; `Ctrl+P` shows the most recent entries; the Home screen's "Recent actions" and the palette's ordering both draw from the same file.
+
+### Themes
+
+Three built-in themes: SimpleMDG Dark, High Contrast, and No Color. Setting the `NO_COLOR` environment variable (to any value) always forces the No Color theme, regardless of the configured preference.
+
 ## Smart cache
 
 The CLI caches slow BTP/Cloud Foundry/GitLab lookups under `~/.simplemdg/cache/` and serves them **cache-first, then refreshes in the background** (stale-while-revalidate). You see the last known result instantly; fresh data replaces it quietly when the refresh finishes.

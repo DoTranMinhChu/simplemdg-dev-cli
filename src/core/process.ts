@@ -6,7 +6,7 @@ export type TCommandResult = {
   exitCode: number;
 };
 
-export async function runCommand(command: string, args: string[], options?: { cwd?: string; reject?: boolean; env?: NodeJS.ProcessEnv }): Promise<TCommandResult> {
+export async function runCommand(command: string, args: string[], options?: { cwd?: string; reject?: boolean; env?: NodeJS.ProcessEnv; signal?: AbortSignal }): Promise<TCommandResult> {
   const result = await execa(command, args, {
     cwd: options?.cwd,
     reject: options?.reject ?? false,
@@ -15,6 +15,11 @@ export async function runCommand(command: string, args: string[], options?: { cw
     // Merge over process.env so callers can scope a command (e.g. an isolated
     // CF_HOME) without losing the rest of the environment.
     env: options?.env ? { ...process.env, ...options.env } : undefined,
+    // execa's own cancellation hook (distinct from its `signal` option, which
+    // picks the OS signal used to terminate) — lets a Ctrl+C in the
+    // interactive shell actually kill a hung child process, with an escalation
+    // to SIGKILL if it ignores the initial terminate signal.
+    ...(options?.signal ? { cancelSignal: options.signal, forceKillAfterDelay: 5000 } : {}),
   });
 
   return {

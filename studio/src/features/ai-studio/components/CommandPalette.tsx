@@ -114,8 +114,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.Reac
             onClose();
           },
         },
+        { id: "open-conversation", label: "Open Conversation tab", run: () => openTab("conversation") },
+        { id: "open-execution", label: "Open Execution tab", run: () => openTab("execution") },
         { id: "open-graph", label: "Open Graph tab", run: () => openTab("graph") },
-        { id: "open-turns", label: "Open Turns tab", run: () => openTab("turns") },
         { id: "open-timeline", label: "Open Timeline tab", run: () => openTab("timeline") },
         { id: "open-overview-tab", label: "Open session Overview tab", run: () => openTab("overview") },
         {

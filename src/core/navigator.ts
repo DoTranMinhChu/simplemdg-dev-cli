@@ -7,13 +7,13 @@ const EXIT_VALUE = "__SMDG_NAV_EXIT__";
 
 // Commands that exist only for internal/background use and should never be
 // offered in the interactive menu.
-const INTERNAL_COMMAND_NAMES = new Set(["apps-cache-refresh"]);
+const INTERNAL_COMMAND_NAMES = new Set(["apps-cache-refresh", "shell"]);
 
-function isHidden(command: Command): boolean {
+export function isHidden(command: Command): boolean {
   return Boolean((command as unknown as { _hidden?: boolean })._hidden);
 }
 
-function getNavigableChildren(command: Command): Command[] {
+export function getNavigableChildren(command: Command): Command[] {
   return command.commands.filter((child) => {
     if (child.name() === "help") {
       return false;
@@ -27,11 +27,11 @@ function getNavigableChildren(command: Command): Command[] {
   });
 }
 
-function isGroup(command: Command): boolean {
+export function isGroup(command: Command): boolean {
   return getNavigableChildren(command).length > 0;
 }
 
-function buildBreadcrumb(command: Command): string {
+export function buildBreadcrumb(command: Command): string {
   const names: string[] = [];
   let current: Command | null | undefined = command;
 
@@ -58,7 +58,7 @@ function buildChoiceTitle(command: Command): string {
   return `${chalk.bold(command.name())}${aliasText}${marker}${descriptionText}`;
 }
 
-async function dispatchLeaf(leaf: Command): Promise<void> {
+export async function dispatchLeaf(leaf: Command): Promise<void> {
   console.log(chalk.gray(`→ ${buildBreadcrumb(leaf)}`));
   console.log("");
   // Parsing the leaf with no user args runs its action with default options.

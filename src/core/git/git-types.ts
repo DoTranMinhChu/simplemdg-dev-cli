@@ -111,3 +111,15 @@ export type TGitMoveCodeRepoResult = {
   releaseBranch?: string;
   message?: string;
 };
+
+/**
+ * Threaded through every step of the move-code workflow instead of importing
+ * `searchableSelectChoice`/`prompts`/`console.log` directly, so the exact same
+ * business logic runs under traditional Commander dispatch
+ * (PlainCliInteractionService) and inside the interactive shell
+ * (InkInteractionService).
+ */
+export type TWorkflowContext = {
+  interaction: import("../interaction/interaction-service").IInteractionService;
+  signal: AbortSignal;
+};

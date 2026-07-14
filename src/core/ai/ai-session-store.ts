@@ -138,7 +138,7 @@ export class AiSessionStore {
     try {
       // node:sqlite is a Node 22.5+ built-in; older Node versions simply don't have this module,
       // so AI Studio degrades to a clear "upgrade Node" message instead of crashing the whole CLI.
-      DatabaseSync = (require("node:sqlite") as { DatabaseSync: new (dbPath: string) => TSqliteDatabase }).DatabaseSync;
+      DatabaseSync = (await import("node:sqlite") as unknown as { DatabaseSync: new (dbPath: string) => TSqliteDatabase }).DatabaseSync;
     } catch {
       return undefined;
     }

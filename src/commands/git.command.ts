@@ -1,14 +1,14 @@
 import chalk from "chalk";
 import { Command } from "commander";
-import { searchableSelectChoice } from "../core/prompts";
 import { resolveRepositoryPath } from "../core/repository";
 import { readCache, getRememberedGitBuildCommand } from "../core/cache";
 import { ensureExternalTool } from "../core/tooling";
+import { PlainCliInteractionService } from "../core/interaction/plain-cli-interaction-service";
 import { runMoveCodeWorkflow, searchScopeInteractive, selectCommitsInteractive, executeCherryPicks, toChronologicalOrder, resolveConflictInteractive, runBuildAndTraceDependencies, showSummaryAndPush } from "../core/git/git-move-code-workflow";
 import { fetchAllPruned, getCurrentBranch, getGitRepoRoot, isCherryPickInProgress } from "../core/git/git-repository";
 import { cherryPickAbort, cherryPickContinue } from "../core/git/git-cherry-pick-service";
 import { DEFAULT_BUILD_COMMANDS } from "../core/git/git-build-service";
-import type { TGitMoveCodeInput } from "../core/git/git-types";
+import type { TGitMoveCodeInput, TWorkflowContext } from "../core/git/git-types";
 
 type TGitMoveCodeOptions = {
   source?: string;
@@ -27,13 +27,42 @@ function validateRequired(value: string): true | string {
   return value.trim() ? true : "Value is required";
 }
 
-async function resolveBranchOption(kind: "source" | "target", provided: string | undefined): Promise<string> {
+/**
+ * Traditional (non-shell) dispatch context: today's exact `prompts`/`console.log`
+ * behavior via PlainCliInteractionService, plus a real AbortController wired to
+ * SIGINT so Ctrl+C actually kills an in-flight build/cherry-pick instead of
+ * being ignored (a small, additive safety improvement — no SIGINT handling
+ * exists anywhere in the traditional CLI today). Disposed after the command
+ * finishes so repeated invocations in one process (e.g. from the interactive
+ * shell's legacy-command dispatch) don't accumulate SIGINT listeners.
+ */
+function createPlainWorkflowContext(): { ctx: TWorkflowContext; dispose: () => void } {
+  const controller = new AbortController();
+  const onSigint = () => controller.abort();
+  process.once("SIGINT", onSigint);
+
+  return {
+    ctx: { interaction: new PlainCliInteractionService(), signal: controller.signal },
+    dispose: () => process.off("SIGINT", onSigint),
+  };
+}
+
+async function withPlainWorkflowContext<T>(run: (ctx: TWorkflowContext) => Promise<T>): Promise<T> {
+  const { ctx, dispose } = createPlainWorkflowContext();
+  try {
+    return await run(ctx);
+  } finally {
+    dispose();
+  }
+}
+
+async function resolveBranchOption(kind: "source" | "target", provided: string | undefined, ctx: TWorkflowContext): Promise<string> {
   if (provided) return provided;
 
   const cache = await readCache();
   const history = kind === "source" ? cache.git.sourceBranches : cache.git.targetBranches;
 
-  return searchableSelectChoice({
+  return ctx.interaction.select({
     message: kind === "source" ? "Source branch" : "Target branch",
     choices: history.map((branch) => ({ title: branch, value: branch })),
     validateCustomValue: validateRequired,
@@ -41,9 +70,10 @@ async function resolveBranchOption(kind: "source" | "target", provided: string |
   });
 }
 
-async function buildMoveCodeInput(options: TGitMoveCodeOptions): Promise<TGitMoveCodeInput> {
-  const sourceBranch = await resolveBranchOption("source", options.source);
-  const targetBranch = await resolveBranchOption("target", options.target);
+/** Shared with the interactive shell's GitMoveCodeScreen, which launches with no CLI flags at all. */
+export async function buildMoveCodeInput(options: TGitMoveCodeOptions, ctx: TWorkflowContext): Promise<TGitMoveCodeInput> {
+  const sourceBranch = await resolveBranchOption("source", options.source, ctx);
+  const targetBranch = await resolveBranchOption("target", options.target, ctx);
 
   return {
     sourceBranch,
@@ -59,110 +89,125 @@ async function buildMoveCodeInput(options: TGitMoveCodeOptions): Promise<TGitMov
 }
 
 async function runMoveCodeCommand(options: TGitMoveCodeOptions): Promise<void> {
-  await ensureExternalTool("git");
-  const input = await buildMoveCodeInput(options);
-  const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
-  const results = await runMoveCodeWorkflow(input, options.repos && options.repos.length ? options.repos : [repositoryPath]);
+  await withPlainWorkflowContext(async (ctx) => {
+    await ensureExternalTool("git");
+    const input = await buildMoveCodeInput(options, ctx);
+    const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
+    const results = await runMoveCodeWorkflow(input, options.repos && options.repos.length ? options.repos : [repositoryPath], ctx);
 
-  const failed = results.some((result) => result.status === "CONFLICT" || result.status === "ABORTED");
-  if (failed) {
-    process.exitCode = 1;
-  }
+    const failed = results.some((result) => result.status === "CONFLICT" || result.status === "ABORTED");
+    if (failed) {
+      process.exitCode = 1;
+    }
+  });
 }
 
 async function runPickCommand(options: TGitMoveCodeOptions): Promise<void> {
-  await ensureExternalTool("git");
-  const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
-  const cwd = await getGitRepoRoot(repositoryPath);
-  const input = await buildMoveCodeInput(options);
-  const range = { source: input.sourceBranch, target: input.targetBranch };
+  await withPlainWorkflowContext(async (ctx) => {
+    await ensureExternalTool("git");
+    const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
+    const cwd = await getGitRepoRoot(repositoryPath);
+    const input = await buildMoveCodeInput(options, ctx);
+    const range = { source: input.sourceBranch, target: input.targetBranch };
 
-  console.log(chalk.gray("Fetching latest branches..."));
-  await fetchAllPruned(cwd);
+    console.log(chalk.gray("Fetching latest branches..."));
+    await fetchAllPruned(cwd);
 
-  const discovery = await searchScopeInteractive(cwd, range, input);
+    const discovery = await searchScopeInteractive(cwd, range, input, ctx);
 
-  if (!discovery.length) {
-    console.log(chalk.yellow(`No candidate commits found for origin/${input.targetBranch}..origin/${input.sourceBranch}.`));
-    return;
-  }
+    if (!discovery.length) {
+      console.log(chalk.yellow(`No candidate commits found for origin/${input.targetBranch}..origin/${input.sourceBranch}.`));
+      return;
+    }
 
-  const selected = await selectCommitsInteractive(cwd, discovery, () => searchScopeInteractive(cwd, range, { ...input, scope: undefined, path: undefined, symbol: undefined, commit: undefined }));
+    const selected = await selectCommitsInteractive(
+      cwd,
+      discovery,
+      () => searchScopeInteractive(cwd, range, { ...input, scope: undefined, path: undefined, symbol: undefined, commit: undefined }, ctx),
+      ctx,
+    );
 
-  if (!selected || !selected.length) {
-    console.log(chalk.yellow("Aborted before selecting commits."));
-    return;
-  }
+    if (!selected || !selected.length) {
+      console.log(chalk.yellow("Aborted before selecting commits."));
+      return;
+    }
 
-  const chronological = toChronologicalOrder(selected, discovery);
-  const result = await executeCherryPicks(cwd, chronological);
+    const chronological = toChronologicalOrder(selected, discovery);
+    const result = await executeCherryPicks(cwd, chronological, ctx);
 
-  if (result.aborted) {
-    process.exitCode = 1;
-  }
+    if (result.aborted) {
+      process.exitCode = 1;
+    }
+  });
 }
 
 async function runTraceCommand(options: TGitMoveCodeOptions): Promise<void> {
-  await ensureExternalTool("git");
-  const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
-  const cwd = await getGitRepoRoot(repositoryPath);
-  const input = await buildMoveCodeInput(options);
-  const range = { source: input.sourceBranch, target: input.targetBranch };
+  await withPlainWorkflowContext(async (ctx) => {
+    await ensureExternalTool("git");
+    const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
+    const cwd = await getGitRepoRoot(repositoryPath);
+    const input = await buildMoveCodeInput(options, ctx);
+    const range = { source: input.sourceBranch, target: input.targetBranch };
 
-  const buildCommand = options.build
-    ?? (await getRememberedGitBuildCommand(cwd))
-    ?? await searchableSelectChoice({
-      message: "Build command",
-      choices: DEFAULT_BUILD_COMMANDS.map((command) => ({ title: command, value: command })),
-      validateCustomValue: validateRequired,
-      customValueTitle: (value) => `Use custom command: ${value}`,
-    });
+    const buildCommand = options.build
+      ?? (await getRememberedGitBuildCommand(cwd))
+      ?? await ctx.interaction.select({
+        message: "Build command",
+        choices: DEFAULT_BUILD_COMMANDS.map((command) => ({ title: command, value: command })),
+        validateCustomValue: validateRequired,
+        customValueTitle: (value) => `Use custom command: ${value}`,
+      });
 
-  const passed = await runBuildAndTraceDependencies(cwd, range, options.scope || options.path || options.symbol || "code", buildCommand);
+    const passed = await runBuildAndTraceDependencies(cwd, range, options.scope || options.path || options.symbol || "code", buildCommand, ctx);
 
-  if (!passed) {
-    process.exitCode = 1;
-  }
+    if (!passed) {
+      process.exitCode = 1;
+    }
+  });
 }
 
 async function runConflictCommand(options: TGitMoveCodeOptions): Promise<void> {
-  await ensureExternalTool("git");
-  const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
-  const cwd = await getGitRepoRoot(repositoryPath);
+  await withPlainWorkflowContext(async (ctx) => {
+    await ensureExternalTool("git");
+    const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
+    const cwd = await getGitRepoRoot(repositoryPath);
 
-  if (!(await isCherryPickInProgress(cwd))) {
-    console.log(chalk.gray("No cherry-pick is currently in progress in this repository."));
-    return;
-  }
+    if (!(await isCherryPickInProgress(cwd))) {
+      console.log(chalk.gray("No cherry-pick is currently in progress in this repository."));
+      return;
+    }
 
-  const decision = await resolveConflictInteractive(cwd);
+    const decision = await resolveConflictInteractive(cwd, ctx);
 
-  if (decision === "abort") {
-    await cherryPickAbort(cwd);
-    console.log(chalk.yellow("Cherry-pick aborted."));
-    return;
-  }
+    if (decision === "abort") {
+      await cherryPickAbort(cwd);
+      console.log(chalk.yellow("Cherry-pick aborted."));
+      return;
+    }
 
-  const outcome = await cherryPickContinue(cwd);
+    const outcome = await cherryPickContinue(cwd);
 
-  if (outcome.result === "success") {
-    console.log(chalk.green("Cherry-pick continued successfully."));
-  } else if (outcome.result === "conflict") {
-    console.log(chalk.yellow("More conflicts remain. Run `smdg git conflict` again."));
-  } else {
-    console.log(chalk.red(outcome.stderr || outcome.stdout || "Cherry-pick could not continue."));
-    process.exitCode = 1;
-  }
+    if (outcome.result === "success") {
+      console.log(chalk.green("Cherry-pick continued successfully."));
+    } else if (outcome.result === "conflict") {
+      console.log(chalk.yellow("More conflicts remain. Run `smdg git conflict` again."));
+    } else {
+      console.log(chalk.red(outcome.stderr || outcome.stdout || "Cherry-pick could not continue."));
+      process.exitCode = 1;
+    }
+  });
 }
 
 async function runSummaryCommand(options: TGitMoveCodeOptions): Promise<void> {
-  await ensureExternalTool("git");
-  const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
-  const cwd = await getGitRepoRoot(repositoryPath);
-  const targetBranch = await resolveBranchOption("target", options.target);
-  const currentBranch = await getCurrentBranch(cwd);
+  await withPlainWorkflowContext(async (ctx) => {
+    await ensureExternalTool("git");
+    const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
+    const cwd = await getGitRepoRoot(repositoryPath);
+    const targetBranch = await resolveBranchOption("target", options.target, ctx);
+    const currentBranch = await getCurrentBranch(cwd);
 
-  await showSummaryAndPush(cwd, targetBranch, currentBranch);
+    await showSummaryAndPush(cwd, targetBranch, currentBranch, ctx);
+  });
 }
 
 export function registerGitCommands(program: Command): void {
