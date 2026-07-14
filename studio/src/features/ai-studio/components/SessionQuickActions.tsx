@@ -6,6 +6,7 @@ import { aiStudioApi } from "../../../api/ai-studio-api-client";
 import { useAiStudioStore } from "../state/ai-studio-store";
 import { useSessionResume } from "../use-session-resume";
 import { LaunchConfirmModal } from "./LaunchConfirmModal";
+import { ExportDialog } from "../export/ExportDialog";
 import type { TAiSession, TAiSessionLaunchResponse } from "../../../api/ai-studio-api-types";
 
 /**
@@ -20,6 +21,7 @@ export function SessionQuickActions({ session, lastUserPrompt }: { session: TAiS
   const [pinned, setPinned] = useState(session.pinned);
   const [favorite, setFavorite] = useState(session.favorite);
   const [menu, setMenu] = useState<TContextMenuState | undefined>();
+  const [exportOpen, setExportOpen] = useState(false);
 
   useEffect(() => {
     setPinned(session.pinned);
@@ -109,12 +111,13 @@ export function SessionQuickActions({ session, lastUserPrompt }: { session: TAiS
             { label: "Open Project Folder", icon: "fld", onClick: () => openProject() },
             { label: "Open Project in VS Code", icon: "code", onClick: () => openVsCode() },
             { sep: true },
-            { label: "Export Session", icon: "save", onClick: () => window.open(aiStudioApi.exportUrl(session.id), "_blank", "noopener,noreferrer") },
+            { label: "Export Session…", icon: "save", onClick: () => setExportOpen(true) },
           ]}
         />
       ) : null}
 
       {pending ? <LaunchConfirmModal title={pending.title} launch={pending.launch} onCancel={cancelPending} onConfirm={confirmPending} /> : null}
+      {exportOpen ? <ExportDialog sessionId={session.id} onClose={() => setExportOpen(false)} /> : null}
     </div>
   );
 }

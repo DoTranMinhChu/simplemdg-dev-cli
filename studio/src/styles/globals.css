@@ -4707,3 +4707,51 @@ td.cell-active {
    .execution-drawer { max-width: none; }
    .reader-toolbar { flex-direction: column; align-items: flex-start; }
 }
+
+/* ==========================================================================
+   AI Studio — Export dialog (ExportDialog.tsx)
+   ========================================================================== */
+
+.export-section {
+   margin-bottom: var(--space-4);
+}
+
+.export-label {
+   font-size: var(--font-size-xs);
+   text-transform: uppercase;
+   letter-spacing: .5px;
+   color: var(--muted);
+   margin-bottom: var(--space-2);
+}
+
+.export-section select {
+   background: var(--bg-3);
+   border: 1px solid var(--border);
+   border-radius: var(--radius-sm);
+   color: var(--text);
+   padding: 5px 9px;
+}
+
+.export-checklist {
+   display: grid;
+   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+   gap: 6px 16px;
+}
+
+.export-checklist label {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+}
+
+.export-preview {
+   background: var(--bg-3);
+   border: 1px solid var(--border);
+   border-radius: var(--radius-md);
+   padding: var(--space-3);
+   margin-bottom: var(--space-3);
+   font-size: var(--font-size-sm);
+   display: flex;
+   flex-direction: column;
+   gap: 4px;
+}

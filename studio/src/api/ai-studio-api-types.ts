@@ -247,3 +247,40 @@ export type TAiSessionLaunchResponse = {
 };
 
 export type TAiActionResult = { ok: boolean; error?: string };
+
+// --- Export system (src/core/ai/export/ai-export-types.ts) -----------------------
+
+/** "pdf" is deliberately not a backend format — Export PDF fetches the html export and opens it for the browser's own print-to-PDF. */
+export type TAiExportFormat = "markdown" | "html" | "json" | "zip";
+
+export type TAiExportPreset = "conversation" | "learning" | "engineering" | "full" | "custom";
+
+export type TAiExportInclude = {
+  conversation: boolean;
+  toolCalls: boolean;
+  toolOutputs: boolean;
+  reasoning: boolean;
+  files: boolean;
+  commands: boolean;
+  errors: boolean;
+  verification: boolean;
+  rawMetadata: boolean;
+};
+
+export type TAiSessionExportInput = {
+  format: TAiExportFormat;
+  preset: TAiExportPreset;
+  include?: Partial<TAiExportInclude>;
+  redactSecrets: boolean;
+  includeLocalPaths: boolean;
+  theme: "light" | "dark";
+};
+
+export type TAiExportPreview = {
+  format: TAiExportFormat;
+  preset: TAiExportPreset;
+  include: TAiExportInclude;
+  sections: { included: string[]; excluded: string[] };
+  redactedFieldCount: number;
+  estimatedBytes: number;
+};

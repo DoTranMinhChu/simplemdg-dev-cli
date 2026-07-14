@@ -11,9 +11,9 @@ export function CommandPalette(props: {
 }) {
   const ordered = useMemo(() => {
     const byId = new Map(props.commands.map((command) => [command.id, command]));
-    const favorites = props.favoriteIds.map((id) => byId.get(id)).filter((c): c is TInteractiveCommandDefinition => Boolean(c));
+    const favorites = [...new Set(props.favoriteIds)].map((id) => byId.get(id)).filter((c): c is TInteractiveCommandDefinition => Boolean(c));
     const favoriteIdSet = new Set(favorites.map((c) => c.id));
-    const recents = props.recentIds
+    const recents = [...new Set(props.recentIds)]
       .map((id) => byId.get(id))
       .filter((c): c is TInteractiveCommandDefinition => Boolean(c))
       .filter((c) => !favoriteIdSet.has(c.id));
@@ -27,6 +27,13 @@ export function CommandPalette(props: {
     title: `/${command.path.join(" ")}`,
     value: command.id,
     description: command.description ? `${command.category} — ${command.description}` : command.category,
+    // Unprefixed/uncategorized match corpus — the "/" on `title` and the
+    // "{Category} — " prefix on `description` are display-only and must not
+    // be what a query is actually scored against, or an exact match on the
+    // real command name/path can lose to an incidental substring hit
+    // elsewhere (e.g. every command in the "AI Sessions" category otherwise
+    // partially matches the query "ai sessions").
+    searchText: [command.path.join(" "), ...command.keywords, ...command.aliases],
   }));
 
   return (

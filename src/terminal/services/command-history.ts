@@ -79,9 +79,25 @@ export async function recordCommandExecution(entry: Omit<TCommandHistoryEntry, "
   await writeCommandHistory(file);
 }
 
+/** Keeps only the first (= most recent, since entries are stored newest-first) occurrence of each command id. */
+export function dedupeHistoryEntries(entries: TCommandHistoryEntry[], limit: number): TCommandHistoryEntry[] {
+  const seenIds = new Set<string>();
+  const deduped: TCommandHistoryEntry[] = [];
+
+  for (const entry of entries) {
+    if (seenIds.has(entry.id)) continue;
+    seenIds.add(entry.id);
+    deduped.push(entry);
+    if (deduped.length >= limit) break;
+  }
+
+  return deduped;
+}
+
+/** One entry per unique command (most recent invocation), not one row per historical run. */
 export async function getRecentCommands(limit = 10): Promise<TCommandHistoryEntry[]> {
   const file = await readCommandHistory();
-  return file.entries.slice(0, limit);
+  return dedupeHistoryEntries(file.entries, limit);
 }
 
 export async function toggleFavoriteCommand(id: string): Promise<string[]> {

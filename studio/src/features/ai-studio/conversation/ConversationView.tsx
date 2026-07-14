@@ -5,6 +5,7 @@ import { TurnBlock } from "./TurnBlock";
 import { TurnNavigator } from "./TurnNavigator";
 import { SearchInSession } from "./SearchInSession";
 import { ReaderMode } from "./ReaderMode";
+import { ExportDialog } from "../export/ExportDialog";
 import { useConversationPreferences, type TConversationDensity, type TFocusMode } from "./conversation-preferences";
 import type { TAiObservation, TAiSession, TAiTurn } from "../../../api/ai-studio-api-types";
 
@@ -27,6 +28,7 @@ export function ConversationView({
   const [navigatorOpen, setNavigatorOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 1023);
   const [searchOpen, setSearchOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [activeTurnIndex, setActiveTurnIndex] = useState<number | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -112,6 +114,9 @@ export function ConversationView({
           <button type="button" onClick={() => setReaderOpen(true)}>
             Reader Mode
           </button>
+          <button type="button" onClick={() => setExportOpen(true)}>
+            Export
+          </button>
         </div>
       </div>
 
@@ -135,6 +140,7 @@ export function ConversationView({
       </div>
 
       {readerOpen ? <ReaderMode session={session} turns={turns} observations={observations} onClose={() => setReaderOpen(false)} /> : null}
+      {exportOpen ? <ExportDialog sessionId={session.id} onClose={() => setExportOpen(false)} /> : null}
     </div>
   );
 }

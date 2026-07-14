@@ -3,7 +3,19 @@ import { Box, Text, useInput } from "ink";
 import { useTerminalTheme } from "../hooks/useTerminalTheme";
 import { bestScoreMatch } from "../../core/fuzzy-match";
 
-export type TSearchableListChoice = { title: string; value: string; description?: string };
+export type TSearchableListChoice = {
+  title: string;
+  value: string;
+  description?: string;
+  /**
+   * Extra text to match against that isn't necessarily fit for display (e.g.
+   * unprefixed command path, keywords, aliases). Scored alongside title/value/
+   * description; use this instead of stuffing extra words into `title` — a
+   * decorative prefix like "/" on `title` would otherwise defeat exact/prefix
+   * matching for every real query.
+   */
+  searchText?: string[];
+};
 
 const CUSTOM_VALUE_PREFIX = "__SMDG_INK_CUSTOM_VALUE__:";
 
@@ -30,7 +42,10 @@ export function SearchableList(props: {
     }
 
     return props.choices
-      .map((choice) => ({ choice, score: bestScoreMatch(trimmed, [choice.title, choice.value, choice.description ?? ""]) }))
+      .map((choice) => ({
+        choice,
+        score: bestScoreMatch(trimmed, [choice.title, choice.value, choice.description ?? "", ...(choice.searchText ?? [])]),
+      }))
       .filter((entry) => entry.score >= 0)
       .sort((a, b) => b.score - a.score)
       .map((entry) => entry.choice);

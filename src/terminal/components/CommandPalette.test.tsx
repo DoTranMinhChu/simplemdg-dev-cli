@@ -69,4 +69,30 @@ describe("CommandPalette", () => {
     expect(frame).toContain("cf db studio");
     expect(frame).not.toContain("git move-code");
   });
+
+  it("ranks an exact command-name match above a same-category command whose description merely mentions the query", async () => {
+    // Regression test: the palette used to score its own "/"-prefixed title
+    // and "{Category} — description" string, so a query like "ai sessions"
+    // scored a false 80 (startsWith) against every AI-Sessions-category
+    // command's description, beating the real 100 (exact match) that "ai
+    // sessions" itself could only ever get through its unprefixed searchText.
+    const commands = [
+      makeCommand("ai.studio", ["ai", "studio"], "Open the local AI Studio (browser UI) for analyzing Claude Code / Codex sessions", "AI Sessions", ["ai studio"]),
+      makeCommand("ai.sessions", ["ai", "sessions"], "List recent AI sessions in the terminal", "AI Sessions", []),
+    ];
+
+    const { lastFrame, stdin } = render(
+      <TerminalContextProvider value={testContextValue}>
+        <CommandPalette commands={commands} recentIds={[]} favoriteIds={[]} onSubmit={() => undefined} onCancel={() => undefined} />
+      </TerminalContextProvider>,
+    );
+
+    await wait(50);
+    stdin.write("ai sessions");
+    await wait(50);
+
+    const frame = lastFrame() ?? "";
+    expect(frame.indexOf("/ai sessions")).toBeGreaterThanOrEqual(0);
+    expect(frame.indexOf("/ai sessions")).toBeLessThan(frame.indexOf("/ai studio"));
+  });
 });

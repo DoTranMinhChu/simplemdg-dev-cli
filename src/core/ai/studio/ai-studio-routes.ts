@@ -4,12 +4,39 @@ import { computeAdvisor } from "../ai-session-advisor";
 import { ingestAiSessions } from "../ai-session-ingestion";
 import { redactSecrets } from "../ai-secret-redaction";
 import { exportSession } from "../ai-session-export";
+import { previewExport, runExport } from "../export/ai-export-service";
+import type { TAiExportFormat, TAiExportInclude, TAiExportPreset, TAiSessionExportInput } from "../export/ai-export-types";
 import { openProjectFolder, openProjectInVsCode, type TShellKind } from "../ai-session-command-service";
 import { buildSessionLaunchResponse } from "../ai-session-launch";
 import { getSessionLauncher } from "../launchers/claude-session-launcher";
 import { aiStudioStorageDir } from "../ai-session-store";
 import type { AiSessionStore } from "../ai-session-store";
 import type { TAiObservation } from "../ai-types";
+
+const EXPORT_FORMATS: TAiExportFormat[] = ["markdown", "html", "json", "zip"];
+const EXPORT_PRESETS: TAiExportPreset[] = ["conversation", "learning", "engineering", "full", "custom"];
+
+/** Only present on a "rich" export request — presence of either key is what distinguishes the new
+ *  preset/include-aware body from the legacy `{format}`-only body the old export link still sends. */
+function isRichExportBody(body: TJsonBody): boolean {
+  return typeof body.preset === "string" || (typeof body.include === "object" && body.include !== null);
+}
+
+function parseExportInput(sessionId: string, body: TJsonBody): TAiSessionExportInput {
+  const format = typeof body.format === "string" && (EXPORT_FORMATS as string[]).includes(body.format) ? (body.format as TAiExportFormat) : "markdown";
+  const preset = typeof body.preset === "string" && (EXPORT_PRESETS as string[]).includes(body.preset) ? (body.preset as TAiExportPreset) : "full";
+  const include = body.include && typeof body.include === "object" ? (body.include as Partial<TAiExportInclude>) : undefined;
+
+  return {
+    sessionId,
+    format,
+    preset,
+    include,
+    redactSecrets: body.redactSecrets !== false,
+    includeLocalPaths: body.includeLocalPaths === true,
+    theme: body.theme === "light" ? "light" : "dark",
+  };
+}
 
 type TJsonBody = Record<string, unknown>;
 
@@ -18,7 +45,7 @@ function sendJson(res: http.ServerResponse, value: unknown, status = 200): void 
   res.end(JSON.stringify(value));
 }
 
-function sendText(res: http.ServerResponse, value: string, contentType: string, fileName?: string): void {
+function sendText(res: http.ServerResponse, value: string | Buffer, contentType: string, fileName?: string): void {
   const headers: Record<string, string> = { "content-type": contentType };
   if (fileName) headers["content-disposition"] = `attachment; filename="${fileName}"`;
   res.writeHead(200, headers);
@@ -231,13 +258,37 @@ export async function handleAiStudioApi(req: http.IncomingMessage, res: http.Ser
     }
 
     if (subPath === "/export" && (method === "POST" || method === "GET")) {
-      const format = (method === "GET" ? url.searchParams.get("format") : getString(await readJsonBody(req), "format")) === "json" ? "json" : "markdown";
+      const body = method === "POST" ? await readJsonBody(req) : {};
+
+      if (method === "POST" && isRichExportBody(body)) {
+        try {
+          const result = await runExport(store, parseExportInput(sessionId, body));
+          sendText(res, result.content, result.mimeType, result.fileName);
+        } catch (error) {
+          sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 400);
+        }
+        return true;
+      }
+
+      // Legacy path — exact prior behavior, still used by `smdg ai export` and any existing links.
+      const format = (method === "GET" ? url.searchParams.get("format") : getString(body, "format")) === "json" ? "json" : "markdown";
       const observations = store.getObservations(sessionId);
       const turns = deriveTurns(observations);
       const analysis = analyzeSession(sessionId, observations);
       const redacted = observations.map((observation) => redactObservation(observation, false));
       const exported = exportSession({ session, turns, observations: redacted, analysis }, format);
       sendText(res, exported.content, exported.mimeType, `${sanitizeFileName(session.title)}.${exported.extension}`);
+      return true;
+    }
+
+    if (subPath === "/export/preview" && method === "POST") {
+      try {
+        const body = await readJsonBody(req);
+        const preview = await previewExport(store, parseExportInput(sessionId, body));
+        sendJson(res, preview);
+      } catch (error) {
+        sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 400);
+      }
       return true;
     }
   }

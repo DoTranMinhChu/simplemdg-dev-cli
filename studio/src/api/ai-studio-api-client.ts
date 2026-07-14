@@ -1,9 +1,11 @@
 import type {
   TAiActionResult,
   TAiDoctorReport,
+  TAiExportPreview,
   TAiObservation,
   TAiOverview,
   TAiSession,
+  TAiSessionExportInput,
   TAiSessionLaunchResponse,
   TAiTurn,
   TIngestionResult,
@@ -43,6 +45,25 @@ function get<T>(path: string): Promise<T> {
 
 function post<T>(path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined });
+}
+
+/** Like `post`, but for endpoints that return a downloadable file rather than JSON (export). */
+async function postForBlob(path: string, body: unknown): Promise<{ blob: Blob; fileName: string | undefined }> {
+  const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  if (!response.ok) {
+    const text = await response.text();
+    let message = `HTTP ${response.status}`;
+    try {
+      message = (JSON.parse(text) as { error?: string })?.error ?? message;
+    } catch {
+      // Non-JSON error body; keep the generic message.
+    }
+    throw new ApiError(message);
+  }
+
+  const fileName = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1];
+  return { blob: await response.blob(), fileName };
 }
 
 function qs(params: Record<string, string | number | boolean | undefined>): string {
@@ -96,6 +117,11 @@ export const aiStudioApi = {
 
   getContinuationPrompt: (sessionId: string) =>
     get<{ prompt: string }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/continuation-prompt`),
+
+  previewExport: (sessionId: string, input: TAiSessionExportInput) =>
+    post<TAiExportPreview>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/export/preview`, input),
+
+  runExport: (sessionId: string, input: TAiSessionExportInput) => postForBlob(`/api/ai/sessions/${encodeURIComponent(sessionId)}/export`, input),
 };
 
 export { ApiError };

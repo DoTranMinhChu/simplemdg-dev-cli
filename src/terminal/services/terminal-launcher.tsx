@@ -1,4 +1,5 @@
 import React from "react";
+import readline from "node:readline";
 import { render } from "ink";
 import type { Command } from "commander";
 import { detectTerminalCapabilities, canLaunchInteractiveShell, type TTerminalCapabilities } from "./terminal-capabilities";
@@ -95,8 +96,30 @@ export async function launchInteractiveShell(program: Command, version: string):
     }
 
     console.log("");
-    console.log(`→ ${legacyCommand.path.join(" ")}`);
+
+    try {
+      // dispatchLeaf() already prints its own "→ <breadcrumb>" line — don't duplicate it here.
+      await dispatchLeaf(legacyCommand.command);
+    } catch (error) {
+      // A bug or a failed external call (cf/git/etc.) inside a not-yet-migrated
+      // command must not take down the whole interactive session — show it and
+      // return to the shell instead of letting it become an uncaught exception.
+      console.log("");
+      console.error(error instanceof Error ? error.message : String(error));
+    }
+
     console.log("");
-    await dispatchLeaf(legacyCommand.command);
+    await waitForEnter("Press Enter to return to the console...");
   }
+}
+
+/** Pause after a traditional command finishes so its output isn't immediately wiped by the next shell redraw. */
+function waitForEnter(promptText: string): Promise<void> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(promptText, () => {
+      rl.close();
+      resolve();
+    });
+  });
 }
