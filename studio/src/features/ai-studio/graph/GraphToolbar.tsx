@@ -1,7 +1,7 @@
 import { Button } from "../../../components/common/Button";
-import { IconButton } from "../../../components/common/IconButton";
 import { SearchInput } from "../../../components/common/SearchInput";
 import { observationTypeIcon } from "../observation-icon";
+import { turnTitle } from "../conversation/conversation-model";
 import type { TAiTurn } from "../../../api/ai-studio-api-types";
 
 function kindLabel(kind: string): string {
@@ -17,9 +17,8 @@ export function GraphToolbar({
   onToggleKind,
   search,
   onSearchChange,
-  onZoomIn,
-  onZoomOut,
-  onFit,
+  onExpandAll,
+  onCollapseAll,
 }: {
   turns: TAiTurn[];
   selectedTurnIndex: number;
@@ -29,16 +28,15 @@ export function GraphToolbar({
   onToggleKind: (kind: string) => void;
   search: string;
   onSearchChange: (value: string) => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onFit: () => void;
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
 }): React.ReactElement {
   return (
     <div className="ai-graph-toolbar">
-      <select className="select ai-select" value={selectedTurnIndex} onChange={(event) => onSelectTurn(Number(event.target.value))}>
+      <select className="select ai-select ai-graph-turn-select" value={selectedTurnIndex} onChange={(event) => onSelectTurn(Number(event.target.value))}>
         {turns.map((turn) => (
           <option key={turn.id} value={turn.index}>
-            {turn.isContext ? "Session context" : `Turn ${turn.index}`}
+            {turn.isContext ? "Session context" : `Turn ${turn.index} — ${turnTitle(turn)}`}
           </option>
         ))}
       </select>
@@ -56,10 +54,11 @@ export function GraphToolbar({
 
       <span className="grow" />
 
-      <IconButton icon="plus" label="Zoom in" onClick={onZoomIn} />
-      <IconButton icon="minus" label="Zoom out" onClick={onZoomOut} />
-      <Button size="sm" variant="ghost" onClick={onFit}>
-        Fit
+      <Button size="sm" variant="ghost" onClick={onCollapseAll}>
+        Collapse all
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onExpandAll}>
+        Expand all
       </Button>
     </div>
   );

@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { TurnBlock } from "./TurnBlock";
 import { useConversationPreferences, type TReaderSettings } from "./conversation-preferences";
+import { useAiStudioStore } from "../state/ai-studio-store";
+import { aiStudioApi } from "../../../api/ai-studio-api-client";
 import type { TAiObservation, TAiSession, TAiTurn } from "../../../api/ai-studio-api-types";
 
 const TEXT_SIZES: Record<TReaderSettings["textSize"], number> = { sm: 14, md: 16, lg: 18 };
@@ -21,6 +23,13 @@ export function ReaderMode({
 }): React.ReactElement | null {
   const { preferences, updateReader } = useConversationPreferences();
   const { reader } = preferences;
+  const { toast } = useAiStudioStore();
+
+  const handleFileLink = (path: string, line?: number): void => {
+    aiStudioApi.openFile(session.id, path, line).then((result) => {
+      if (!result.ok) toast(result.error ?? "Failed to open file.", "err");
+    });
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -77,7 +86,7 @@ export function ReaderMode({
       </div>
       <div className="reader-column" style={{ fontSize: TEXT_SIZES[reader.textSize], maxWidth: CONTENT_WIDTHS[reader.contentWidth] }}>
         {realTurns.map((turn) => (
-          <TurnBlock key={turn.id} turn={turn} observations={observations} focusMode={reader.showToolActivity ? "combined" : "conversation"} />
+          <TurnBlock key={turn.id} turn={turn} observations={observations} focusMode={reader.showToolActivity ? "combined" : "conversation"} onFileLink={handleFileLink} />
         ))}
       </div>
     </div>,

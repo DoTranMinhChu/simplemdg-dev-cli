@@ -3,7 +3,15 @@ import { Markdown, stripMarkdownToPlainText } from "../../../components/common/M
 import { formatTime } from "../format";
 import type { TAiObservation } from "../../../api/ai-studio-api-types";
 
-export function UserMessageBlock({ observation, turnIndex }: { observation: TAiObservation; turnIndex: number }): React.ReactElement {
+export function UserMessageBlock({
+  observation,
+  turnIndex,
+  onFileLink,
+}: {
+  observation: TAiObservation;
+  turnIndex: number;
+  onFileLink?: (path: string, line?: number) => void;
+}): React.ReactElement {
   const text = observation.input || observation.output;
   const [copied, setCopied] = useState<"" | "text" | "md">("");
 
@@ -25,7 +33,7 @@ export function UserMessageBlock({ observation, turnIndex }: { observation: TAiO
         <span className="note">{formatTime(observation.startedAt)}</span>
       </div>
       <div className="msg-body">
-        <Markdown text={text} />
+        <Markdown text={text} onFileLink={onFileLink} />
       </div>
       <div className="msg-actions">
         <button type="button" onClick={() => copy("text")}>

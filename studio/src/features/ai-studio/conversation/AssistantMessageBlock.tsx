@@ -5,7 +5,13 @@ import { Button } from "../../../components/common/Button";
 import { formatTime } from "../format";
 import type { TAiObservation } from "../../../api/ai-studio-api-types";
 
-export function AssistantMessageBlock({ observation }: { observation: TAiObservation }): React.ReactElement {
+export function AssistantMessageBlock({
+  observation,
+  onFileLink,
+}: {
+  observation: TAiObservation;
+  onFileLink?: (path: string, line?: number) => void;
+}): React.ReactElement {
   const text = observation.output;
   const [copied, setCopied] = useState<"" | "text" | "md">("");
   const [showRaw, setShowRaw] = useState(false);
@@ -23,7 +29,7 @@ export function AssistantMessageBlock({ observation }: { observation: TAiObserva
         <span className="note">{formatTime(observation.startedAt)}</span>
       </div>
       <div className="msg-body">
-        <Markdown text={text} />
+        <Markdown text={text} onFileLink={onFileLink} />
       </div>
       <div className="msg-actions">
         <button type="button" onClick={() => copy("text")}>

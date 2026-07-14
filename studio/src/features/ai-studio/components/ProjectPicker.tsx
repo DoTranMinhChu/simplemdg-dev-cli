@@ -1,9 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SearchInput } from "../../../components/common/SearchInput";
-import { aiStudioApi } from "../../../api/ai-studio-api-client";
-
-type TProjectOption = { project: string; sessionCount: number };
+import { aiStudioApi, type TProjectOption } from "../../../api/ai-studio-api-client";
 
 /**
  * Searchable project filter — replaces the missing project dropdown. `aiStudioApi.getProjects()`
@@ -11,8 +9,11 @@ type TProjectOption = { project: string; sessionCount: number };
  * consumer of it. Borrows ContextMenu's portal/viewport-clamp/outside-click-close pattern locally
  * (rather than generalizing that shared component to support an embedded search input) since it
  * anchors to a trigger button's rect, not a click position.
+ *
+ * `value`/`onChange` operate on `cwd` (the real project identity), not the display name — two
+ * projects can share a folder basename, so selecting/highlighting by name would pick both.
  */
-export function ProjectPicker({ value, onChange }: { value: string | undefined; onChange: (project: string | undefined) => void }): React.ReactElement {
+export function ProjectPicker({ value, onChange }: { value: string | undefined; onChange: (cwd: string | undefined) => void }): React.ReactElement {
   const [projects, setProjects] = useState<TProjectOption[]>([]);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -44,7 +45,14 @@ export function ProjectPicker({ value, onChange }: { value: string | undefined; 
   useEffect(() => {
     if (!open) return;
     const onDocumentClick = (): void => setOpen(false);
-    const onScroll = (): void => setOpen(false);
+    // Scroll events from the popover's own scrollable list bubble up to `document` during the
+    // capture phase too — without this guard, scrolling the list closes it after ~1 line (same
+    // bug as GraphDetailPopup.tsx). Only a scroll *outside* the popover (e.g. panning the page
+    // behind it) should close it.
+    const onScroll = (event: Event): void => {
+      if (event.target instanceof Node && popoverRef.current?.contains(event.target)) return;
+      setOpen(false);
+    };
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") setOpen(false);
     };
@@ -60,6 +68,7 @@ export function ProjectPicker({ value, onChange }: { value: string | undefined; 
 
   const filtered = projects.filter((option) => option.project.toLowerCase().includes(search.toLowerCase()));
   const overlayRoot = document.getElementById("overlay-root");
+  const selectedLabel = value ? (projects.find((option) => option.cwd === value)?.project ?? value) : "All projects";
 
   return (
     <>
@@ -72,7 +81,7 @@ export function ProjectPicker({ value, onChange }: { value: string | undefined; 
           setOpen((prev) => !prev);
         }}
       >
-        <span className="ai-project-picker-trigger-label">{value || "All projects"}</span>
+        <span className="ai-project-picker-trigger-label">{selectedLabel}</span>
         <span aria-hidden="true">▾</span>
       </button>
 
@@ -94,10 +103,11 @@ export function ProjectPicker({ value, onChange }: { value: string | undefined; 
                 </div>
                 {filtered.map((option) => (
                   <div
-                    key={option.project}
-                    className={`ai-project-picker-item${value === option.project ? " active" : ""}`}
+                    key={option.cwd}
+                    className={`ai-project-picker-item${value === option.cwd ? " active" : ""}`}
+                    title={option.cwd}
                     onClick={() => {
-                      onChange(option.project);
+                      onChange(option.cwd);
                       setOpen(false);
                     }}
                   >

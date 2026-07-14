@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { SearchInput } from "../../../components/common/SearchInput";
 import { highlightMatch } from "../../../lib/highlight-match";
 import { observationsForTurn } from "../observations-for-turn";
 import { extractHeadings, turnTitle } from "./conversation-model";
@@ -62,7 +63,7 @@ export function TurnNavigator({
           </button>
         ) : null}
       </div>
-      <input className="turn-nav-search" placeholder="Search turns…" value={query} onChange={(event) => setQuery(event.target.value)} />
+      <SearchInput value={query} onChange={setQuery} placeholder="Search turns…" className="turn-nav-search" />
       <div className="turn-nav-list">
         {filtered.map((entry, index) => (
           <div

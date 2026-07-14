@@ -52,7 +52,7 @@ const EMPTY_CACHE: TSimpleMdgCache = {
   },
   terminal: {
     theme: undefined,
-    headerMode: "compact",
+    headerMode: "expanded",
   },
 };
 

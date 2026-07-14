@@ -3,7 +3,7 @@ import { Markdown } from "../../../components/common/Markdown";
 import type { TAiObservation } from "../../../api/ai-studio-api-types";
 
 /** Only ever rendered when a turn actually contains a reasoning observation — never a fabricated "not captured" placeholder. */
-export function ReasoningBlock({ observation }: { observation: TAiObservation }): React.ReactElement {
+export function ReasoningBlock({ observation, onFileLink }: { observation: TAiObservation; onFileLink?: (path: string, line?: number) => void }): React.ReactElement {
   const [show, setShow] = useState(false);
   return (
     <div className="reasoning-block">
@@ -15,7 +15,7 @@ export function ReasoningBlock({ observation }: { observation: TAiObservation })
       </div>
       {show ? (
         <div className="reasoning-body">
-          <Markdown text={observation.output} />
+          <Markdown text={observation.output} onFileLink={onFileLink} />
         </div>
       ) : null}
     </div>

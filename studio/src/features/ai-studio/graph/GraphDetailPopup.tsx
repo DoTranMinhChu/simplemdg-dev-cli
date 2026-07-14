@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "../../../components/common/Button";
+import { Modal } from "../../../components/common/Modal";
 import { observationTypeIcon } from "../observation-icon";
 import type { TGraphNode } from "./graph-model";
 
@@ -53,6 +54,10 @@ export function GraphDetailPopup({
 }): React.ReactElement | null {
   const popoverRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: Math.max(8, Math.min(anchorRect.right + 10, window.innerWidth - 8)), top: anchorRect.top });
+  // Long tool input/output can run to thousands of characters — the anchored popover is
+  // deliberately small (it has to fit next to the clicked node without covering the canvas), so
+  // this reuses the app-wide Modal for a comfortably large, centered view of the same content.
+  const [expanded, setExpanded] = useState(false);
 
   useLayoutEffect(() => {
     const popover = popoverRef.current;
@@ -66,8 +71,23 @@ export function GraphDetailPopup({
   }, [anchorRect]);
 
   useEffect(() => {
+    // Expanded mode renders inside the app-wide Modal, which owns its own backdrop-click and
+    // Escape handling — these outside-click/scroll auto-close listeners are only for the anchored
+    // popover, and attaching them here too would close the modal the instant anything inside it
+    // is clicked or scrolled (its content isn't inside popoverRef, which only exists in the
+    // popover branch, so it would always look like an "outside" click/scroll).
+    if (expanded) return;
+
     const onDocumentClick = (): void => onClose();
-    const onScroll = (): void => onClose();
+    // The popover's own body scrolls (long input/output — see the overflow-y:auto on
+    // .ai-graph-detail), and that scroll event is still visible to this capture-phase listener as
+    // it passes through `document` on its way to the target. Without the containment check, the
+    // very first scroll tick inside the popover closed it instantly. Only a scroll *outside* the
+    // popover (e.g. panning the graph canvas behind it) should close it.
+    const onScroll = (event: Event): void => {
+      if (event.target instanceof Node && popoverRef.current?.contains(event.target)) return;
+      onClose();
+    };
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") onClose();
     };
@@ -79,7 +99,7 @@ export function GraphDetailPopup({
       document.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, expanded]);
 
   const overlayRoot = document.getElementById("overlay-root");
   if (!overlayRoot) return null;
@@ -87,13 +107,18 @@ export function GraphDetailPopup({
   const observation = node.observation;
   const agentId = node.kind === "subagent" ? subagentIdFrom(observation.metadata) : undefined;
 
-  return createPortal(
-    <div ref={popoverRef} className="ai-graph-detail" style={{ position: "fixed", left: position.left, top: position.top }} onClick={(event) => event.stopPropagation()}>
+  const body = (
+    <>
       <div className="ai-graph-detail-head">
         <span className="ai-graph-node-glyph">{observationTypeIcon(node.kind)}</span>
         <span className="ai-graph-detail-kind">{kindLabel(node.kind)}</span>
         {node.isError ? <span className="ai-graph-detail-error">Error</span> : null}
         <span className="grow" />
+        {!expanded ? (
+          <button type="button" className="ai-graph-detail-expand" onClick={() => setExpanded(true)} aria-label="Expand" title="Open in a larger view">
+            ⤢
+          </button>
+        ) : null}
         <button type="button" className="ai-graph-detail-close" onClick={onClose} aria-label="Close">
           ×
         </button>
@@ -134,9 +159,23 @@ export function GraphDetailPopup({
 
       <div className="note" style={{ marginTop: 8 }}>
         {observation.durationMs ? `${formatDuration(observation.durationMs)} · ` : ""}
-        {observation.tokens ? `${observation.tokens} tok · ` : ""}
+        {observation.tokens ? `${observation.tokens} token · ` : ""}
         Observation <code>{observation.id.slice(0, 8)}</code>
       </div>
+    </>
+  );
+
+  if (expanded) {
+    return (
+      <Modal onClose={onClose} width={720}>
+        <div className="ai-graph-detail ai-graph-detail-expanded">{body}</div>
+      </Modal>
+    );
+  }
+
+  return createPortal(
+    <div ref={popoverRef} className="ai-graph-detail" style={{ position: "fixed", left: position.left, top: position.top }} onClick={(event) => event.stopPropagation()}>
+      {body}
     </div>,
     overlayRoot,
   );

@@ -39,6 +39,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
   const [loading, setLoading] = useState(true);
   const [revealSecrets, setRevealSecrets] = useState(false);
   const [focusTurnIndex, setFocusTurnIndex] = useState<number | undefined>();
+  const [focusGraphTurnIndex, setFocusGraphTurnIndex] = useState<number | undefined>();
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +89,12 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
     setFocusTurnIndex(turnIndex);
   };
 
+  /** Used by Conversation's per-turn "Graph" button to jump into the Graph tab pre-selected on that turn. */
+  const jumpToGraphTurn = (turnIndex: number): void => {
+    setActiveTabKind("graph");
+    setFocusGraphTurnIndex(turnIndex);
+  };
+
   return (
     <div className="tabpane">
       <div className="row" style={{ padding: "10px 10px 0" }}>
@@ -110,13 +117,27 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
         {activeTabKind === "overview" ? (
           <SessionOverview session={session} analysis={analysis} advisor={advisor} turns={turns} />
         ) : activeTabKind === "conversation" ? (
-          <ConversationView session={session} turns={turns} observations={observations} focusTurnIndex={focusTurnIndex} onFocusHandled={() => setFocusTurnIndex(undefined)} />
+          <ConversationView
+            session={session}
+            turns={turns}
+            observations={observations}
+            focusTurnIndex={focusTurnIndex}
+            onFocusHandled={() => setFocusTurnIndex(undefined)}
+            onOpenGraph={jumpToGraphTurn}
+          />
         ) : activeTabKind === "execution" ? (
           <ExecutionView observations={observations} />
         ) : activeTabKind === "graph" ? (
           // Keyed on sessionId so switching sessions resets the internal turn-selection/camera state
           // instead of carrying over a turn index that may not exist in the new session's turns.
-          <SessionGraph key={sessionId} sessionId={sessionId} turns={turns} observations={observations} />
+          <SessionGraph
+            key={sessionId}
+            sessionId={sessionId}
+            turns={turns}
+            observations={observations}
+            focusTurnIndex={focusGraphTurnIndex}
+            onFocusHandled={() => setFocusGraphTurnIndex(undefined)}
+          />
         ) : activeTabKind === "files" ? (
           <FilesView fileImpact={analysis.fileImpact} onJumpToTurn={jumpToTurn} />
         ) : activeTabKind === "commands" ? (

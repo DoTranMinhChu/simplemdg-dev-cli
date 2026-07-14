@@ -50,7 +50,7 @@ export function SessionNavigator(): React.ReactElement {
       <SearchInput value={filter.search ?? ""} onChange={(value) => setFilter({ search: value })} placeholder="Search sessions..." />
       <div style={{ padding: "6px 8px" }}>
         <div className="row" style={{ gap: 6, marginBottom: 6 }}>
-          <ProjectPicker value={filter.project} onChange={(project) => setFilter({ project })} />
+          <ProjectPicker value={filter.cwd} onChange={(cwd) => setFilter({ cwd, project: undefined })} />
           <select className="select ai-select" value={filter.provider ?? ""} onChange={(event) => setFilter({ provider: event.target.value || undefined })}>
             <option value="">All providers</option>
             <option value="claude">Claude Code</option>

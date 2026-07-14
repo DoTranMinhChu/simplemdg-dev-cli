@@ -28,6 +28,24 @@ export const CATEGORY_LABELS: Record<string, string> = {
   ai: "AI Sessions",
 };
 
+/**
+ * One-line "what's in here" blurb per top-level command group, shown in the
+ * shell's home screen legend (`/cf`, `/ai`, ...). Keyed by the group's
+ * Commander path segment, e.g. "cf" for `smdg cf ...`. Deliberately
+ * hand-authored and short (unlike leaf descriptions, which come straight from
+ * Commander) — a group's own Commander `.description()` is written for
+ * `--help` output and tends to run long for a single legend line.
+ */
+export const CATEGORY_TAGLINES: Record<string, string> = {
+  cf: "Targets, apps, logs & DB Studio",
+  cds: "CAP dev server, profiles & services",
+  git: "Move code, cherry-pick & resolve conflicts",
+  gitlab: "Login, clone & sync repositories",
+  npmrc: "Registry auth & scoped tokens",
+  ai: "Resume, inspect & export AI sessions",
+  cache: "Inspect & clear the smart cache",
+};
+
 export const COMMAND_METADATA: Record<string, TCommandMetadataOverlay> = {
   "git.move-code": {
     category: "Git",

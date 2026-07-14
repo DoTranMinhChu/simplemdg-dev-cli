@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import { EmptyState } from "../../../components/common/EmptyState";
 import { SearchInput } from "../../../components/common/SearchInput";
-import { aiStudioApi } from "../../../api/ai-studio-api-client";
+import { aiStudioApi, type TProjectOption } from "../../../api/ai-studio-api-client";
 import { useAiStudioStore } from "../state/ai-studio-store";
-
-type TProjectOption = { project: string; sessionCount: number };
 
 /** Every project with a session count and a one-click way into its filtered session list — the same data ProjectPicker uses, as a browsable page instead of a small popover. */
 export function AiProjectsPage(): React.ReactElement {
@@ -19,8 +17,9 @@ export function AiProjectsPage(): React.ReactElement {
       .catch(() => setProjects([]));
   }, []);
 
-  const openProject = (project: string): void => {
-    setFilter({ project });
+  /** Filters by `cwd`, not the display name — two projects can share a folder basename (see ai-session-store.ts's listProjects) and must still open independently. */
+  const openProject = (cwd: string): void => {
+    setFilter({ cwd, project: undefined });
     setCurrentPage("sessions");
   };
 
@@ -44,7 +43,7 @@ export function AiProjectsPage(): React.ReactElement {
       ) : (
         <div className="ai-project-grid">
           {filtered.map((option) => (
-            <button key={option.project} type="button" className="ai-project-card" onClick={() => openProject(option.project)}>
+            <button key={option.cwd} type="button" className="ai-project-card" onClick={() => openProject(option.cwd)} title={option.cwd}>
               <span className="ai-project-card-name">{option.project}</span>
               <span className="ai-project-card-count">
                 {option.sessionCount} session{option.sessionCount === 1 ? "" : "s"}

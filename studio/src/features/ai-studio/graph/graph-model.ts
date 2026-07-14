@@ -50,7 +50,7 @@ function deriveLabel(observation: TAiObservation): string {
 function deriveMeta(observation: TAiObservation): string {
   const parts: string[] = [];
   if (observation.durationMs) parts.push(formatDuration(observation.durationMs));
-  if (observation.tokens) parts.push(`${observation.tokens} tok`);
+  if (observation.tokens) parts.push(`${observation.tokens} token`);
   return parts.join(" · ");
 }
 
@@ -126,4 +126,44 @@ export function buildVisibleGraph(model: TGraphModel, hiddenKinds: ReadonlySet<s
   }
 
   return { nodes, edges };
+}
+
+/** Node ids with no incoming edge in `model` — where the tree view starts rendering from. */
+export function collectRootIds(model: TGraphModel): string[] {
+  const hasParent = new Set(model.edges.map((edge) => edge.target));
+  return model.nodes.filter((node) => !hasParent.has(node.id)).map((node) => node.id);
+}
+
+/** parentId -> ordered childId[], for walking the tree top-down. */
+export function buildChildrenIndex(model: TGraphModel): Map<string, string[]> {
+  const childrenOf = new Map<string, string[]>();
+  for (const edge of model.edges) {
+    const siblings = childrenOf.get(edge.source);
+    if (siblings) siblings.push(edge.target);
+    else childrenOf.set(edge.source, [edge.target]);
+  }
+  return childrenOf;
+}
+
+/** source -> number of direct children, for the tree row's expand-toggle affordance. */
+export function countChildren(model: TGraphModel): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const edge of model.edges) {
+    counts.set(edge.source, (counts.get(edge.source) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/** A node's ancestor chain (immediate parent first) — used to auto-open collapsed branches that contain a search match. */
+export function ancestorChain(model: TGraphModel, nodeId: string): string[] {
+  const parentOf = new Map(model.edges.map((edge) => [edge.target, edge.source]));
+  const chain: string[] = [];
+  const guard = new Set<string>();
+  let current = parentOf.get(nodeId);
+  while (current && !guard.has(current)) {
+    guard.add(current);
+    chain.push(current);
+    current = parentOf.get(current);
+  }
+  return chain;
 }

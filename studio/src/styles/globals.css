@@ -2576,60 +2576,89 @@ td.cell-active {
    max-width: 200px;
 }
 
-.ai-graph-canvas {
-   position: relative;
+/* Turn options now carry the turn's first-message preview, not just "Turn N" — clip the closed
+   select box so a long preview doesn't crowd out the legend/search/zoom controls next to it; the
+   dropdown list itself still shows each option's full text. */
+.ai-graph-turn-select {
+   max-width: 260px;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+/* Collapsible vertical tree (file-explorer style) — replaces a dagre canvas. Every branch starts
+   collapsed; expanding a node inserts its children as indented rows directly below it in normal
+   block flow, so "vertical" is literal here rather than a rank-based layout that still spreads
+   same-depth siblings out horizontally. */
+.ai-graph-tree {
    flex: 1;
    min-height: 0;
-   overflow: hidden;
+   overflow: auto;
    border: 1px solid var(--border);
    border-radius: var(--radius-md);
    background-color: var(--bg);
-   background-image: radial-gradient(var(--border) 0.6px, transparent 0.6px);
-   background-size: 22px 22px;
-   cursor: grab;
+   padding: var(--space-2);
 }
 
-.ai-graph-canvas:active {
-   cursor: grabbing;
+.ai-graph-tree-row {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+   padding: 3px 0;
 }
 
-.ai-graph-scene {
-   position: absolute;
-   left: 0;
-   top: 0;
-   transform-origin: 0 0;
+.ai-graph-tree-toggle {
+   flex: 0 0 auto;
+   width: 18px;
+   height: 18px;
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   background: none;
+   border: none;
+   color: var(--muted);
+   cursor: pointer;
+   font-size: 11px;
 }
 
-.ai-graph-edges {
-   position: absolute;
-   left: 0;
-   top: 0;
-   overflow: visible;
-   pointer-events: none;
+.ai-graph-tree-toggle:hover {
+   color: var(--text);
 }
 
-.ai-graph-edge {
-   fill: none;
-   stroke: var(--border-2);
-   stroke-width: 1.6px;
+.ai-graph-tree-toggle-spacer {
+   flex: 0 0 auto;
+   width: 18px;
 }
 
-.ai-graph-edge.delegation {
-   stroke: var(--pink);
-   stroke-dasharray: 5 4;
+.ai-graph-tree-count {
+   flex: 0 0 auto;
+   font-size: 10px;
+   color: var(--muted);
+   background: var(--bg-3);
+   border: 1px solid var(--border);
+   border-radius: var(--radius-full);
+   padding: 1px 6px;
+   cursor: pointer;
+}
+
+/* Indentation + a guide line down the left edge, like a standard file tree — this is the whole
+   "vertical, not horizontal" layout: children are simply the next rows down, offset by the row's
+   own paddingLeft (depth * 20px, set inline in GraphTreeRow.tsx). */
+.ai-graph-tree-children {
+   margin-left: 9px;
+   border-left: 1px dashed var(--border);
 }
 
 .ai-graph-node {
-   position: absolute;
-   max-width: 220px;
-   min-width: 120px;
+   flex: 1;
+   min-width: 0;
+   max-width: 640px;
    background: var(--bg-2);
    border: 1px solid var(--border);
    border-left: 3px solid var(--border-2);
    border-radius: var(--radius-sm);
    padding: 6px 9px;
    cursor: pointer;
-   box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
    user-select: none;
 }
 
@@ -2749,6 +2778,32 @@ td.cell-active {
 
 .ai-graph-detail-close:hover {
    color: var(--text);
+}
+
+.ai-graph-detail-expand {
+   background: none;
+   border: none;
+   color: var(--muted);
+   font-size: 14px;
+   line-height: 1;
+   cursor: pointer;
+   padding: 2px 4px;
+}
+
+.ai-graph-detail-expand:hover {
+   color: var(--text);
+}
+
+/* Rendered inside the shared .dialog (Modal) instead of the anchored popover — let the dialog's
+   own sizing/scroll/chrome take over instead of stacking a second boxed-and-scrolling panel. */
+.ai-graph-detail-expanded {
+   width: 100%;
+   max-height: none;
+   overflow: visible;
+   background: transparent;
+   border: none;
+   box-shadow: none;
+   padding: 0;
 }
 
 .ai-graph-detail-label {

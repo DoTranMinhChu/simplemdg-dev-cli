@@ -6,7 +6,7 @@ import { redactSecrets } from "../ai-secret-redaction";
 import { exportSession } from "../ai-session-export";
 import { previewExport, runExport } from "../export/ai-export-service";
 import type { TAiExportFormat, TAiExportInclude, TAiExportPreset, TAiSessionExportInput } from "../export/ai-export-types";
-import { openProjectFolder, openProjectInVsCode, type TShellKind } from "../ai-session-command-service";
+import { openFileInVsCode, openProjectFolder, openProjectInVsCode, type TShellKind } from "../ai-session-command-service";
 import { buildSessionLaunchResponse } from "../ai-session-launch";
 import { getSessionLauncher } from "../launchers/claude-session-launcher";
 import { aiStudioStorageDir } from "../ai-session-store";
@@ -123,6 +123,7 @@ export async function handleAiStudioApi(req: http.IncomingMessage, res: http.Ser
       filter: {
         provider: params.get("provider") || undefined,
         project: params.get("project") || undefined,
+        cwd: params.get("cwd") || undefined,
         search: params.get("search") || undefined,
         hasErrors: params.get("hasErrors") === "true",
         pinnedOnly: params.get("pinnedOnly") === "true",
@@ -245,6 +246,19 @@ export async function handleAiStudioApi(req: http.IncomingMessage, res: http.Ser
 
     if (subPath === "/open-vscode" && method === "POST") {
       const result = await openProjectInVsCode(session.cwd);
+      sendJson(res, result);
+      return true;
+    }
+
+    if (subPath === "/open-file" && method === "POST") {
+      const body = await readJsonBody(req);
+      const filePath = getString(body, "path");
+      if (!filePath) {
+        sendJson(res, { ok: false, error: "path is required" }, 400);
+        return true;
+      }
+      const line = typeof body.line === "number" && Number.isFinite(body.line) ? body.line : undefined;
+      const result = await openFileInVsCode(session.cwd, filePath, line);
       sendJson(res, result);
       return true;
     }

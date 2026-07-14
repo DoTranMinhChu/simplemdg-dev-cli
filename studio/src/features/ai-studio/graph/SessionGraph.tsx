@@ -1,29 +1,13 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "../../../components/common/EmptyState";
 import { useAiStudioStore } from "../state/ai-studio-store";
 import { observationsForTurn } from "../observations-for-turn";
-import { buildGraphModel, buildVisibleGraph } from "./graph-model";
-import { runDagreLayout, type TGraphLayout } from "./graph-layout";
-import { GraphNode } from "./GraphNode";
+import { buildGraphModel, buildVisibleGraph, buildChildrenIndex, collectRootIds, countChildren, ancestorChain } from "./graph-model";
+import { GraphTreeRow } from "./GraphTreeRow";
 import { GraphToolbar } from "./GraphToolbar";
 import { GraphDetailPopup } from "./GraphDetailPopup";
 import type { TGraphNode } from "./graph-model";
 import type { TAiObservation, TAiTurn } from "../../../api/ai-studio-api-types";
-
-type TCamera = { x: number; y: number; zoom: number };
-
-const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 2.5;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function zoomAt(camera: TCamera, cursorX: number, cursorY: number, factor: number): TCamera {
-  const nextZoom = clamp(camera.zoom * factor, MIN_ZOOM, MAX_ZOOM);
-  const scale = nextZoom / camera.zoom;
-  return { x: cursorX - (cursorX - camera.x) * scale, y: cursorY - (cursorY - camera.y) * scale, zoom: nextZoom };
-}
 
 function matchesSearch(node: TGraphNode, query: string): boolean {
   if (!query.trim()) return true;
@@ -36,20 +20,34 @@ function matchesSearch(node: TGraphNode, query: string): boolean {
   );
 }
 
-/** Per-turn execution graph: dagre lays out node positions (measured from real rendered DOM), everything else — pan/zoom/fit, edges, the detail popup — is hand-rolled, matching this codebase's zero-extra-deps convention (the one exception being @dagrejs/dagre itself, for layout math only). */
-export function SessionGraph({ sessionId, turns, observations }: { sessionId: string; turns: TAiTurn[]; observations: TAiObservation[] }): React.ReactElement {
+/**
+ * Per-turn execution graph, rendered as a collapsible vertical tree (file-explorer style): every
+ * branch starts collapsed, and clicking a node's card both opens its detail popup and reveals its
+ * children indented one level below — never a whole-turn dagre canvas dumped on screen at once.
+ * A turn with 70+ tool calls used to lay them all out side by side (dagre puts same-rank siblings
+ * in a row); starting collapsed means only branches the user actually opens are ever mounted.
+ */
+export function SessionGraph({
+  sessionId,
+  turns,
+  observations,
+  focusTurnIndex,
+  onFocusHandled,
+}: {
+  sessionId: string;
+  turns: TAiTurn[];
+  observations: TAiObservation[];
+  /** Set by ConversationView's "Graph" button (via SessionWorkspace) to select a specific turn on arrival. */
+  focusTurnIndex?: number;
+  onFocusHandled?: () => void;
+}): React.ReactElement {
   const { selectSession, toast } = useAiStudioStore();
   const defaultTurn = useMemo(() => [...turns].reverse().find((turn) => !turn.isContext) ?? turns[0], [turns]);
-  const [selectedTurnIndex, setSelectedTurnIndex] = useState<number | undefined>(defaultTurn?.index);
+  const [selectedTurnIndex, setSelectedTurnIndex] = useState<number | undefined>(focusTurnIndex ?? defaultTurn?.index);
   const [hiddenKinds, setHiddenKinds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
-  const [camera, setCamera] = useState<TCamera>({ x: 0, y: 0, zoom: 1 });
-  const [layout, setLayout] = useState<TGraphLayout | undefined>();
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedNode, setSelectedNode] = useState<{ node: TGraphNode; rect: DOMRect } | undefined>();
-
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const nodeRefs = useRef(new Map<string, HTMLDivElement>());
-  const dragRef = useRef<{ startClientX: number; startClientY: number; startCamX: number; startCamY: number } | null>(null);
 
   const selectedTurn = turns.find((turn) => turn.index === selectedTurnIndex) ?? defaultTurn;
 
@@ -58,72 +56,53 @@ export function SessionGraph({ sessionId, turns, observations }: { sessionId: st
   const visibleModel = useMemo(() => buildVisibleGraph(fullModel, hiddenKinds), [fullModel, hiddenKinds]);
   const kinds = useMemo(() => [...new Set(fullModel.nodes.map((node) => node.kind))], [fullModel]);
 
+  const nodesById = useMemo(() => new Map(visibleModel.nodes.map((node) => [node.id, node])), [visibleModel]);
+  const childrenOf = useMemo(() => buildChildrenIndex(visibleModel), [visibleModel]);
+  const childCounts = useMemo(() => countChildren(visibleModel), [visibleModel]);
+  const rootIds = useMemo(() => collectRootIds(visibleModel), [visibleModel]);
+
+  // A fresh turn is a fresh tree — start collapsed again rather than carrying over expand state
+  // that may not even apply to the new turn's nodes.
+  useEffect(() => {
+    setExpandedIds(new Set());
+  }, [selectedTurn?.id]);
+
+  // The open popup can reference a node that a legend toggle or turn change just removed.
+  useEffect(() => {
+    setSelectedNode(undefined);
+  }, [visibleModel]);
+
+  useEffect(() => {
+    if (focusTurnIndex === undefined) return;
+    if (turns.some((turn) => turn.index === focusTurnIndex)) setSelectedTurnIndex(focusTurnIndex);
+    onFocusHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTurnIndex]);
+
+  const matchIds = useMemo(() => {
+    if (!search.trim()) return new Set<string>();
+    return new Set(visibleModel.nodes.filter((node) => matchesSearch(node, search)).map((node) => node.id));
+  }, [visibleModel, search]);
+
+  // Search reaches into collapsed branches: auto-open every ancestor of a match without touching
+  // `expandedIds` itself, so clearing the query restores exactly what the user had open by hand.
+  const effectiveExpandedIds = useMemo(() => {
+    if (matchIds.size === 0) return expandedIds;
+    const next = new Set(expandedIds);
+    for (const id of matchIds) {
+      for (const ancestorId of ancestorChain(visibleModel, id)) next.add(ancestorId);
+    }
+    return next;
+  }, [expandedIds, matchIds, visibleModel]);
+
+  const dimIds = useMemo(() => {
+    if (!search.trim()) return new Set<string>();
+    return new Set(visibleModel.nodes.filter((node) => !matchIds.has(node.id)).map((node) => node.id));
+  }, [visibleModel, matchIds, search]);
+
   const copy = (text: string, label: string): void => {
     navigator.clipboard.writeText(text);
     toast(`Copied ${label}`);
-  };
-
-  const fitToBounds = (bounds: TGraphLayout["bounds"]): void => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const width = bounds.right - bounds.left;
-    const height = bounds.bottom - bounds.top;
-    if (width <= 0 || height <= 0 || rect.width === 0 || rect.height === 0) {
-      setCamera({ x: rect.width / 2, y: rect.height / 2, zoom: 1 });
-      return;
-    }
-    const padding = 30;
-    const zoom = clamp(Math.min((rect.width - padding * 2) / width, (rect.height - padding * 2) / height), MIN_ZOOM, 1.3);
-    const centerX = (bounds.left + bounds.right) / 2;
-    const centerY = (bounds.top + bounds.bottom) / 2;
-    setCamera({ x: rect.width / 2 - centerX * zoom, y: rect.height / 2 - centerY * zoom, zoom });
-  };
-
-  // Measure real rendered card sizes, then run dagre — never depends on `layout`/`camera`, so setting
-  // them here can't retrigger this effect (no infinite re-layout loop).
-  useLayoutEffect(() => {
-    const sizes = new Map<string, { width: number; height: number }>();
-    for (const node of visibleModel.nodes) {
-      const element = nodeRefs.current.get(node.id);
-      if (element) sizes.set(node.id, { width: element.offsetWidth || 170, height: element.offsetHeight || 46 });
-    }
-    const result = runDagreLayout(visibleModel, sizes);
-    setLayout(result);
-    fitToBounds(result.bounds);
-    setSelectedNode(undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleModel]);
-
-  // Real (non-passive) wheel listener — React's synthetic wheel handler is passive by default and
-  // won't reliably block page-scroll-while-zooming.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const onWheel = (event: WheelEvent): void => {
-      event.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      setCamera((prev) => zoomAt(prev, event.clientX - rect.left, event.clientY - rect.top, event.deltaY < 0 ? 1.1 : 1 / 1.1));
-    };
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => canvas.removeEventListener("wheel", onWheel);
-  }, []);
-
-  const onCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const target = event.target as HTMLElement;
-    if (target.closest(".ai-graph-node")) return;
-    dragRef.current = { startClientX: event.clientX, startClientY: event.clientY, startCamX: camera.x, startCamY: camera.y };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const onCanvasPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    setCamera((prev) => ({ ...prev, x: drag.startCamX + (event.clientX - drag.startClientX), y: drag.startCamY + (event.clientY - drag.startClientY) }));
-  };
-
-  const onCanvasPointerUp = (): void => {
-    dragRef.current = null;
   };
 
   const toggleKind = (kind: string): void => {
@@ -135,15 +114,29 @@ export function SessionGraph({ sessionId, turns, observations }: { sessionId: st
     });
   };
 
-  const zoomToolbar = (factor: number): void => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    setCamera((prev) => zoomAt(prev, (rect?.width ?? 0) / 2, (rect?.height ?? 0) / 2, factor));
+  const toggleExpand = (nodeId: string): void => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
+      return next;
+    });
   };
 
-  if (!turns.length || !selectedTurn) return <EmptyState>No turns recorded.</EmptyState>;
+  // Clicking a card is a one-way "drill in": it opens the detail popup and, if the node has
+  // children, reveals them — it never re-collapses on a second click (that's what the chevron is
+  // for), so reopening a popup you closed can't unexpectedly hide the tree underneath it.
+  const openNode = (node: TGraphNode, event: React.MouseEvent): void => {
+    setSelectedNode({ node, rect: event.currentTarget.getBoundingClientRect() });
+    if ((childCounts.get(node.id) ?? 0) > 0 && !expandedIds.has(node.id)) {
+      setExpandedIds((prev) => new Set(prev).add(node.id));
+    }
+  };
 
-  const sceneWidth = layout ? Math.max(layout.bounds.right + 40, 40) : 40;
-  const sceneHeight = layout ? Math.max(layout.bounds.bottom + 40, 40) : 40;
+  const expandAll = (): void => setExpandedIds(new Set(visibleModel.nodes.map((node) => node.id)));
+  const collapseAll = (): void => setExpandedIds(new Set());
+
+  if (!turns.length || !selectedTurn) return <EmptyState>No turns recorded.</EmptyState>;
 
   return (
     <div className="ai-graph-tab">
@@ -156,55 +149,28 @@ export function SessionGraph({ sessionId, turns, observations }: { sessionId: st
         onToggleKind={toggleKind}
         search={search}
         onSearchChange={setSearch}
-        onZoomIn={() => zoomToolbar(1.2)}
-        onZoomOut={() => zoomToolbar(1 / 1.2)}
-        onFit={() => layout && fitToBounds(layout.bounds)}
+        onExpandAll={expandAll}
+        onCollapseAll={collapseAll}
       />
 
       {!visibleModel.nodes.length ? (
         <EmptyState>No observations in this turn.</EmptyState>
       ) : (
-        <div className="ai-graph-canvas" ref={canvasRef} onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove} onPointerUp={onCanvasPointerUp} onPointerLeave={onCanvasPointerUp}>
-          {/* Hidden measuring pass — real DOM size drives the dagre layout above, never estimated. */}
-          <div style={{ position: "absolute", visibility: "hidden", pointerEvents: "none", left: 0, top: 0 }}>
-            {visibleModel.nodes.map((node) => (
-              <GraphNode key={node.id} node={node} ref={(element) => (element ? nodeRefs.current.set(node.id, element) : nodeRefs.current.delete(node.id))} />
-            ))}
-          </div>
-
-          {layout ? (
-            <div className="ai-graph-scene" style={{ width: sceneWidth, height: sceneHeight, transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}>
-              <svg className="ai-graph-edges" width={sceneWidth} height={sceneHeight}>
-                {visibleModel.edges.map((edge) => {
-                  const source = layout.positions.get(edge.source);
-                  const target = layout.positions.get(edge.target);
-                  if (!source || !target) return null;
-                  const x1 = source.left + source.width / 2;
-                  const y1 = source.top + source.height;
-                  const x2 = target.left + target.width / 2;
-                  const y2 = target.top;
-                  const midY = (y1 + y2) / 2;
-                  return <path key={edge.id} className={`ai-graph-edge${edge.delegation ? " delegation" : ""}`} d={`M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`} />;
-                })}
-              </svg>
-              {visibleModel.nodes.map((node) => {
-                const rect = layout.positions.get(node.id);
-                if (!rect) return null;
-                return (
-                  <GraphNode
-                    key={node.id}
-                    node={node}
-                    dim={!matchesSearch(node, search)}
-                    style={{ position: "absolute", left: rect.left, top: rect.top, width: rect.width }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setSelectedNode({ node, rect: event.currentTarget.getBoundingClientRect() });
-                    }}
-                  />
-                );
-              })}
-            </div>
-          ) : null}
+        <div className="ai-graph-tree">
+          {rootIds.map((rootId) => (
+            <GraphTreeRow
+              key={rootId}
+              nodeId={rootId}
+              depth={0}
+              nodesById={nodesById}
+              childrenOf={childrenOf}
+              childCounts={childCounts}
+              expandedIds={effectiveExpandedIds}
+              dimIds={dimIds}
+              onToggle={toggleExpand}
+              onSelect={openNode}
+            />
+          ))}
         </div>
       )}
 

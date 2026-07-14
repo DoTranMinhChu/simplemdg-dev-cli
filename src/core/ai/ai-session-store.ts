@@ -123,6 +123,11 @@ function migrateCacheCreationColumn(db: TSqliteDatabase): void {
 export type TSessionFilter = {
   provider?: string;
   project?: string;
+  /** Exact-match on the session's real working directory — the actual project identity. Two
+   * checkouts named the same thing (e.g. "agribase-project" cloned under two different parents)
+   * share a `project` basename but never a `cwd`, so this is what `listProjects()`/the project
+   * picker filter by; `project` alone would silently merge them. */
+  cwd?: string;
   search?: string;
   hasErrors?: boolean;
   pinnedOnly?: boolean;
@@ -310,7 +315,13 @@ export class AiSessionStore {
       conditions.push("s.provider = ?");
       params.push(options.filter.provider);
     }
-    if (options.filter?.project) {
+    if (options.filter?.cwd) {
+      // Case-insensitive on win32 to match listProjects()'s grouping — otherwise selecting a
+      // project whose representative cwd happens to be lowercase-drive-letter would silently drop
+      // every session recorded with an uppercase-drive-letter variant of the same folder.
+      conditions.push(process.platform === "win32" ? "LOWER(s.cwd) = LOWER(?)" : "s.cwd = ?");
+      params.push(options.filter.cwd);
+    } else if (options.filter?.project) {
       conditions.push("s.project = ?");
       params.push(options.filter.project);
     }
@@ -391,9 +402,50 @@ export class AiSessionStore {
       .run(sessionId, pinned ? 1 : 0, favorite ? 1 : 0, new Date().toISOString());
   }
 
-  listProjects(): Array<{ project: string; sessionCount: number }> {
-    const rows = this.db.prepare("SELECT project, COUNT(*) AS n FROM sessions GROUP BY project ORDER BY n DESC").all() as Array<{ project: string; n: number }>;
-    return rows.map((row) => ({ project: row.project, sessionCount: Number(row.n) }));
+  /**
+   * Grouped by `cwd` (the real project identity), never by `project` (a bare folder basename) —
+   * two unrelated checkouts that happen to share a folder name must stay two entries. When a
+   * basename does repeat across distinct cwds, its label gets the parent directory appended so
+   * they're still distinguishable in the picker/Projects page.
+   *
+   * Windows paths are case-insensitive but case-*preserving* — the exact same folder can land in
+   * `sessions.cwd` with different drive-letter/segment casing depending on how the shell that
+   * launched Claude happened to be cased (confirmed against a real traces.db: `d:\SF\foo` and
+   * `D:\SF\foo`, same 69-session project, split into two by a naive `GROUP BY cwd`). Re-merge by a
+   * case-folded key on win32 before disambiguating by basename; other platforms have
+   * case-sensitive filesystems, so an exact match stays correct there.
+   */
+  listProjects(): Array<{ project: string; cwd: string; sessionCount: number }> {
+    const rows = this.db.prepare("SELECT project, cwd, COUNT(*) AS n FROM sessions GROUP BY cwd ORDER BY n DESC").all() as Array<{ project: string; cwd: string; n: number }>;
+
+    const pathKey = (cwd: string): string => (process.platform === "win32" ? cwd.toLowerCase() : cwd);
+
+    // `rows` is already ordered by session count descending, so the first row seen for a given
+    // path key is the most-used casing — that's what ends up representing the merged group below.
+    const merged: Array<{ project: string; cwd: string; sessionCount: number }> = [];
+    const indexByKey = new Map<string, number>();
+    for (const row of rows) {
+      const key = pathKey(row.cwd);
+      const existingIndex = indexByKey.get(key);
+      if (existingIndex !== undefined) {
+        merged[existingIndex].sessionCount += Number(row.n);
+        continue;
+      }
+      indexByKey.set(key, merged.length);
+      merged.push({ project: row.project, cwd: row.cwd, sessionCount: Number(row.n) });
+    }
+    merged.sort((a, b) => b.sessionCount - a.sessionCount);
+
+    const basenameCounts = new Map<string, number>();
+    for (const entry of merged) {
+      basenameCounts.set(entry.project, (basenameCounts.get(entry.project) ?? 0) + 1);
+    }
+
+    return merged.map((entry) => ({
+      project: (basenameCounts.get(entry.project) ?? 0) > 1 ? `${entry.project} (${path.dirname(entry.cwd)})` : entry.project,
+      cwd: entry.cwd,
+      sessionCount: entry.sessionCount,
+    }));
   }
 
   getObservations(sessionId: string): TAiObservation[] {

@@ -75,11 +75,12 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
   return query ? `?${query}` : "";
 }
 
-export type TSessionFilter = { provider?: string; project?: string; search?: string; hasErrors?: boolean; pinnedOnly?: boolean };
+export type TSessionFilter = { provider?: string; project?: string; cwd?: string; search?: string; hasErrors?: boolean; pinnedOnly?: boolean };
+export type TProjectOption = { project: string; cwd: string; sessionCount: number };
 
 export const aiStudioApi = {
   getOverview: () => get<TAiOverview>("/api/ai/overview"),
-  getProjects: () => get<{ projects: Array<{ project: string; sessionCount: number }> }>("/api/ai/projects"),
+  getProjects: () => get<{ projects: TProjectOption[] }>("/api/ai/projects"),
   getDoctor: () => get<TAiDoctorReport>("/api/ai/doctor"),
   refresh: () => post<TIngestionResult>("/api/ai/refresh"),
 
@@ -114,6 +115,10 @@ export const aiStudioApi = {
   openProject: (sessionId: string) => post<TAiActionResult>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/open-project`),
 
   openVsCode: (sessionId: string) => post<TAiActionResult>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/open-vscode`),
+
+  /** Opens a file-reference link from rendered chat markdown in VS Code, resolved against the session's cwd. */
+  openFile: (sessionId: string, path: string, line?: number) =>
+    post<TAiActionResult>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/open-file`, { path, line }),
 
   getContinuationPrompt: (sessionId: string) =>
     get<{ prompt: string }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/continuation-prompt`),

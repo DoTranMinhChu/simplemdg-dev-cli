@@ -30,7 +30,15 @@ function ToolActivityRow({ observation }: { observation: TAiObservation }): Reac
 }
 
 /** §11 — collapsed "AI ACTIVITY" summary card that expands into one row per observation in the group. */
-export function ActivityCard({ observations, turnIndex }: { observations: TAiObservation[]; turnIndex: number }): React.ReactElement {
+export function ActivityCard({
+  observations,
+  turnIndex,
+  onFileLink,
+}: {
+  observations: TAiObservation[];
+  turnIndex: number;
+  onFileLink?: (path: string, line?: number) => void;
+}): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
   const summary = summarizeActivity(observations);
 
@@ -55,7 +63,7 @@ export function ActivityCard({ observations, turnIndex }: { observations: TAiObs
         <div className="activity-card-body">
           {observations.map((observation) => {
             const kind = deriveConversationKind(observation);
-            if (kind === "reasoning") return <ReasoningBlock key={observation.id} observation={observation} />;
+            if (kind === "reasoning") return <ReasoningBlock key={observation.id} observation={observation} onFileLink={onFileLink} />;
             if (kind === "shell-command") return <ShellCommandCard key={observation.id} observation={observation} compact />;
             if (kind === "file-read" || kind === "file-write" || kind === "file-edit") {
               return <FileActivityCard key={observation.id} observation={observation} turnIndex={turnIndex} />;

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import ReactMarkdownCore, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -51,6 +52,51 @@ const components: Components = {
   },
 };
 
+/** True for the file-reference links Claude Code's own responses use (`[file.ts](src/file.ts)`,
+ * `[file.ts:42](src/file.ts#L42)`) — a bare relative path, not a real URL. Anything with a scheme
+ * (`http:`, `mailto:`, ...) or a same-page `#anchor` is left as a normal link. */
+function isLocalFileLink(href: string): boolean {
+  return !/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith("#");
+}
+
+function parseFileLink(href: string): { path: string; line?: number } {
+  const [rawPath, hash] = href.split("#");
+  const match = hash?.match(/^L(\d+)/);
+  return { path: rawPath, line: match ? Number(match[1]) : undefined };
+}
+
+/** Builds the `a` renderer for a given `onFileLink` handler (or the plain default when there isn't one) — kept out of the static `components` object above since this one needs to close over a prop. */
+function buildComponents(onFileLink: ((path: string, line?: number) => void) | undefined): Components {
+  if (!onFileLink) return components;
+  return {
+    ...components,
+    a({ href, children }) {
+      if (href && isLocalFileLink(href)) {
+        const { path, line } = parseFileLink(href);
+        return (
+          <a
+            href={href}
+            className="md-file-link"
+            title={`Open ${path}${line ? `:${line}` : ""}`}
+            onClick={(event) => {
+              event.preventDefault();
+              onFileLink(path, line);
+            }}
+          >
+            {children}
+          </a>
+        );
+      }
+      const safeHref = href && !/^\s*javascript:/i.test(href) ? href : undefined;
+      return (
+        <a href={safeHref} target="_blank" rel="noopener noreferrer">
+          {children}
+        </a>
+      );
+    },
+  };
+}
+
 /** Best-effort markdown -> plaintext for the "Copy rendered text" action. Not a full parser — strips the common syntax marks only. */
 export function stripMarkdownToPlainText(text: string): string {
   return text
@@ -65,11 +111,15 @@ export function stripMarkdownToPlainText(text: string): string {
     .trim();
 }
 
-/** Shared GFM Markdown renderer — sanitized, syntax-highlighted, used for every user/assistant message. */
-export function Markdown({ text, className }: { text: string; className?: string }): React.ReactElement {
+/** Shared GFM Markdown renderer — sanitized, syntax-highlighted, used for every user/assistant
+ * message. `onFileLink`, when given, intercepts file-reference links (see `isLocalFileLink`
+ * above) instead of letting them navigate as a plain `<a href>` — which for a relative path just
+ * resolves against AI Studio's own local server and goes nowhere. */
+export function Markdown({ text, className, onFileLink }: { text: string; className?: string; onFileLink?: (path: string, line?: number) => void }): React.ReactElement {
+  const resolvedComponents = useMemo(() => buildComponents(onFileLink), [onFileLink]);
   return (
     <div className={`md${className ? ` ${className}` : ""}`}>
-      <ReactMarkdownCore remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[[rehypeSanitize, SCHEMA]]} components={components}>
+      <ReactMarkdownCore remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[[rehypeSanitize, SCHEMA]]} components={resolvedComponents}>
         {text}
       </ReactMarkdownCore>
     </div>

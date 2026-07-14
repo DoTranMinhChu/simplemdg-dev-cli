@@ -200,6 +200,28 @@ export async function openProjectInVsCode(workingDirectory: string): Promise<{ o
   }
 }
 
+/**
+ * Opens a specific file (optionally at a line) in VS Code — the click target for file-reference
+ * links inside rendered chat markdown (`[file.ts:42](src/file.ts#L42)`), which otherwise resolve
+ * as a plain relative `<a href>` against AI Studio's own local server and go nowhere useful.
+ * `filePath` is resolved against `workingDirectory` (the session's cwd) unless already absolute.
+ */
+export async function openFileInVsCode(workingDirectory: string, filePath: string, line?: number): Promise<{ ok: boolean; error?: string }> {
+  if (!(await isCommandAvailable("code"))) {
+    return { ok: false, error: "VS Code command-line launcher ('code') was not found on PATH." };
+  }
+  const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(workingDirectory, filePath);
+  // VS Code's `--goto` correctly parses a Windows drive letter's colon vs. the trailing
+  // `:line` — this is the CLI's own documented `file:line[:character]` syntax, not a raw path.
+  const target = line ? `${absolutePath}:${line}` : absolutePath;
+  try {
+    await execa("code", ["--goto", target], { detached: true, stdio: "ignore" });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function projectDirName(workingDirectory: string): string {
   return path.basename(workingDirectory) || workingDirectory;
 }

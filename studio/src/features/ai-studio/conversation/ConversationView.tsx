@@ -7,6 +7,8 @@ import { SearchInSession } from "./SearchInSession";
 import { ReaderMode } from "./ReaderMode";
 import { ExportDialog } from "../export/ExportDialog";
 import { useConversationPreferences, type TConversationDensity, type TFocusMode } from "./conversation-preferences";
+import { useAiStudioStore } from "../state/ai-studio-store";
+import { aiStudioApi } from "../../../api/ai-studio-api-client";
 import type { TAiObservation, TAiSession, TAiTurn } from "../../../api/ai-studio-api-types";
 
 /** Default tab — full conversation replay: turn navigator + chronological turn blocks, lazily mounted. */
@@ -16,6 +18,7 @@ export function ConversationView({
   observations,
   focusTurnIndex,
   onFocusHandled,
+  onOpenGraph,
 }: {
   session: TAiSession;
   turns: TAiTurn[];
@@ -23,8 +26,11 @@ export function ConversationView({
   /** Set by other tabs (Files/Commands/Errors/Verification/Execution) to jump here and scroll to a turn. */
   focusTurnIndex?: number;
   onFocusHandled?: () => void;
+  /** Jumps to the Graph tab pre-selected on a given turn. */
+  onOpenGraph?: (turnIndex: number) => void;
 }): React.ReactElement {
   const { preferences, setDensity, setFocusMode } = useConversationPreferences();
+  const { toast } = useAiStudioStore();
   const [navigatorOpen, setNavigatorOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 1023);
   const [searchOpen, setSearchOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
@@ -36,6 +42,15 @@ export function ConversationView({
 
   const scrollToTurn = (turnIndex: number): void => {
     document.getElementById(`turn-${turnIndex}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  /** File-reference links in rendered markdown (e.g. Claude's own `[file.ts:42](src/file.ts#L42)`
+   * responses) — open in VS Code, resolved against this session's cwd, instead of navigating the
+   * page as a dead relative URL against AI Studio's own local server. */
+  const handleFileLink = (path: string, line?: number): void => {
+    aiStudioApi.openFile(session.id, path, line).then((result) => {
+      if (!result.ok) toast(result.error ?? "Failed to open file.", "err");
+    });
   };
 
   useEffect(() => {
@@ -132,7 +147,7 @@ export function ConversationView({
           <div className="conv-column">
             {realTurns.map((turn) => (
               <LazyMount key={turn.id} id={`turn-${turn.index}`} className="turn-lazy" minHeight={220}>
-                <TurnBlock turn={turn} observations={observations} focusMode={preferences.focusMode} />
+                <TurnBlock turn={turn} observations={observations} focusMode={preferences.focusMode} onOpenGraph={onOpenGraph} onFileLink={handleFileLink} />
               </LazyMount>
             ))}
           </div>
