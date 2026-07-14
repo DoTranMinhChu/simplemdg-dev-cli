@@ -2,6 +2,8 @@ import type { Command } from "commander";
 import { getNavigableChildren, isGroup } from "../../core/navigator";
 import { CATEGORY_LABELS, COMMAND_METADATA } from "./command-registry-metadata";
 
+export type TInteractiveCapability = "native" | "direct-only";
+
 export type TInteractiveCommandDefinition = {
   id: string;
   path: string[];
@@ -11,6 +13,13 @@ export type TInteractiveCommandDefinition = {
   aliases: string[];
   keywords: string[];
   icon?: string;
+  /**
+   * "native" commands have a bespoke Ink screen and run in-process inside the
+   * shell. Everything else is "direct-only": discoverable in the palette, but
+   * selecting it shows an explicit notice rather than executing it — there is
+   * no automatic legacy-prompt handoff.
+   */
+  interactiveCapability: TInteractiveCapability;
   /** The live Commander leaf — traditional dispatch (`parseAsync([], {from:"user"})`) runs this directly. */
   command: Command;
 };
@@ -72,6 +81,7 @@ export function buildCommandRegistry(program: Command): TInteractiveCommandDefin
       aliases: leaf.aliases(),
       keywords: overlay?.keywords ?? [],
       icon: overlay?.icon,
+      interactiveCapability: overlay?.interactiveCapability ?? "direct-only",
       command: leaf,
     };
   });

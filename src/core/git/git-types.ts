@@ -112,14 +112,5 @@ export type TGitMoveCodeRepoResult = {
   message?: string;
 };
 
-/**
- * Threaded through every step of the move-code workflow instead of importing
- * `searchableSelectChoice`/`prompts`/`console.log` directly, so the exact same
- * business logic runs under traditional Commander dispatch
- * (PlainCliInteractionService) and inside the interactive shell
- * (InkInteractionService).
- */
-export type TWorkflowContext = {
-  interaction: import("../interaction/interaction-service").IInteractionService;
-  signal: AbortSignal;
-};
+/** @deprecated import `TInteractionContext` from `core/interaction/interaction-service` directly — kept as an alias so existing git-workflow imports don't need to change. */
+export type { TInteractionContext as TWorkflowContext } from "../interaction/interaction-service";

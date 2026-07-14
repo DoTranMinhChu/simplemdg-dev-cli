@@ -6,6 +6,7 @@ export function TextInputPrompt(props: {
   message: string;
   initial?: string;
   validate?: (value: string) => true | string;
+  mask?: boolean;
   onSubmit: (value: string) => void;
   onCancel: () => void;
 }) {
@@ -47,7 +48,7 @@ export function TextInputPrompt(props: {
       </Text>
       <Text>
         {"> "}
-        {value}
+        {props.mask ? "*".repeat(value.length) : value}
         <Text inverse> </Text>
       </Text>
       {errorMessage ? <Text color={theme.danger || undefined}>{errorMessage}</Text> : null}

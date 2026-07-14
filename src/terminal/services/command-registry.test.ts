@@ -56,4 +56,19 @@ describe("buildCommandRegistry", () => {
     expect(doctor?.category).toBe("General");
     expect(doctor?.keywords).toEqual([]);
   });
+
+  it("marks natively-migrated commands as 'native' and defaults everything else to 'direct-only'", () => {
+    // Regression guard: a command must never silently run in-shell unless it's
+    // explicitly opted into "native" — direct-only is the safe default.
+    const registry = buildCommandRegistry(buildFakeProgram());
+    const moveCode = registry.find((command) => command.id === "git.move-code");
+    const summary = registry.find((command) => command.id === "git.summary");
+    const dbStudio = registry.find((command) => command.id === "cf.db.studio");
+    const doctor = registry.find((command) => command.id === "doctor");
+
+    expect(moveCode?.interactiveCapability).toBe("native");
+    expect(summary?.interactiveCapability).toBe("direct-only");
+    expect(dbStudio?.interactiveCapability).toBe("direct-only");
+    expect(doctor?.interactiveCapability).toBe("direct-only");
+  });
 });

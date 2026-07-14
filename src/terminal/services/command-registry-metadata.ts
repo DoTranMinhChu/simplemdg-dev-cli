@@ -8,6 +8,15 @@ export type TCommandMetadataOverlay = {
   category: string;
   icon?: string;
   keywords: string[];
+  /**
+   * "native": has a bespoke Ink screen wired to InkInteractionService — runs
+   * in-process, inside the persistent shell, no legacy prompt library
+   * involved. Every other command defaults to "direct-only": the palette
+   * shows it (discoverable) but selecting it shows an explicit notice instead
+   * of silently executing it in-shell — there is no automatic legacy-prompt
+   * handoff anymore. See USER_GUIDE.md's interactive-shell section.
+   */
+  interactiveCapability?: "native";
 };
 
 export const CATEGORY_LABELS: Record<string, string> = {
@@ -24,11 +33,18 @@ export const COMMAND_METADATA: Record<string, TCommandMetadataOverlay> = {
     category: "Git",
     icon: "⇄",
     keywords: ["move code", "release", "cherry-pick", "uat", "qas", "staging", "promote"],
+    interactiveCapability: "native",
   },
   "git.pick": { category: "Git", keywords: ["cherry-pick", "pick commits"] },
   "git.trace": { category: "Git", keywords: ["build", "dependency trace", "missing module"] },
   "git.conflict": { category: "Git", keywords: ["resolve conflict", "cherry-pick conflict"] },
   "git.summary": { category: "Git", keywords: ["diff", "push", "release summary"] },
+  "cf.org": {
+    category: "Cloud Foundry",
+    icon: "☁",
+    keywords: ["switch target", "cf target", "favorites", "regions", "org", "space"],
+    interactiveCapability: "native",
+  },
   "cf.db.studio": {
     category: "Cloud Foundry",
     icon: "▤",

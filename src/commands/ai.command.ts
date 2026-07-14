@@ -47,7 +47,27 @@ async function runStudioCommand(options: { port?: string; devUi?: boolean; apiOn
     console.log(chalk.cyan("  cd studio && npm run dev"));
     console.log(chalk.gray(`Then open the Vite dev URL; it proxies /api/* to ${handle.url}.`));
   }
-  await new Promise(() => undefined); // Keep the process alive until Ctrl+C.
+
+  // Without this, the process only stayed alive via an eternally-pending
+  // Promise and relied on Node's default (unhandled) SIGINT disposition to
+  // ever terminate — no watcher/store/server ever got closed, and on some
+  // Windows terminals (incl. when launched as a child of the interactive
+  // shell's external-process mode) Ctrl+C did not reliably stop it at all.
+  // Mirrors the already-working shutdown wiring in cf-db.command.ts.
+  const shutdown = async (): Promise<void> => {
+    console.log("");
+    console.log(chalk.gray("Stopping AI Studio..."));
+    // Belt-and-suspenders: handle.close() should now resolve promptly (see
+    // ai-studio-server.ts), but this guarantees Ctrl+C always exits even if
+    // some future cleanup step hangs.
+    await Promise.race([handle.close(), new Promise<void>((resolve) => setTimeout(resolve, 2000))]);
+    process.exit(0);
+  };
+
+  process.on("SIGINT", () => void shutdown());
+  process.on("SIGTERM", () => void shutdown());
+
+  await new Promise(() => undefined); // Keep the process alive until shutdown() calls process.exit().
 }
 
 async function runSessionsCommand(options: { provider?: string; project?: string; limit?: string }): Promise<void> {

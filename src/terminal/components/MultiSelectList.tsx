@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTerminalTheme } from "../hooks/useTerminalTheme";
 
-export type TMultiSelectChoice = { title: string; value: string };
+export type TMultiSelectChoice = { title: string; value: string; selected?: boolean };
 
 export function MultiSelectList(props: {
   message: string;
@@ -13,7 +13,9 @@ export function MultiSelectList(props: {
 }) {
   const theme = useTerminalTheme();
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [checked, setChecked] = useState<Set<string>>(
+    () => new Set(props.choices.filter((choice) => choice.selected).map((choice) => choice.value)),
+  );
 
   useInput((_input, key) => {
     if (key.escape) {

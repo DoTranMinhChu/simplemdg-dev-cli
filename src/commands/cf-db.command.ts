@@ -179,7 +179,10 @@ async function runStudioCommand(options: TStudioCommandOptions): Promise<void> {
   const shutdown = async (): Promise<void> => {
     console.log("");
     console.log(chalk.gray("Stopping DB Studio..."));
-    await handle.close();
+    // Belt-and-suspenders: handle.close() should now resolve promptly (see
+    // db-studio-server.ts), but this guarantees Ctrl+C always exits even if
+    // some future cleanup step hangs.
+    await Promise.race([handle.close(), new Promise<void>((resolve) => setTimeout(resolve, 2000))]);
     process.exit(0);
   };
 

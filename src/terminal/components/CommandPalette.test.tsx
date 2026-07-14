@@ -22,6 +22,7 @@ function makeCommand(id: string, path: string[], description: string, category: 
     category,
     aliases: [],
     keywords,
+    interactiveCapability: "native",
     command: {} as TInteractiveCommandDefinition["command"],
   };
 }

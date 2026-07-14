@@ -21,7 +21,7 @@ import type { TTerminalHeaderMode } from "../../core/types";
 export function SmdgTerminalApp(props: {
   version: string;
   headerMode: TTerminalHeaderMode;
-  onDispatchLegacyCommand: (command: TInteractiveCommandDefinition) => void;
+  onExternalProcessCommand: (command: TInteractiveCommandDefinition) => void;
 }) {
   const { theme, capabilities, registry, projectName, branchName } = useTerminalContext();
   const { exit } = useApp();
@@ -58,23 +58,29 @@ export function SmdgTerminalApp(props: {
     setPaletteOpen(false);
     setCommandTextValue("");
     setNaturalMatches([]);
-    const startedAt = Date.now();
 
     void history.record({
       id: command.id,
       path: command.path,
       project: projectName,
-      timestamp: new Date(startedAt).toISOString(),
+      timestamp: new Date().toISOString(),
       durationMs: 0,
       success: true,
     });
 
-    if (command.id === "git.move-code") {
-      launchWorkflow(command);
+    if (command.interactiveCapability !== "native") {
+      // Not-yet-migrated commands never run in-process inside this Ink tree —
+      // that's what caused two terminal-input systems (Ink + a legacy prompt
+      // library) to fight over stdin at once, crashing on things like the
+      // Cloud Foundry favorite-confirmation prompt. Instead this hands off to
+      // the launcher's explicit, controlled external-process mode: cleanly
+      // unmount, run the real command as a genuine child process with
+      // inherited stdio, then remount fresh. See terminal-launcher.tsx.
+      props.onExternalProcessCommand(command);
       return;
     }
 
-    props.onDispatchLegacyCommand(command);
+    launchWorkflow(command);
   }
 
   function handleWorkflowDone(): void {

@@ -134,14 +134,15 @@ export class AiSessionStore {
   private constructor(private db: TSqliteDatabase) {}
 
   static async open(): Promise<AiSessionStore | undefined> {
-    let DatabaseSync: new (dbPath: string) => TSqliteDatabase;
-    try {
-      // node:sqlite is a Node 22.5+ built-in; older Node versions simply don't have this module,
-      // so AI Studio degrades to a clear "upgrade Node" message instead of crashing the whole CLI.
-      DatabaseSync = (await import("node:sqlite") as unknown as { DatabaseSync: new (dbPath: string) => TSqliteDatabase }).DatabaseSync;
-    } catch {
-      return undefined;
-    }
+    // node:sqlite is a Node 22.5+ built-in with no bare-specifier form ("sqlite" alone is not a
+    // built-in — only "node:sqlite" is). A dynamic `import("node:sqlite")` here gets its "node:"
+    // prefix silently stripped by esbuild/tsup when bundled (a known esbuild quirk for
+    // node:-prefix-only built-ins), which then always throws — this is why the *bundled* CLI could
+    // report "node:sqlite is unavailable" even on Node 22.5+, while `tsx`/ts-node (unbundled) never
+    // hit it. process.getBuiltinModule() is a plain runtime call a bundler can't rewrite.
+    const sqliteModule = process.getBuiltinModule?.("node:sqlite") as { DatabaseSync: new (dbPath: string) => TSqliteDatabase } | undefined;
+    if (!sqliteModule) return undefined;
+    const { DatabaseSync } = sqliteModule;
 
     const dir = aiStudioStorageDir();
     await fs.ensureDir(dir);

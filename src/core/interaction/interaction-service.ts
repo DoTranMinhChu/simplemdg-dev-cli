@@ -10,6 +10,8 @@ export type TChoice<TValue extends string = string> = {
   title: string;
   value: TValue;
   description?: string;
+  /** multiSelect only: pre-check this choice (e.g. a currently-enabled region). Ignored by select. */
+  selected?: boolean;
 };
 
 export type TNotifyLevel = "info" | "success" | "warn" | "error" | "muted" | "step";
@@ -40,6 +42,8 @@ export type TInputOptions = {
   message: string;
   initial?: string;
   validate?: (value: string) => true | string;
+  /** Mask typed characters (passwords/tokens) — never echo the raw value to the terminal. */
+  mask?: boolean;
 };
 
 export type TConfirmOptions = {
@@ -76,3 +80,15 @@ export class InteractionCancelledError extends Error {
     this.name = "InteractionCancelledError";
   }
 }
+
+/**
+ * Threaded through business-logic call chains (git move-code, cf target
+ * switching, etc.) instead of importing `searchableSelectChoice`/`prompts`/
+ * `console.log` directly, so the exact same code runs unchanged under
+ * traditional Commander dispatch (PlainCliInteractionService) and inside the
+ * interactive shell (InkInteractionService).
+ */
+export type TInteractionContext = {
+  interaction: IInteractionService;
+  signal: AbortSignal;
+};

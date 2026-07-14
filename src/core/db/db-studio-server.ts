@@ -1351,7 +1351,13 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
     port,
     close: async () => {
       await pool.closeAll();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      // See ai-studio-server.ts's close() for why closeAllConnections() is needed here:
+      // the browser tab opened by openBrowser() holds a keep-alive socket that would
+      // otherwise keep server.close()'s callback from ever firing.
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
     },
   };
 }

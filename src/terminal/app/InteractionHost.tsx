@@ -68,6 +68,7 @@ export function InteractionHost(props: { service: InkInteractionService }) {
           message={pending.message}
           initial={pending.initial}
           validate={pending.validate}
+          mask={pending.mask}
           onSubmit={(value) => props.service.resolveCurrent(pending.id, value)}
           onCancel={cancel}
         />

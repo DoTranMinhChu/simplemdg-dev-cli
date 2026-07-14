@@ -8,6 +8,8 @@ import chalk from "chalk";
 import { Command } from "commander";
 import { registerCloudFoundryDbCommands } from "./cf-db.command";
 import prompts from "prompts";
+import { getDefaultInteractionContext } from "../core/interaction/default-interaction-context";
+import type { TInteractionContext } from "../core/interaction/interaction-service";
 import {
   authenticateCloudFoundry,
   buildCloudFoundryTargetKey,
@@ -207,13 +209,13 @@ function validateRequired(value: string): true | string {
 export async function promptAndLoginCloudFoundryInteractively(options?: {
   apiEndpoint?: string;
   reason?: string;
-}): Promise<boolean> {
-  console.log(chalk.yellow(options?.reason || "Cloud Foundry login is required."));
+}, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<boolean> {
+  ctx.interaction.notify({ level: "warn", message: options?.reason || "Cloud Foundry login is required." });
 
-  const { proceed } = await prompts({ type: "confirm", name: "proceed", message: "Login now?", initial: true });
+  const proceed = await ctx.interaction.confirm({ message: "Login now?", initial: true });
 
   if (!proceed) {
-    console.log(chalk.gray("Skipped login. Run smdg cf login when you're ready."));
+    ctx.interaction.notify({ level: "muted", message: "Skipped login. Run smdg cf login when you're ready." });
     return false;
   }
 
@@ -221,7 +223,7 @@ export async function promptAndLoginCloudFoundryInteractively(options?: {
 
   if (!apiEndpoint) {
     const regions = await listEnabledRegions();
-    const endpointChoice = await searchableSelectChoice({
+    const endpointChoice = await ctx.interaction.select({
       message: "CF API endpoint / region",
       choices: [
         ...regions.map((region) => ({ title: `${region.label || region.region} – ${region.apiEndpoint}`, value: region.apiEndpoint })),
@@ -231,39 +233,37 @@ export async function promptAndLoginCloudFoundryInteractively(options?: {
     });
 
     apiEndpoint = endpointChoice === "__custom__"
-      ? String((await prompts({ type: "text", name: "ep", message: "Custom CF API endpoint", validate: validateRequired })).ep ?? "").trim()
+      ? (await ctx.interaction.input({ message: "Custom CF API endpoint", validate: validateRequired })).trim()
       : endpointChoice;
   }
 
   if (!apiEndpoint) {
-    console.log(chalk.gray("No API endpoint provided. Login cancelled."));
+    ctx.interaction.notify({ level: "muted", message: "No API endpoint provided. Login cancelled." });
     return false;
   }
 
-  const answers = await prompts([
-    { type: "text", name: "email", message: "Email", validate: validateRequired },
-    { type: "password", name: "password", message: "Password", validate: validateRequired },
-    { type: "confirm", name: "remember", message: "Remember credentials securely?", initial: true },
-  ]);
+  const email = await ctx.interaction.input({ message: "Email", validate: validateRequired });
+  const password = await ctx.interaction.input({ message: "Password", validate: validateRequired, mask: true });
+  const remember = await ctx.interaction.confirm({ message: "Remember credentials securely?", initial: true });
 
-  if (!answers.email || !answers.password) {
-    console.log(chalk.gray("Login cancelled."));
+  if (!email || !password) {
+    ctx.interaction.notify({ level: "muted", message: "Login cancelled." });
     return false;
   }
 
   const result = await loginCfWithPassword({
     apiEndpoint,
-    username: String(answers.email).trim(),
-    password: String(answers.password),
-    remember: Boolean(answers.remember),
+    username: email.trim(),
+    password,
+    remember,
   });
 
   if (!result.success) {
-    console.log(chalk.red(result.error || "Login failed."));
+    ctx.interaction.notify({ level: "error", message: result.error || "Login failed." });
     return false;
   }
 
-  console.log(chalk.green(result.message || `Logged in as ${result.username}.`));
+  ctx.interaction.notify({ level: "success", message: result.message || `Logged in as ${result.username}.` });
   return true;
 }
 
@@ -273,7 +273,7 @@ export async function promptAndLoginCloudFoundryInteractively(options?: {
  * interactively so the calling command can continue as if the user had already
  * run `cf target` — skips silently if there is exactly one choice or none.
  */
-export async function ensureCfOrgAndSpaceTargetedInteractively(): Promise<void> {
+export async function ensureCfOrgAndSpaceTargetedInteractively(ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   const target = await readCloudFoundryTarget();
 
   if (target.org) {
@@ -288,7 +288,7 @@ export async function ensureCfOrgAndSpaceTargetedInteractively(): Promise<void> 
 
   const org = orgs.length === 1
     ? orgs[0]
-    : await searchableSelectChoice({
+    : await ctx.interaction.select({
         message: "Select CF org",
         choices: orgs.map((item) => ({ title: item, value: item })),
         validateCustomValue: validateRequired,
@@ -305,7 +305,7 @@ export async function ensureCfOrgAndSpaceTargetedInteractively(): Promise<void> 
 
   const space = spaces.length === 1
     ? spaces[0]
-    : await searchableSelectChoice({
+    : await ctx.interaction.select({
         message: "Select CF space",
         choices: spaces.map((item) => ({ title: item, value: item })),
         validateCustomValue: validateRequired,
@@ -315,7 +315,7 @@ export async function ensureCfOrgAndSpaceTargetedInteractively(): Promise<void> 
   await targetCloudFoundrySpace(space);
 }
 
-async function ensureCloudFoundrySessionFromCache(): Promise<TCloudFoundryTarget> {
+async function ensureCloudFoundrySessionFromCache(ctx: TInteractionContext = getDefaultInteractionContext()): Promise<TCloudFoundryTarget> {
   await ensureExternalTool("cf");
   const target = await readCloudFoundryTarget();
 
@@ -329,13 +329,13 @@ async function ensureCloudFoundrySessionFromCache(): Promise<TCloudFoundryTarget
   if (!profilesWithPassword.length) {
     const loggedIn = await promptAndLoginCloudFoundryInteractively({
       reason: "Cloud Foundry login is required.",
-    });
+    }, ctx);
 
     if (!loggedIn) {
       throw new Error("Cloud Foundry login is required. Run: smdg cf login");
     }
 
-    await ensureCfOrgAndSpaceTargetedInteractively();
+    await ensureCfOrgAndSpaceTargetedInteractively(ctx);
     return readCloudFoundryTarget();
   }
 
@@ -348,7 +348,7 @@ async function ensureCloudFoundrySessionFromCache(): Promise<TCloudFoundryTarget
 
   const selectedProfileIndex = preferredProfiles.length === 1
     ? "0"
-    : await searchableSelectChoice({
+    : await ctx.interaction.select({
         message: "Select cached CF login profile for automatic re-login",
         choices: preferredProfiles.map((profile, index) => ({
           title: `${profile.username} · ${profile.org}${profile.space ? `/${profile.space}` : ""} · ${inferCloudFoundryRegionFromApiEndpoint(profile.apiEndpoint)}`,
@@ -359,7 +359,7 @@ async function ensureCloudFoundrySessionFromCache(): Promise<TCloudFoundryTarget
 
   const profile = preferredProfiles[Number(selectedProfileIndex)] ?? preferredProfiles[0];
 
-  console.log(chalk.gray(`Auto login CF: ${profile.username} · ${inferCloudFoundryRegionFromApiEndpoint(profile.apiEndpoint)} · ${profile.org}${profile.space ? `/${profile.space}` : ""}`));
+  ctx.interaction.notify({ level: "muted", message: `Auto login CF: ${profile.username} · ${inferCloudFoundryRegionFromApiEndpoint(profile.apiEndpoint)} · ${profile.org}${profile.space ? `/${profile.space}` : ""}` });
 
   const apiExitCode = await setCloudFoundryApiEndpoint(profile.apiEndpoint);
 
@@ -431,7 +431,7 @@ async function ensureCloudFoundryAuthenticatedForApiEndpoint(options: {
   preferredOrg?: string;
   preferredSpace?: string;
   reason?: string;
-}): Promise<TCloudFoundryLoginProfile | undefined> {
+}, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<TCloudFoundryLoginProfile | undefined> {
   const apiExitCode = await setCloudFoundryApiEndpoint(options.apiEndpoint);
 
   if (apiExitCode !== 0) {
@@ -456,7 +456,7 @@ async function ensureCloudFoundryAuthenticatedForApiEndpoint(options: {
     const loggedIn = await promptAndLoginCloudFoundryInteractively({
       apiEndpoint: options.apiEndpoint,
       reason: `Not logged in to ${inferCloudFoundryRegionFromApiEndpoint(options.apiEndpoint)} and no cached password was found for automatic login.`,
-    });
+    }, ctx);
 
     if (!loggedIn) {
       throw new Error("Cloud Foundry automatic login is required");
@@ -469,7 +469,7 @@ async function ensureCloudFoundryAuthenticatedForApiEndpoint(options: {
   let lastError = orgsCheck.stderr || orgsCheck.stdout || "cf orgs failed";
 
   for (const profile of profiles) {
-    console.log(chalk.gray(`Auto auth CF ${inferCloudFoundryRegionFromApiEndpoint(options.apiEndpoint)} as ${profile.username}...`));
+    ctx.interaction.notify({ level: "muted", message: `Auto auth CF ${inferCloudFoundryRegionFromApiEndpoint(options.apiEndpoint)} as ${profile.username}...` });
     const authExitCode = await authenticateCloudFoundry({
       username: profile.username,
       password: decryptCfPassword(profile.password as string),
@@ -1129,11 +1129,16 @@ async function resolveAppSelection(options: { app?: string; refresh?: boolean; m
   return appName;
 }
 
-function printTarget(target: TCloudFoundryTarget): void {
-  console.log(`API Endpoint: ${target.apiEndpoint ?? "N/A"}`);
-  console.log(`User: ${target.user ?? "N/A"}`);
-  console.log(`Org: ${target.org ?? "N/A"}`);
-  console.log(`Space: ${target.space ?? "N/A"}`);
+function printTarget(target: TCloudFoundryTarget, ctx: TInteractionContext = getDefaultInteractionContext()): void {
+  ctx.interaction.notify({
+    level: "info",
+    message: [
+      `API Endpoint: ${target.apiEndpoint ?? "N/A"}`,
+      `User: ${target.user ?? "N/A"}`,
+      `Org: ${target.org ?? "N/A"}`,
+      `Space: ${target.space ?? "N/A"}`,
+    ].join("\n"),
+  });
 }
 
 const DEFAULT_CLOUD_FOUNDRY_API_ENDPOINTS = [
@@ -1486,7 +1491,7 @@ function dedupeTargets(targets: TCfTarget[]): TCfTarget[] {
   return result;
 }
 
-async function switchToCfTarget(target: TCfTarget, options: { space?: string }): Promise<void> {
+async function switchToCfTarget(target: TCfTarget, options: { space?: string }, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   const apiEndpoint = target.apiEndpoint;
 
   if (!apiEndpoint) {
@@ -1499,13 +1504,13 @@ async function switchToCfTarget(target: TCfTarget, options: { space?: string }):
     preferredOrg: target.org,
     preferredSpace: options.space ?? target.space,
     reason: "switch-target",
-  });
+  }, ctx);
 
   const orgExitCode = await targetCloudFoundryOrg(target.org);
 
   if (orgExitCode !== 0) {
-    console.log(chalk.yellow("Cannot switch to this org after automatic authentication."));
-    console.log(chalk.gray("Run smdg cf login, save the password, then try again."));
+    ctx.interaction.notify({ level: "warn", message: "Cannot switch to this org after automatic authentication." });
+    ctx.interaction.notify({ level: "muted", message: "Run smdg cf login, save the password, then try again." });
     process.exitCode = orgExitCode;
     return;
   }
@@ -1517,7 +1522,7 @@ async function switchToCfTarget(target: TCfTarget, options: { space?: string }):
     const currentAfter = await readCloudFoundryTarget();
     const preferred = currentAfter.space || (spaces.includes("app") ? "app" : spaces[0]);
     space = spaces.length
-      ? await searchableSelectChoice({
+      ? await ctx.interaction.select({
         message: "Select CF space",
         choices: [
           ...spaces.filter((s) => s === preferred).map((s) => ({ title: `${s} ${chalk.gray("suggested")}`, value: s })),
@@ -1526,7 +1531,7 @@ async function switchToCfTarget(target: TCfTarget, options: { space?: string }):
         validateCustomValue: validateRequired,
         customValueTitle: (value) => `Use typed CF space: ${value}`,
       })
-      : await selectFromHistoryOrInput({ message: "Enter CF space", values: [], initialValue: "app" });
+      : await ctx.interaction.input({ message: "Enter CF space", initial: "app" });
   }
 
   if (space) {
@@ -1543,25 +1548,29 @@ async function switchToCfTarget(target: TCfTarget, options: { space?: string }):
     await rememberCloudFoundryLoginProfile({ ...authenticatedProfile, apiEndpoint, org: target.org, space, updatedAt: new Date().toISOString() });
   }
 
-  console.log(chalk.green("CF target switched."));
-  printTarget(await readCloudFoundryTarget());
+  ctx.interaction.notify({ level: "success", message: "CF target switched." });
+  printTarget(await readCloudFoundryTarget(), ctx);
 
   if (!(await isFavoriteTarget({ region, apiEndpoint, org: target.org, space }))) {
-    const favorite = await prompts({ type: "confirm", name: "fav", message: "Mark this target as favorite?", initial: false });
-    if (favorite.fav) {
+    // Deliberately NOT the raw `prompts({type:"confirm"})` call this used to be: that widget
+    // crashes (`Cannot read properties of undefined (reading 'toLowerCase')`) on any keypress it
+    // doesn't recognize as y/n/Enter/Escape (e.g. an arrow key, a pasted sequence). Routing
+    // through ctx.interaction.confirm() means the Ink shell never touches that code at all.
+    const favorite = await ctx.interaction.confirm({ message: "Mark this target as favorite?", initial: false });
+    if (favorite) {
       await addFavoriteTarget({ region, apiEndpoint, org: target.org, space });
-      console.log(chalk.gray("Added to favorites."));
+      ctx.interaction.notify({ level: "muted", message: "Added to favorites." });
     }
   }
 }
 
-async function manageFavoriteTargets(favorites: TCfTarget[]): Promise<void> {
+async function manageFavoriteTargets(favorites: TCfTarget[], ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   if (!favorites.length) {
-    console.log(chalk.gray("No favorites yet. Switch to a target and choose to favorite it."));
+    ctx.interaction.notify({ level: "muted", message: "No favorites yet. Switch to a target and choose to favorite it." });
     return;
   }
 
-  const selected = await searchableSelectChoice({
+  const selected = await ctx.interaction.select({
     message: "Favorites — select one to remove",
     choices: [
       ...favorites.map((target, index) => ({ title: `★ ${cfTargetLabel(target)}`, value: String(index) })),
@@ -1575,33 +1584,35 @@ async function manageFavoriteTargets(favorites: TCfTarget[]): Promise<void> {
   }
 
   await removeFavoriteTarget(favorites[Number(selected)]);
-  console.log(chalk.green("Removed from favorites."));
+  ctx.interaction.notify({ level: "success", message: "Removed from favorites." });
 }
 
-function printTargetSections(favorites: TCfTarget[], recent: TCfTarget[], orgEntries: TCloudFoundryOrgEntry[], current: TCloudFoundryTarget): void {
-  console.log(chalk.bold("CF Target Switcher"));
-  console.log("");
+function printTargetSections(favorites: TCfTarget[], recent: TCfTarget[], orgEntries: TCloudFoundryOrgEntry[], current: TCloudFoundryTarget, ctx: TInteractionContext = getDefaultInteractionContext()): void {
+  const lines: string[] = [chalk.bold("CF Target Switcher"), ""];
 
   if (favorites.length) {
-    console.log(chalk.yellow("Favorites"));
-    favorites.forEach((target) => console.log(`  ${chalk.yellow("★")} ${cfTargetLabel(target)}`));
-    console.log("");
+    lines.push(chalk.yellow("Favorites"));
+    favorites.forEach((target) => lines.push(`  ${chalk.yellow("★")} ${cfTargetLabel(target)}`));
+    lines.push("");
   }
 
   if (recent.length) {
-    console.log(chalk.cyan("Recent"));
-    recent.forEach((target) => console.log(`  ${chalk.gray("◷")} ${cfTargetLabel(target)}`));
-    console.log("");
+    lines.push(chalk.cyan("Recent"));
+    recent.forEach((target) => lines.push(`  ${chalk.gray("◷")} ${cfTargetLabel(target)}`));
+    lines.push("");
   }
 
-  console.log(chalk.gray(`All Targets (${orgEntries.length})`));
+  lines.push(chalk.gray(`All Targets (${orgEntries.length})`));
   for (const entry of orgEntries) {
     const marker = entry.apiEndpoint === current.apiEndpoint && entry.org === current.org ? chalk.green("*") : " ";
-    console.log(`${marker} ${entry.region} / ${entry.org}`);
+    lines.push(`${marker} ${entry.region} / ${entry.org}`);
   }
+
+  ctx.interaction.notify({ level: "info", message: lines.join("\n") });
 }
 
-async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
+/** Shared with the interactive shell's CfOrgScreen, which launches with no CLI flags at all. */
+export async function runOrgCommand(options: TCloudFoundryOrgOptions, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   const latestTarget = await readCloudFoundryTarget();
   const favorites = await listFavoriteTargets();
   const recent = await listRecentTargets();
@@ -1611,22 +1622,21 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
     await ensureExternalTool("cf");
     const apiEndpoint = options.api?.trim() || latestTarget.apiEndpoint || "";
     const region = inferCloudFoundryRegionFromApiEndpoint(apiEndpoint || "current");
-    await switchToCfTarget({ region, apiEndpoint, org: options.org.trim(), space: options.space?.trim() || "" }, { space: options.space });
+    await switchToCfTarget({ region, apiEndpoint, org: options.org.trim(), space: options.space?.trim() || "" }, { space: options.space }, ctx);
     return;
   }
 
   // Cross-region status line (instant, from cache).
   const status = await getCrossRegionStatus();
   if (status.totalTargets) {
-    console.log(chalk.gray(`Using cached targets · ${status.totalTargets} targets · updated ${formatRelativeTime(status.lastUpdatedAt)}`));
-    console.log("");
+    ctx.interaction.notify({ level: "muted", message: `Using cached targets · ${status.totalTargets} targets · updated ${formatRelativeTime(status.lastUpdatedAt)}` });
   }
 
   const action = options.list
     ? "list"
     : options.switch
       ? "switch"
-      : await searchableSelectChoice({
+      : await ctx.interaction.select({
         message: "CF target switcher",
         choices: [
           { title: "Switch to a target (favorites, recent, all)", value: "switch" },
@@ -1640,17 +1650,17 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
       });
 
   if (action === "current") {
-    printTarget(latestTarget);
+    printTarget(latestTarget, ctx);
     return;
   }
 
   if (action === "favorites") {
-    await manageFavoriteTargets(favorites);
+    await manageFavoriteTargets(favorites, ctx);
     return;
   }
 
   if (action === "regions") {
-    await runRegionInteractiveCommand();
+    await runRegionInteractiveCommand(ctx);
     return;
   }
 
@@ -1658,7 +1668,7 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
 
   if (action === "refresh" || options.refresh) {
     await ensureExternalTool("cf");
-    console.log(chalk.gray("Refreshing CF targets across enabled regions..."));
+    ctx.interaction.notify({ level: "muted", message: "Refreshing CF targets across enabled regions..." });
     const cache = await readCache();
     const credentials = cache.cloudFoundry.loginProfiles.map((profile) => ({
       apiEndpoint: profile.apiEndpoint,
@@ -1666,13 +1676,13 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
       password: profile.password,
     }));
     const summary = await scanCrossRegionTargets({ credentials });
-    for (const region of summary.regionResults) {
+    const refreshLines = summary.regionResults.map((region) => {
       const tag = region.status === "success" ? chalk.green("success") : chalk.red("failed");
       const suffix = region.status === "failed" && region.usedCache ? chalk.gray(" · using cached result") : "";
-      console.log(`  ${region.region.padEnd(8)} ${tag} · ${region.targetCount} targets${suffix}`);
-    }
-    console.log(chalk.green(`Refresh completed · ${summary.totalTargets} target(s) across ${summary.regionResults.length} region(s).`));
-    console.log("");
+      return `  ${region.region.padEnd(8)} ${tag} · ${region.targetCount} targets${suffix}`;
+    });
+    ctx.interaction.notify({ level: "info", message: refreshLines.join("\n") });
+    ctx.interaction.notify({ level: "success", message: `Refresh completed · ${summary.totalTargets} target(s) across ${summary.regionResults.length} region(s).` });
     allTargets = summary.targets;
   } else {
     // Cross-region cache first; fall back to legacy orgsAcrossRegions cache.
@@ -1684,7 +1694,7 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
   }
 
   if (action === "list") {
-    printTargetSections(favorites, recent, allTargets.map((t) => ({ apiEndpoint: t.apiEndpoint, region: t.region, org: t.org, updatedAt: t.lastRefreshedAt ?? "" })), latestTarget);
+    printTargetSections(favorites, recent, allTargets.map((t) => ({ apiEndpoint: t.apiEndpoint, region: t.region, org: t.org, updatedAt: t.lastRefreshedAt ?? "" })), latestTarget, ctx);
     return;
   }
 
@@ -1696,18 +1706,18 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
     const hasCredentials = cacheAfter.cloudFoundry.loginProfiles.some((item) => item.password?.trim());
 
     if (!hasCredentials) {
-      const loggedIn = await promptAndLoginCloudFoundryInteractively({ reason: "No cached CF targets and no login found." });
+      const loggedIn = await promptAndLoginCloudFoundryInteractively({ reason: "No cached CF targets and no login found." }, ctx);
       if (loggedIn) {
-        console.log(chalk.gray("Login succeeded. Re-run: smdg cf org --refresh to scan your BTP regions."));
+        ctx.interaction.notify({ level: "muted", message: "Login succeeded. Re-run: smdg cf org --refresh to scan your BTP regions." });
       }
     } else {
-      console.log(chalk.yellow("No cached targets yet."));
-      console.log(chalk.gray("Choose 'Refresh all regions', or run smdg cf login and save the password."));
+      ctx.interaction.notify({ level: "warn", message: "No cached targets yet." });
+      ctx.interaction.notify({ level: "muted", message: "Choose 'Refresh all regions', or run smdg cf login and save the password." });
     }
     return;
   }
 
-  const selectedIndex = await searchableSelectChoice({
+  const selectedIndex = await ctx.interaction.select({
     message: `Select CF target (${favorites.length} favorite · ${recent.length} recent · ${allTargets.length} all)`,
     choices: combined.map((target, index) => {
       const marker = target.isFavorite ? chalk.yellow("★ ") : recentKeys.has(cfTargetKey(target)) ? chalk.gray("◷ ") : "  ";
@@ -1730,7 +1740,7 @@ async function runOrgCommand(options: TCloudFoundryOrgOptions): Promise<void> {
   };
 
   await ensureExternalTool("cf");
-  await switchToCfTarget(chosen, { space: options.space });
+  await switchToCfTarget(chosen, { space: options.space }, ctx);
 }
 
 async function runAppsCommand(options: TCloudFoundryAppsOptions): Promise<void> {
@@ -1894,6 +1904,18 @@ async function runLogsCommand(options: TCloudFoundryLogsOptions): Promise<void> 
   childProcess.on("close", (exitCode) => {
     outputStream?.end();
     process.exitCode = exitCode ?? 0;
+  });
+
+  // Without this, Ctrl+C had no listener on this process, so Node's default
+  // SIGINT disposition terminated `smdg` immediately without ever killing the
+  // spawned `cf logs` grandchild (its stdio isn't inherited, so it doesn't
+  // receive the console's Ctrl+C broadcast the same way) — an orphaned
+  // `cf logs` process kept streaming in the background.
+  process.once("SIGINT", () => {
+    console.log(chalk.gray("\nStopping realtime logs..."));
+    if (!childProcess.killed) childProcess.kill();
+    outputStream?.end();
+    process.exit(0);
   });
 
   await new Promise<void>((resolve) => {
@@ -3527,6 +3549,16 @@ async function runDebugCommand(options: TCloudFoundryDebugOptions): Promise<void
     process.exitCode = exitCode ?? 0;
   });
 
+  // Same reasoning as cf logs above: this tunnel's stdio isn't inherited, so
+  // without an explicit SIGINT handler here, Ctrl+C killed `smdg` (Node's
+  // default disposition) but left the `cf ssh` tunnel child running.
+  process.once("SIGINT", () => {
+    console.log(chalk.gray("\nStopping debug tunnel..."));
+    clearTimeout(fallbackTimer);
+    if (!childProcess.killed) childProcess.kill();
+    process.exit(0);
+  });
+
   await new Promise<void>((resolve) => {
     childProcess.on("close", () => resolve());
   });
@@ -3545,71 +3577,74 @@ async function runCacheCommand(): Promise<void> {
 /* ====================================================================
    CF REGION REGISTRY COMMANDS
    ==================================================================== */
-function printRegionList(regions: TCfRegionEndpoint[]): void {
-  console.log(chalk.bold("SimpleMDG CF Regions"));
-  console.log("");
+function printRegionList(regions: TCfRegionEndpoint[], ctx: TInteractionContext = getDefaultInteractionContext()): void {
+  const lines: string[] = [chalk.bold("SimpleMDG CF Regions"), ""];
   for (const region of regions) {
     const box = region.enabled ? chalk.green("[x]") : chalk.gray("[ ]");
     const name = (region.enabled ? chalk.white : chalk.gray)(region.region.padEnd(8));
     const custom = region.isCustom ? chalk.cyan(" (custom)") : "";
     const label = region.label ? chalk.gray(` ${region.label}`) : "";
-    console.log(`${box} ${name} ${chalk.gray(region.apiEndpoint)}${custom}${label}`);
+    lines.push(`${box} ${name} ${chalk.gray(region.apiEndpoint)}${custom}${label}`);
   }
+  ctx.interaction.notify({ level: "info", message: lines.join("\n") });
 }
 
 async function runRegionListCommand(): Promise<void> {
   printRegionList(await listRegions());
 }
 
-async function runRegionAddCommand(options: { api?: string; region?: string; label?: string }): Promise<void> {
+async function runRegionAddCommand(options: { api?: string; region?: string; label?: string }, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   let apiEndpoint = options.api?.trim();
 
   if (!apiEndpoint) {
-    const response = await prompts({
-      type: "text",
-      name: "api",
+    apiEndpoint = (await ctx.interaction.input({
       message: "Custom CF API endpoint (e.g. https://api.cf.eu30.hana.ondemand.com)",
       validate: (value: string) => (value.trim() ? true : "API endpoint is required"),
-    });
-    apiEndpoint = (response.api as string | undefined)?.trim();
+    })).trim();
   }
 
   if (!apiEndpoint) {
-    console.log(chalk.yellow("No API endpoint provided. Aborted."));
+    ctx.interaction.notify({ level: "warn", message: "No API endpoint provided. Aborted." });
     return;
   }
 
   const added = await addCustomRegion({ apiEndpoint, region: options.region, label: options.label });
-  console.log(chalk.green(`Added custom region ${added.region} (${added.apiEndpoint}).`));
+  ctx.interaction.notify({ level: "success", message: `Added custom region ${added.region} (${added.apiEndpoint}).` });
 }
 
-async function runRegionTestCommand(options: { region?: string }): Promise<void> {
+async function runRegionTestCommand(options: { region?: string }, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   const regions = await listRegions();
   const targets = options.region
     ? regions.filter((region) => region.region === options.region!.toLowerCase())
     : await listEnabledRegions();
 
   if (!targets.length) {
-    console.log(chalk.yellow("No matching regions to test."));
+    ctx.interaction.notify({ level: "warn", message: "No matching regions to test." });
     return;
   }
 
   const originalTarget = await readCloudFoundryTarget();
 
-  for (const region of targets) {
-    process.stdout.write(`${region.region.padEnd(8)} `);
-    const result = await runCommand("cf", ["api", region.apiEndpoint]);
-    console.log(result.exitCode === 0 ? chalk.green("reachable") : chalk.red("unreachable"));
-  }
+  return ctx.interaction.progress({ label: "Testing region endpoints" }, async (report) => {
+    for (let index = 0; index < targets.length; index += 1) {
+      const region = targets[index];
+      report({ current: index + 1, total: targets.length, label: `Testing ${region.region}` });
+      const result = await runCommand("cf", ["api", region.apiEndpoint]);
+      ctx.interaction.notify({
+        level: result.exitCode === 0 ? "success" : "error",
+        message: `${region.region.padEnd(8)} ${result.exitCode === 0 ? "reachable" : "unreachable"}`,
+      });
+    }
 
-  if (originalTarget.apiEndpoint) {
-    await runCommand("cf", ["api", originalTarget.apiEndpoint]);
-  }
+    if (originalTarget.apiEndpoint) {
+      await runCommand("cf", ["api", originalTarget.apiEndpoint]);
+    }
+  });
 }
 
-async function runRegionRefreshCommand(options: { region?: string }): Promise<void> {
+async function runRegionRefreshCommand(options: { region?: string }, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   await ensureExternalTool("cf");
-  console.log(chalk.gray("Refreshing CF targets across enabled regions..."));
+  ctx.interaction.notify({ level: "muted", message: "Refreshing CF targets across enabled regions..." });
   const cache = await readCache();
   const credentials = cache.cloudFoundry.loginProfiles.map((profile) => ({
     apiEndpoint: profile.apiEndpoint,
@@ -3621,20 +3656,20 @@ async function runRegionRefreshCommand(options: { region?: string }): Promise<vo
     ? enabled.filter((region) => region.region === options.region || region.apiEndpoint === options.region)
     : enabled;
   const summary = await scanCrossRegionTargets({ credentials, regions });
-  for (const region of summary.regionResults) {
+  const lines = summary.regionResults.map((region) => {
     const tag = region.status === "success" ? chalk.green("success") : chalk.red("failed");
     const suffix = region.status === "failed" && region.usedCache ? chalk.gray(" · using cached result") : "";
-    console.log(`  ${region.region.padEnd(8)} ${tag} · ${region.targetCount} targets${suffix}`);
-  }
-  console.log(chalk.green(`Region targets refreshed · ${summary.totalTargets} total.`));
+    return `  ${region.region.padEnd(8)} ${tag} · ${region.targetCount} targets${suffix}`;
+  });
+  ctx.interaction.notify({ level: "info", message: lines.join("\n") });
+  ctx.interaction.notify({ level: "success", message: `Region targets refreshed · ${summary.totalTargets} total.` });
 }
 
-async function runRegionInteractiveCommand(): Promise<void> {
+async function runRegionInteractiveCommand(ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   const regions = await listRegions();
-  printRegionList(regions);
-  console.log("");
+  printRegionList(regions, ctx);
 
-  const action = await searchableSelectChoice({
+  const action = await ctx.interaction.select({
     message: "Region actions",
     choices: [
       { title: "Enable / disable regions", value: "toggle" },
@@ -3648,38 +3683,35 @@ async function runRegionInteractiveCommand(): Promise<void> {
   });
 
   if (action === "toggle") {
-    const response = await prompts({
-      type: "multiselect",
-      name: "enabled",
-      message: "Select regions to enable (space to toggle, enter to confirm)",
+    const enabledRegionNames = await ctx.interaction.multiSelect({
+      message: "Select regions to enable",
       choices: regions.map((region) => ({
         title: `${region.region} — ${region.apiEndpoint}`,
         value: region.region,
         selected: region.enabled,
       })),
-      hint: "- Space to select. Enter to submit.",
-      instructions: false,
+      hint: "Space to toggle, Enter to confirm",
     });
-    const enabledSet = new Set((response.enabled as string[] | undefined) ?? []);
+    const enabledSet = new Set(enabledRegionNames);
     for (const region of regions) {
       await setRegionEnabled(region.region, enabledSet.has(region.region));
     }
-    console.log(chalk.green(`Enabled ${enabledSet.size} region(s).`));
+    ctx.interaction.notify({ level: "success", message: `Enabled ${enabledSet.size} region(s).` });
     return;
   }
 
   if (action === "add") {
-    await runRegionAddCommand({});
+    await runRegionAddCommand({}, ctx);
     return;
   }
 
   if (action === "remove") {
     const custom = regions.filter((region) => region.isCustom);
     if (!custom.length) {
-      console.log(chalk.gray("No custom regions to remove."));
+      ctx.interaction.notify({ level: "muted", message: "No custom regions to remove." });
       return;
     }
-    const selected = await searchableSelectChoice({
+    const selected = await ctx.interaction.select({
       message: "Remove custom region",
       choices: [
         ...custom.map((region) => ({ title: `${region.region} — ${region.apiEndpoint}`, value: region.region })),
@@ -3689,18 +3721,18 @@ async function runRegionInteractiveCommand(): Promise<void> {
     });
     if (selected !== "__cancel__") {
       await removeRegion(selected);
-      console.log(chalk.green(`Removed region ${selected}.`));
+      ctx.interaction.notify({ level: "success", message: `Removed region ${selected}.` });
     }
     return;
   }
 
   if (action === "test") {
-    await runRegionTestCommand({});
+    await runRegionTestCommand({}, ctx);
     return;
   }
 
   if (action === "refresh") {
-    await runRegionRefreshCommand({});
+    await runRegionRefreshCommand({}, ctx);
   }
 }
 
@@ -3723,7 +3755,12 @@ export function registerCloudFoundryCommands(program: Command): void {
   const regionCommand = cfCommand
     .command("region")
     .description("Manage CF region endpoints used by the cross-region target scanner")
-    .action(runRegionInteractiveCommand);
+    // Commander always appends the Command instance as a trailing arg to
+    // .action() callbacks — calling with just `options` (dropping that extra
+    // arg) is required so runRegionInteractiveCommand's own optional `ctx`
+    // parameter correctly falls back to its default instead of receiving the
+    // Command instance in place of a TInteractionContext.
+    .action(() => runRegionInteractiveCommand());
   regionCommand.command("list").description("List configured CF regions").action(runRegionListCommand);
   regionCommand
     .command("add")
@@ -3731,17 +3768,17 @@ export function registerCloudFoundryCommands(program: Command): void {
     .option("--api <apiEndpoint>", "CF API endpoint URL")
     .option("--region <region>", "Region name (derived from endpoint when omitted)")
     .option("--label <label>", "Optional friendly label")
-    .action(runRegionAddCommand);
+    .action((options) => runRegionAddCommand(options));
   regionCommand
     .command("test")
     .description("Test reachability of region endpoints")
     .option("--region <region>", "Test only one region")
-    .action(runRegionTestCommand);
+    .action((options) => runRegionTestCommand(options));
   regionCommand
     .command("refresh")
     .description("Refresh cross-region targets for enabled regions")
     .option("--region <apiEndpoint>", "Limit refresh to one API endpoint")
-    .action(runRegionRefreshCommand);
+    .action((options) => runRegionRefreshCommand(options));
 
   cfCommand
     .command("org")
@@ -3752,7 +3789,8 @@ export function registerCloudFoundryCommands(program: Command): void {
     .option("--api <apiEndpoint>", "Limit org search/switch to one CF API endpoint")
     .option("--org <org>", "CF org name")
     .option("--space <space>", "CF space name")
-    .action(runOrgCommand);
+    // See the `region` registration above for why this can't be `.action(runOrgCommand)` directly.
+    .action((options) => runOrgCommand(options));
 
   cfCommand
     .command("apps")

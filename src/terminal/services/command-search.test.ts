@@ -11,6 +11,7 @@ function makeCommand(overrides: Partial<TInteractiveCommandDefinition>): TIntera
     category: "Git",
     aliases: ["move"],
     keywords: ["move code", "cherry-pick", "uat"],
+    interactiveCapability: "native",
     command: {} as TInteractiveCommandDefinition["command"],
     ...overrides,
   };

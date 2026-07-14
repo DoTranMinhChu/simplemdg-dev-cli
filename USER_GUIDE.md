@@ -43,7 +43,11 @@ The header only ever shows facts it actually detected (project name, current git
 
 Press `/` at any time (even mid-word — it only triggers as the very first character typed) to open a fuzzy-searchable palette across every command group: `cf`, `cds`, `gitlab`, `git`, `npmrc`, `ai`. Keep typing to filter by name, description, category, or natural-language keyword (e.g. typing `move code` or `open db` finds `/git move-code` / `/cf db studio` even if you don't remember the exact subcommand name). Arrow keys navigate, `Enter` runs the highlighted command, `Esc` closes the palette without doing anything.
 
-Only `git move-code` currently has a bespoke in-shell screen (below); picking any other command briefly hands the terminal back to that command's normal interactive prompts (identical to running it directly), then returns you to the shell when it finishes.
+Only `git move-code` and `cf org` currently have a bespoke in-shell screen (below) — they run in-process, through the shared interaction service, with no external prompt library involved. Every other command still runs when you pick it, but via **external-process mode**: the shell cleanly unmounts, prints `→ smdg cf apps (external process mode)`, runs the real command as its own child process with the terminal handed to it directly, waits for it to finish, then remounts the shell. This is deliberately different from an earlier version of the shell, which tried to run a not-yet-migrated command's interactive prompts while the shell itself stayed involved — that let two different terminal-input systems fight over stdin at once and crashed (the "Mark this target as favorite?" crash was exactly this). External-process mode never has that conflict: only one process owns the terminal at a time, and the shell resumes cleanly afterward — press Enter at the "Press Enter to return to the console..." prompt to come back.
+
+### `cf org` in the shell
+
+Picking `/cf org` runs the same Cloud Foundry target-switcher, favorites, and region-management menus as `smdg cf org` typed directly, entirely through the shell's own widgets — the "Mark this target as favorite?" confirmation, the target picker, and the region toggles all render natively, with no `prompts`-library dialogs at any point.
 
 ### `git move-code` in the shell
 

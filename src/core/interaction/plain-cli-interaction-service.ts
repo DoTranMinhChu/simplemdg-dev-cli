@@ -37,7 +37,7 @@ export class PlainCliInteractionService implements IInteractionService {
       type: "multiselect",
       name: "values",
       message: options.message,
-      choices: options.choices.map((choice) => ({ title: choice.title, value: choice.value })),
+      choices: options.choices.map((choice) => ({ title: choice.title, value: choice.value, selected: choice.selected })),
       hint: options.hint ?? "Space to toggle, Enter to confirm",
     });
 
@@ -46,7 +46,7 @@ export class PlainCliInteractionService implements IInteractionService {
 
   async input(options: TInputOptions): Promise<string> {
     const response = await prompts({
-      type: "text",
+      type: options.mask ? "password" : "text",
       name: "value",
       message: options.message,
       initial: options.initial ?? "",
@@ -57,7 +57,8 @@ export class PlainCliInteractionService implements IInteractionService {
       throw new InteractionCancelledError();
     }
 
-    return String(response.value).trim();
+    // Never trim a masked value — leading/trailing characters may be intentional in a password/token.
+    return options.mask ? String(response.value) : String(response.value).trim();
   }
 
   async confirm(options: TConfirmOptions): Promise<boolean> {

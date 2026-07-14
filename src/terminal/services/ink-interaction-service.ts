@@ -48,6 +48,7 @@ export type TPendingInputRequest = TPendingBase & {
   message: string;
   initial?: string;
   validate?: (value: string) => true | string;
+  mask?: boolean;
   resolve: (value: string) => void;
   reject: (error: unknown) => void;
 };
@@ -186,6 +187,7 @@ export class InkInteractionService extends EventEmitter implements IInteractionS
         message: options.message,
         initial: options.initial,
         validate: options.validate,
+        mask: options.mask,
         resolve,
         reject,
       };

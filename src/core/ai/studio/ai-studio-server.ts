@@ -173,7 +173,13 @@ export async function startAiStudioServer(options: TAiStudioServerOptions = {}):
     close: async () => {
       watcher?.dispose();
       store?.close();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      // server.close()'s callback only fires once every open socket disconnects — the
+      // browser tab opened by openBrowser() holds a keep-alive connection, so without
+      // forcing existing sockets closed this would hang forever and Ctrl+C would never exit.
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
     },
   };
 }
