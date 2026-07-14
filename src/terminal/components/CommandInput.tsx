@@ -134,7 +134,11 @@ export function CommandInput(props: {
         return;
       }
 
-      if (key.backspace) {
+      // Ink names the physical Backspace key "delete" (it sends \x7f, not \x08 —
+      // literal "backspace" per Ink's parser is Ctrl+H, which real keyboards don't
+      // send). Treating them as the same action matches TextInputPrompt.tsx and is
+      // what every terminal's actual Backspace key needs to do here.
+      if (key.backspace || key.delete) {
         if (cursorCol > 0) {
           replaceLine(cursorRow, line.slice(0, cursorCol - 1) + line.slice(cursorCol));
           setCursorCol(cursorCol - 1);
@@ -145,17 +149,6 @@ export function CommandInput(props: {
           setLines(nextLines);
           setCursorRow(cursorRow - 1);
           setCursorCol(prevLine.length);
-        }
-        return;
-      }
-
-      if (key.delete) {
-        if (cursorCol < line.length) {
-          replaceLine(cursorRow, line.slice(0, cursorCol) + line.slice(cursorCol + 1));
-        } else if (cursorRow < lines.length - 1) {
-          const nextLine = lines[cursorRow + 1];
-          const nextLines = [...lines.slice(0, cursorRow), line + nextLine, ...lines.slice(cursorRow + 2)];
-          setLines(nextLines);
         }
         return;
       }
