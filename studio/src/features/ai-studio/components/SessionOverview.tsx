@@ -3,7 +3,7 @@ import { Button } from "../../../components/common/Button";
 import { EmptyState } from "../../../components/common/EmptyState";
 import { aiStudioApi } from "../../../api/ai-studio-api-client";
 import { useAiStudioStore } from "../state/ai-studio-store";
-import { formatDuration } from "../format";
+import { formatDuration, formatTokens } from "../format";
 import { SessionAdvisorCard } from "./SessionAdvisorCard";
 import { SessionEconomicsCard } from "./SessionEconomicsCard";
 import { SessionAgentTree } from "./SessionAgentTree";
@@ -65,14 +65,32 @@ export function SessionOverview({
       <div className="ai-card">
         <h2 style={{ margin: "0 0 6px" }}>{session.title}</h2>
 
+        <div className="token-stats">
+          <div className="token-stat">
+            <span className="token-stat-label">Input</span>
+            <span className="token-stat-value">{formatTokens(session.inputTokens)}</span>
+          </div>
+          <div className="token-stat">
+            <span className="token-stat-label">Output</span>
+            <span className="token-stat-value">{formatTokens(session.outputTokens)}</span>
+          </div>
+          <div className="token-stat">
+            <span className="token-stat-label">Cache read</span>
+            <span className="token-stat-value">{formatTokens(session.cacheReadTokens)}</span>
+          </div>
+          <div className="token-stat">
+            <span className="token-stat-label">Cache write</span>
+            <span className="token-stat-value">{formatTokens(session.cacheCreationTokens)}</span>
+          </div>
+          <div className="token-stat">
+            <span className="token-stat-label">Total</span>
+            <span className="token-stat-value total">{formatTokens(session.inputTokens + session.outputTokens)}</span>
+          </div>
+        </div>
+
         <div className="kvs" style={{ marginBottom: 16 }}>
           <div className="k">Duration</div>
           <div>{formatDuration(session.durationMs)}</div>
-          <div className="k">Tokens</div>
-          <div>
-            {(session.inputTokens + session.outputTokens).toLocaleString()} ({session.inputTokens.toLocaleString()} in / {session.outputTokens.toLocaleString()} out)
-            {session.cacheReadTokens ? ` · ${session.cacheReadTokens.toLocaleString()} cache-read` : ""}
-          </div>
           <div className="k">Turns</div>
           <div>{session.turnCount}</div>
           <div className="k">Tool calls</div>

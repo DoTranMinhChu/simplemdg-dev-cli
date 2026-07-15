@@ -1,0 +1,17 @@
+{
+  "id": "smdg-playwright-browsers",
+  "version": "1.0.0",
+  "displayName": "Playwright Browser Bridge (Chrome/Firefox/Edge)",
+  "description": "Registers three MCP servers (playwright-chrome, playwright-firefox, playwright-edge) backed by @playwright/mcp, so agents can drive a specific browser by tool-name prefix. A shared dependency for any plugin that needs live browser automation.",
+  "kind": "mcp-bundle",
+  "dependsOn": [],
+  "mcpScope": "always-user",
+  "components": {
+    "mcpServers": [
+      { "name": "playwright-chrome", "package": "@playwright/mcp@latest", "args": ["--browser", "chrome"] },
+      { "name": "playwright-firefox", "package": "@playwright/mcp@latest", "args": ["--browser", "firefox"] },
+      { "name": "playwright-edge", "package": "@playwright/mcp@latest", "args": ["--browser", "msedge"] }
+    ]
+  },
+  "usageFile": "USAGE.md"
+}

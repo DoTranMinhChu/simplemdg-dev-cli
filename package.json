@@ -1,6 +1,6 @@
 {
   "name": "simplemdg-dev-cli",
-  "version": "3.1.5",
+  "version": "3.2.0",
   "description": "SimpleMDG local development CLI with CF/BTP helpers, CAP helpers, GitLab sync, request trace, and BTP DB Studio.",
   "type": "module",
   "bin": {
@@ -10,6 +10,7 @@
   "files": [
     "dist",
     "src",
+    "plugins",
     "README.md",
     "USER_GUIDE.md",
     "tsconfig.json"
@@ -26,7 +27,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "verify:build": "node scripts/verify-build.mjs",
-    "prepack": "npm run build && npm run verify:build",
+    "verify:plugins": "tsx scripts/verify-plugins.ts",
+    "prepack": "npm run build && npm run verify:build && npm run verify:plugins",
     "bump:patch": "npm version patch --no-git-tag-version",
     "bump:minor": "npm version minor --no-git-tag-version",
     "bump:major": "npm version major --no-git-tag-version"

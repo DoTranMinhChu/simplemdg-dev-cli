@@ -1,9 +1,9 @@
-import { buildTurnTimeline, turnTitle } from "./conversation-model";
+import { buildTurnTimeline, summarizeTurnToolUsage, turnTitle } from "./conversation-model";
 import { UserMessageBlock } from "./UserMessageBlock";
 import { AssistantMessageBlock } from "./AssistantMessageBlock";
 import { ActivityCard } from "./ActivityCard";
 import { Button } from "../../../components/common/Button";
-import { formatDuration } from "../format";
+import { formatDuration, formatTokens } from "../format";
 import type { TFocusMode } from "./conversation-preferences";
 import type { TAiObservation, TAiTurn } from "../../../api/ai-studio-api-types";
 
@@ -23,6 +23,7 @@ export function TurnBlock({
   onFileLink?: (path: string, line?: number) => void;
 }): React.ReactElement {
   const timeline = buildTurnTimeline(turn, observations);
+  const toolUsage = summarizeTurnToolUsage(turn, observations);
 
   return (
     <div className="turn-block">
@@ -39,8 +40,23 @@ export function TurnBlock({
             {turn.errorCount} error{turn.errorCount === 1 ? "" : "s"}
           </span>
         ) : null}
+        {turn.outputTokens > 0 ? <span className="note" title="Output tokens generated in this turn">{formatTokens(turn.outputTokens)} tokens</span> : null}
+        {turn.toolCount > 0 ? (
+          <span className="note">
+            {turn.toolCount} tool{turn.toolCount === 1 ? "" : " calls"}
+          </span>
+        ) : null}
         <span className="note">{formatDuration(turn.durationMs)}</span>
       </div>
+      {toolUsage.length ? (
+        <div className="turn-block-tools">
+          {toolUsage.map((entry) => (
+            <span key={entry.name} className="chip" title={`${entry.name} called ${entry.count} time${entry.count === 1 ? "" : "s"} in this turn`}>
+              {entry.name} ×{entry.count}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="turn-block-body">
         {timeline.map((block, index) => {
           if (focusMode === "execution" && (block.kind === "user" || block.kind === "assistant")) return null;

@@ -6,6 +6,7 @@ const NAV_ITEMS: Array<{ page: TAiPage; label: string; icon: string }> = [
   { page: "sessions", label: "Sessions", icon: "history" },
   { page: "projects", label: "Projects", icon: "fld" },
   { page: "doctor", label: "Doctor", icon: "activity" },
+  { page: "plugins", label: "Plugins", icon: "plug" },
 ];
 
 /** Primary navigation rail — icon-only when collapsed, icon+label expanded. Collapsed state persists across visits (nav-rail-collapsed.ts). */

@@ -12,6 +12,7 @@ import { getSessionLauncher } from "../launchers/claude-session-launcher";
 import { aiStudioStorageDir } from "../ai-session-store";
 import type { AiSessionStore } from "../ai-session-store";
 import type { TAiObservation } from "../ai-types";
+import { readJsonBody, sendJson, type TJsonBody } from "./studio-http-helpers";
 
 const EXPORT_FORMATS: TAiExportFormat[] = ["markdown", "html", "json", "zip"];
 const EXPORT_PRESETS: TAiExportPreset[] = ["conversation", "learning", "engineering", "full", "custom"];
@@ -38,30 +39,11 @@ function parseExportInput(sessionId: string, body: TJsonBody): TAiSessionExportI
   };
 }
 
-type TJsonBody = Record<string, unknown>;
-
-function sendJson(res: http.ServerResponse, value: unknown, status = 200): void {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(value));
-}
-
 function sendText(res: http.ServerResponse, value: string | Buffer, contentType: string, fileName?: string): void {
   const headers: Record<string, string> = { "content-type": contentType };
   if (fileName) headers["content-disposition"] = `attachment; filename="${fileName}"`;
   res.writeHead(200, headers);
   res.end(value);
-}
-
-async function readJsonBody(req: http.IncomingMessage): Promise<TJsonBody> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.from(chunk));
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as TJsonBody;
-  } catch {
-    return {};
-  }
 }
 
 function getString(body: TJsonBody, key: string): string {

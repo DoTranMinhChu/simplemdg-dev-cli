@@ -9,6 +9,7 @@ import { getDirname } from "../../esm-paths";
 import { AiSessionStore } from "../ai-session-store";
 import { ingestAiSessions, watchAiSessions } from "../ai-session-ingestion";
 import { handleAiStudioApi } from "./ai-studio-routes";
+import { handlePluginsApi } from "./plugins-routes";
 
 export type TAiStudioServerOptions = {
   port?: number;
@@ -122,7 +123,9 @@ export async function startAiStudioServer(options: TAiStudioServerOptions = {}):
         const pathname = url.pathname;
         const method = req.method ?? "GET";
 
-        const handled = await handleAiStudioApi(req, res, url, store);
+        // Plugin management is independent of the SQLite store — it must keep working on
+        // Node < 22.5, where handleAiStudioApi 503s every /api/ai/* route.
+        const handled = (await handleAiStudioApi(req, res, url, store)) || (await handlePluginsApi(req, res, url));
         if (handled) return;
 
         if (pathname === "/" && method === "GET") {

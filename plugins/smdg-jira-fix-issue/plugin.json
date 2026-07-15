@@ -1,0 +1,25 @@
+{
+  "id": "smdg-jira-fix-issue",
+  "version": "1.1.0",
+  "displayName": "Jira Bug Investigation Pipeline",
+  "description": "Investigate a QA bug ticket end-to-end — read the Jira ticket, reproduce the issue in the environment, capture evidence, and classify it as a UI bug or Backend bug. Use when the user provides a Jira ticket link and wants it investigated, or invoke directly with /smdg-jira-fix-issue <ticket-url>.",
+  "kind": "skill",
+  "dependsOn": ["smdg-jira-fetcher", "smdg-jira-reproducer"],
+  "renamedFrom": ["investigate-bug"],
+  "components": {
+    "skillDir": "skill"
+  },
+  "studioExtension": {
+    "id": "jira-evidence",
+    "label": "Evidence",
+    "instanceGlob": ".claude/evidence/*",
+    "instanceLabel": "{basename}",
+    "files": [
+      { "match": "ticket-summary.md", "render": "markdown" },
+      { "match": "analysis.md", "render": "markdown" },
+      { "match": "screenshots/*.{png,jpg,jpeg}", "render": "image-gallery" },
+      { "match": "network/*", "render": "text" }
+    ]
+  },
+  "usageFile": "USAGE.md"
+}

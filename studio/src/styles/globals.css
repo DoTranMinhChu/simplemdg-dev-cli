@@ -2487,6 +2487,41 @@ td.cell-active {
 
 .ai-metric-value.danger { color: var(--red); }
 
+/* --- Token usage tiles (SessionOverview.tsx) — same visual language as .ai-metric, scoped for
+   use inside a card instead of the page-level metrics bar --- */
+.token-stats {
+   display: grid;
+   grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+   gap: var(--space-2);
+   margin-bottom: var(--space-4);
+}
+
+.token-stat {
+   border: 1px solid var(--border);
+   border-radius: var(--radius-md);
+   background: var(--bg-3);
+   padding: 7px var(--space-3);
+}
+
+.token-stat-label {
+   display: block;
+   font-size: var(--font-size-xs);
+   color: var(--muted);
+   text-transform: uppercase;
+   letter-spacing: .04em;
+}
+
+.token-stat-value {
+   display: block;
+   font-size: var(--font-size-lg);
+   font-weight: 600;
+   color: var(--text);
+   font-variant-numeric: tabular-nums;
+   margin-top: 1px;
+}
+
+.token-stat-value.total { color: var(--accent); }
+
 /* --- Provider chip --- */
 .ai-chip {
    display: inline-flex;
@@ -2972,6 +3007,118 @@ td.cell-active {
 .ai-project-card-count {
    font-size: var(--font-size-xs);
    color: var(--muted);
+}
+
+/* --- Plugins page (PluginsCatalogPage.tsx, PluginDetailPanel.tsx) --- */
+.plugin-list {
+   display: grid;
+   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+   gap: var(--space-3);
+}
+
+.plugin-card {
+   display: flex;
+   flex-direction: column;
+   width: 100%;
+   min-height: 176px;
+   text-align: left;
+   cursor: pointer;
+   color: var(--text);
+   font: inherit;
+}
+
+.plugin-card:hover {
+   border-color: var(--accent);
+   background: var(--bg-3);
+}
+
+.plugin-card-head {
+   display: flex;
+   justify-content: space-between;
+   align-items: flex-start;
+   gap: var(--space-2);
+}
+
+.plugin-card-title {
+   min-width: 0;
+}
+
+.plugin-card-desc {
+   margin-top: var(--space-2);
+   color: var(--muted);
+   font-size: 12px;
+   line-height: 1.5;
+   display: -webkit-box;
+   -webkit-line-clamp: 3;
+   line-clamp: 3;
+   -webkit-box-orient: vertical;
+   overflow: hidden;
+}
+
+/* Anchors chips/install-status to the bottom of every card, so cards with 0, 1, or 2 of these
+   rows still end at the same height instead of stair-stepping down the grid. */
+.plugin-card-footer {
+   margin-top: auto;
+   padding-top: var(--space-3);
+   display: flex;
+   flex-direction: column;
+   gap: 6px;
+}
+
+.plugin-plan-list {
+   display: flex;
+   flex-direction: column;
+   gap: var(--space-2);
+   max-height: 40vh;
+   overflow: auto;
+}
+
+.plugin-plan-step {
+   border: 1px solid var(--border);
+   border-radius: var(--radius-sm);
+   background: var(--bg-2);
+   padding: var(--space-2) var(--space-3);
+}
+
+/* --- Studio extension image gallery (ImageGallery.tsx) --- */
+.image-gallery-grid {
+   display: grid;
+   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+   gap: var(--space-2);
+}
+
+.image-gallery-thumb {
+   border: 1px solid var(--border);
+   border-radius: var(--radius-sm);
+   background: var(--bg-2);
+   padding: 0;
+   overflow: hidden;
+   cursor: pointer;
+   aspect-ratio: 4 / 3;
+}
+
+.image-gallery-thumb img {
+   width: 100%;
+   height: 100%;
+   object-fit: cover;
+   display: block;
+}
+
+.image-gallery-lightbox {
+   position: fixed;
+   inset: 0;
+   background: rgba(0, 0, 0, 0.85);
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   z-index: 1000;
+   cursor: zoom-out;
+}
+
+.image-gallery-lightbox img {
+   max-width: 92vw;
+   max-height: 92vh;
+   object-fit: contain;
 }
 
 .ai-diagnostic-list {
@@ -3888,6 +4035,14 @@ td.cell-active {
    white-space: nowrap;
 }
 
+.turn-block-tools {
+   display: flex;
+   flex-wrap: wrap;
+   gap: 6px;
+   margin-top: calc(var(--space-2) * -1);
+   margin-bottom: var(--space-3);
+}
+
 .turn-block-body {
    display: flex;
    flex-direction: column;
@@ -3897,15 +4052,20 @@ td.cell-active {
 .density-compact .turn-block-body { gap: var(--space-2); }
 
 /* ---- Message blocks (user/assistant) ---- */
+/* A left accent stripe + pill-badge role label are the primary "who said this" signals — a
+   background-tint difference alone (the old .msg-user rule) was too close in a dark theme where
+   --bg-2/--bg-3 sit only ~4% apart in lightness, exactly the "looks the same" complaint this fixes. */
 .msg {
    border: 1px solid var(--border);
+   border-left: 3px solid var(--accent);
    border-radius: var(--radius-lg);
    padding: var(--space-4);
    background: var(--bg-2);
 }
 
 .msg-user {
-   background: var(--bg-3);
+   background: #11212c;
+   border-left-color: var(--teal);
 }
 
 .msg-head {
@@ -3921,9 +4081,15 @@ td.cell-active {
    letter-spacing: .6px;
    text-transform: uppercase;
    color: var(--accent);
+   background: rgba(59, 130, 246, .15);
+   padding: 2px 8px;
+   border-radius: var(--radius-full);
 }
 
-.msg-user .msg-role { color: var(--teal); }
+.msg-user .msg-role {
+   color: var(--teal);
+   background: rgba(20, 184, 166, .15);
+}
 
 .msg-body {
    font-size: var(--font-size-md);

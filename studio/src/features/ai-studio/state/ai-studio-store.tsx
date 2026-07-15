@@ -8,7 +8,7 @@ export type TToast = { id: string; message: string; kind: TToastKind };
 export type TAiWorkspaceTabKind = "overview" | "conversation" | "execution" | "timeline" | "graph" | "files" | "commands" | "errors" | "verification" | "raw";
 export type TAiWorkspaceTab = { sessionId: string; kind: TAiWorkspaceTabKind };
 
-export type TAiPage = "overview" | "sessions" | "projects" | "doctor";
+export type TAiPage = "overview" | "sessions" | "projects" | "doctor" | "plugins";
 
 type TAiStudioStoreValue = {
   sessions: TAiSession[];
