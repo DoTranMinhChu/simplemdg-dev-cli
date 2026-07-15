@@ -125,6 +125,21 @@ export function buildTurnTimeline(turn: TAiTurn, observations: TAiObservation[])
   return blocks;
 }
 
+export type TToolUsageBreakdown = { name: string; count: number };
+
+/** Per-turn breakdown of which tools ran and how many times each — same "counts as a tool"
+ * definition `summarizeActivity` uses (COUNTS_AS_TOOL below), just grouped by name instead of
+ * totaled, for the compact chip row under a turn's header. Most-called first. */
+export function summarizeTurnToolUsage(turn: TAiTurn, observations: TAiObservation[]): TToolUsageBreakdown[] {
+  const turnObservations = observationsForTurn(observations, turn);
+  const counts = new Map<string, number>();
+  for (const observation of turnObservations) {
+    if (!COUNTS_AS_TOOL.has(deriveConversationKind(observation))) continue;
+    counts.set(observation.name, (counts.get(observation.name) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+}
+
 export type TActivitySummary = {
   toolCallCount: number;
   filesReadCount: number;

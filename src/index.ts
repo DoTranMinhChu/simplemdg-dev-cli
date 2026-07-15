@@ -27,6 +27,7 @@ import { registerGitLabCommands } from "./commands/gitlab.command";
 import { registerCacheCommands } from "./commands/cache.command";
 import { registerGitCommands } from "./commands/git.command";
 import { registerAiCommands } from "./commands/ai.command";
+import { registerPluginCommands } from "./commands/plugin.command";
 import { enableInteractiveNavigation } from "./core/navigator";
 import { launchInteractiveShell } from "./terminal/services/terminal-launcher";
 import type { TInstallCommandOptions, TKeyValueMap } from "./types-local";
@@ -440,6 +441,7 @@ registerGitLabCommands(program);
 registerCacheCommands(program);
 registerGitCommands(program);
 registerAiCommands(program);
+registerPluginCommands(program);
 
 program
   .command("shell")

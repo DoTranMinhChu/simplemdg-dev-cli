@@ -36,6 +36,7 @@ const ICON_PATHS: Record<string, string> = {
   maximize: "M8 3H4v4|M16 3h4v4|M8 21H4v-4|M16 21h4v-4",
   activity: "M3 12h4l3 8 4-16 3 8h4",
   panel: "M3 4h18v16H3z|M9 4v16",
+  plug: "M9 2v6|M15 2v6|M6 8h12v6a6 6 0 0 1-12 0V8z|M12 20v2",
 };
 
 export function Icon({ name, className }: { name: string; className?: string }): React.ReactElement {
