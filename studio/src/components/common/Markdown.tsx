@@ -65,11 +65,58 @@ function parseFileLink(href: string): { path: string; line?: number } {
   return { path: rawPath, line: match ? Number(match[1]) : undefined };
 }
 
-/** Builds the `a` renderer for a given `onFileLink` handler (or the plain default when there isn't one) — kept out of the static `components` object above since this one needs to close over a prop. */
+const PATH_EXTENSION_PATTERN =
+  /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc|md|mdx|css|scss|less|html|htm|yml|yaml|py|go|rs|java|kt|c|cc|cpp|h|hpp|cs|rb|php|sql|sh|bash|zsh|ps1|toml|xml|vue|svelte|env|graphql|gql|txt|ini|conf|lock|csv|log)$/i;
+
+/**
+ * True for inline `code` spans (backtick text, not a fenced block) that look like a real file
+ * path rather than a code identifier/snippet — Claude very often references files this way
+ * (`` `D:\SF\project\file.ts` ``) instead of a markdown link. Deliberately conservative: a
+ * relative-looking string only counts when it both has a path separator *and* ends in a
+ * recognized file extension, so things like `collaboratorFarmer.fullname` or a short expression
+ * are never mistaken for a path — an absolute path (drive letter or leading `/`) is trusted on
+ * its own since nothing else looks like that.
+ */
+function looksLikeFilePath(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > 300 || /[\s(){}[\]<>"'`]/.test(trimmed)) return false;
+  if (!trimmed.includes("/") && !trimmed.includes("\\")) return false;
+  if (/^[a-z]:[\\/]/i.test(trimmed) || trimmed.startsWith("/")) return true;
+  return PATH_EXTENSION_PATTERN.test(trimmed);
+}
+
+/** A trailing `:123` after a path (e.g. `` `src/file.ts:42` ``) — never confused with a Windows
+ * drive letter's colon, since that's always followed by a path separator, never a digit. */
+function parsePathWithOptionalLine(text: string): { path: string; line?: number } {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^(.+?):(\d+)$/);
+  return match ? { path: match[1], line: Number(match[2]) } : { path: trimmed };
+}
+
+/** Builds the `a`/`code` renderers for a given `onFileLink` handler (or the plain defaults when
+ * there isn't one) — kept out of the static `components` object above since these need to close
+ * over a prop. */
 function buildComponents(onFileLink: ((path: string, line?: number) => void) | undefined): Components {
   if (!onFileLink) return components;
   return {
     ...components,
+    code({ className, children }) {
+      const text = textOf(children).replace(/\n$/, "");
+      const language = /language-(\S+)/.exec(className ?? "")?.[1];
+      const isBlock = Boolean(language) || text.includes("\n");
+      if (isBlock) return <CodeBlock code={text} language={language} />;
+      // Strip a possible trailing `:line` *before* checking the extension — `file.ts:42` doesn't
+      // itself end in `.ts`, only the path portion once the suffix is peeled off does.
+      const { path, line } = parsePathWithOptionalLine(text);
+      if (looksLikeFilePath(path)) {
+        return (
+          <code className="inline-code inline-code-file" title={`Open ${path}${line ? `:${line}` : ""}`} onClick={() => onFileLink(path, line)}>
+            {text}
+          </code>
+        );
+      }
+      return <code className="inline-code">{text}</code>;
+    },
     a({ href, children }) {
       if (href && isLocalFileLink(href)) {
         const { path, line } = parseFileLink(href);

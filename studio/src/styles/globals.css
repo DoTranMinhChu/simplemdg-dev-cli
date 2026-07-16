@@ -4173,6 +4173,19 @@ td.cell-active {
    font-size: .92em;
 }
 
+/* Inline code that Markdown.tsx recognized as a file path (looksLikeFilePath) — needs its own
+   affordance since a bare <code> has no default clickable styling the way <a> does. */
+.inline-code-file {
+   cursor: pointer;
+   border-color: var(--accent);
+   color: var(--accent);
+}
+
+.inline-code-file:hover {
+   background: var(--accent);
+   color: var(--bg);
+}
+
 .table-scroll {
    overflow-x: auto;
    margin: 0 0 var(--space-3);
