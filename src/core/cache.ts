@@ -138,6 +138,7 @@ function migrateNpmrcProjectCache(
       projectName: projectCache.projectName ?? projectName,
       packageIds: projectCache.packageIds ?? [],
       packages: projectCache.packages ?? [],
+      pinnedPackageId: projectCache.pinnedPackageId,
     };
   }
 
@@ -332,9 +333,35 @@ export async function rememberNpmrcPackages(projectName: string, packages: TNpmr
       projectName: projectKey,
       packageIds: uniqueLatest([...nextPackageIds, ...(currentProjectCache?.packageIds ?? [])]),
       packages: uniquePackageEntries([...packages, ...(currentProjectCache?.packages ?? [])]),
+      pinnedPackageId: currentProjectCache?.pinnedPackageId,
     };
   }
 
+  await writeCache(cache);
+}
+
+/** Pin a manual npm registry package ID for a project/group — survives future auto re-scans. */
+export async function pinNpmrcPackageId(projectName: string, packageId: string): Promise<void> {
+  const cache = await readCache();
+  const projectKey = projectName.trim();
+  if (!projectKey) return;
+
+  const current = cache.npmrc.packageIdsByProject[projectKey];
+  cache.npmrc.packageIdsByProject[projectKey] = {
+    projectName: projectKey,
+    packageIds: current?.packageIds ?? [],
+    packages: current?.packages ?? [],
+    pinnedPackageId: packageId.trim() || undefined,
+  };
+  await writeCache(cache);
+}
+
+export async function unpinNpmrcPackageId(projectName: string): Promise<void> {
+  const cache = await readCache();
+  const projectKey = projectName.trim();
+  const current = cache.npmrc.packageIdsByProject[projectKey];
+  if (!current) return;
+  cache.npmrc.packageIdsByProject[projectKey] = { ...current, pinnedPackageId: undefined };
   await writeCache(cache);
 }
 

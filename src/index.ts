@@ -28,6 +28,7 @@ import { registerCacheCommands } from "./commands/cache.command";
 import { registerGitCommands } from "./commands/git.command";
 import { registerAiCommands } from "./commands/ai.command";
 import { registerPluginCommands } from "./commands/plugin.command";
+import { registerToolCommands } from "./commands/tool.command";
 import { enableInteractiveNavigation } from "./core/navigator";
 import { launchInteractiveShell } from "./terminal/services/terminal-launcher";
 import type { TInstallCommandOptions, TKeyValueMap } from "./types-local";
@@ -442,6 +443,7 @@ registerCacheCommands(program);
 registerGitCommands(program);
 registerAiCommands(program);
 registerPluginCommands(program);
+registerToolCommands(program);
 
 program
   .command("shell")

@@ -83,6 +83,9 @@ export const DEFAULT_CACHE_TTL = {
   dbImportCandidates: 10 * 60 * 1000,
   gitlabGroups: 6 * 60 * 60 * 1000,
   gitlabProjects: 30 * 60 * 1000,
+  gitlabBranches: 5 * 60 * 1000,
+  objectTypeDiscovery: 60 * 60 * 1000,
+  objectTypeSuggestions: 60 * 60 * 1000,
   dbMetadata: 10 * 60 * 1000,
   dbConnections: Number.POSITIVE_INFINITY,
 } as const;

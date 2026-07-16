@@ -1,0 +1,134 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - navigation [ref=e4]:
+      - generic [ref=e5]: SimpleMDG Tool Studio
+      - generic [ref=e6]: MDG Deploy
+      - button "Deploy Model" [ref=e7] [cursor=pointer]
+      - button "Check API External" [ref=e8] [cursor=pointer]
+      - generic [ref=e9]: Operations
+      - button "Test Config" [ref=e10] [cursor=pointer]
+      - button "CPI Queue / Event Mesh" [ref=e11] [cursor=pointer]
+      - button "CF Log / Restart" [ref=e12] [cursor=pointer]
+      - button "Jira Deploy Info" [ref=e13] [cursor=pointer]
+      - button "Incident Search" [ref=e14] [cursor=pointer]
+      - generic [ref=e15]: Configuration
+      - button "Object Types" [ref=e16] [cursor=pointer]
+      - button "npmrc / Registry" [ref=e17] [cursor=pointer]
+      - button "BTP Credentials" [ref=e18] [cursor=pointer]
+    - main [ref=e19]:
+      - generic [ref=e52]:
+        - generic [ref=e53]:
+          - heading "Deploy Model" [level=1] [ref=e54]
+          - paragraph [ref=e55]:
+            - text: Upload an SAP OData
+            - code [ref=e56]: $metadata
+            - text: EDMX export, convert it with the real
+            - code [ref=e57]: cds import
+            - text: CLI, and open a merge request into the object type's srv/srv_process repos — the same GitLab-branch-and-MR workflow the legacy tool used, but with live-discovered repos/branches instead of hardcoded environment codes.
+        - generic [ref=e59]:
+          - button "Select a deploy target..." [ref=e61] [cursor=pointer]:
+            - generic [ref=e63]: ▾
+          - button "Cancel" [ref=e65] [cursor=pointer]
+        - generic [ref=e67]:
+          - generic [ref=e68]:
+            - generic [ref=e69]:
+              - generic [ref=e70]: Name
+              - textbox "e.g. S4 UAT" [ref=e71]
+            - generic [ref=e72]:
+              - generic [ref=e73]: GitLab group
+              - button "Select a group..." [ref=e74] [cursor=pointer]:
+                - generic [ref=e76]: ▾
+            - generic [ref=e77]:
+              - generic [ref=e78]: Default branch
+              - textbox [ref=e79]: main
+            - generic [ref=e80]:
+              - generic [ref=e81]: Object type mode
+              - button "custom" [ref=e82] [cursor=pointer]:
+                - generic [ref=e84]: ▾
+            - generic [ref=e85]:
+              - generic [ref=e86]: Default cdsVersion
+              - button "cds8" [ref=e87] [cursor=pointer]:
+                - generic [ref=e89]: ▾
+            - generic [ref=e91]:
+              - checkbox "Consolidation by default" [ref=e92]
+              - text: Consolidation by default
+          - button "Create deploy target" [disabled] [ref=e94]
+  - generic [ref=e95]:
+    - textbox "Search groups..." [active] [ref=e101]
+    - generic [ref=e102]:
+      - generic [ref=e103] [cursor=pointer]: simplemdg-agropur
+      - generic [ref=e105] [cursor=pointer]: simplemdg-air-liquide
+      - generic [ref=e107] [cursor=pointer]: simplemdg-air-products
+      - generic [ref=e109] [cursor=pointer]: simplemdg-ait
+      - generic [ref=e111] [cursor=pointer]: simplemdg-alcon
+      - generic [ref=e113] [cursor=pointer]: simplemdg-aliaxis
+      - generic [ref=e115] [cursor=pointer]: simplemdg-amesbury-truth
+      - generic [ref=e117] [cursor=pointer]: simplemdg-amman
+      - generic [ref=e119] [cursor=pointer]: simplemdg-arthrex
+      - generic [ref=e121] [cursor=pointer]: simplemdg-asp
+      - generic [ref=e123] [cursor=pointer]: simplemdg-bpapp
+      - generic [ref=e125] [cursor=pointer]: simplemdg-bulla-dairy
+      - generic [ref=e127] [cursor=pointer]: simplemdg-buma
+      - generic [ref=e129] [cursor=pointer]: simplemdg-butterball
+      - generic [ref=e131] [cursor=pointer]: simplemdg-central
+      - generic [ref=e133] [cursor=pointer]: simplemdg-citgo
+      - generic [ref=e135] [cursor=pointer]: simplemdg-cms
+      - generic [ref=e137] [cursor=pointer]: simplemdg-cochlear
+      - generic [ref=e139] [cursor=pointer]: simplemdg-cvs
+      - generic [ref=e141] [cursor=pointer]: simplemdg-cytiva
+      - generic [ref=e143] [cursor=pointer]: simplemdg-dashboard
+      - generic [ref=e145] [cursor=pointer]: simplemdg-datwyler
+      - generic [ref=e147] [cursor=pointer]: simplemdg-demo
+      - generic [ref=e149] [cursor=pointer]: simplemdg-diana
+      - generic [ref=e151] [cursor=pointer]: simplemdg-doleintl
+      - generic [ref=e153] [cursor=pointer]: simplemdg-development
+      - generic [ref=e155] [cursor=pointer]: simplemdg-edf-re
+      - generic [ref=e157] [cursor=pointer]: simplemdg-elevate-bio
+      - generic [ref=e159] [cursor=pointer]: simplemdg-endeavor-energy
+      - generic [ref=e161] [cursor=pointer]: simplemdg-etnic
+      - generic [ref=e163] [cursor=pointer]: simplemdg-florida-crystals
+      - generic [ref=e165] [cursor=pointer]: simplemdg-fortescue
+      - generic [ref=e167] [cursor=pointer]: simplemdg-franmax
+      - generic [ref=e169] [cursor=pointer]: simplemdg-freeman
+      - generic [ref=e171] [cursor=pointer]: simplemdg-integer
+      - generic [ref=e173] [cursor=pointer]: simplemdg-internal
+      - generic [ref=e175] [cursor=pointer]: simplemdg-irving-oil
+      - generic [ref=e177] [cursor=pointer]: simplemdg-itochu
+      - generic [ref=e179] [cursor=pointer]: simplemdg-jaguar
+      - generic [ref=e181] [cursor=pointer]: simplemdg-jlr
+      - generic [ref=e183] [cursor=pointer]: simplemdg-kawan-lama
+      - generic [ref=e185] [cursor=pointer]: simplemdg-kruger
+      - generic [ref=e187] [cursor=pointer]: simplemdg-landis
+      - generic [ref=e189] [cursor=pointer]: simplemdg-lucid
+      - generic [ref=e191] [cursor=pointer]: simplemdg-mckesson
+      - generic [ref=e193] [cursor=pointer]: simplemdg-metrie
+      - generic [ref=e195] [cursor=pointer]: simplemdg-momentive
+      - generic [ref=e197] [cursor=pointer]: simplemdg-morgan-foods
+      - generic [ref=e199] [cursor=pointer]: simplemdg-multiple-erp
+      - generic [ref=e201] [cursor=pointer]: simplemdg-nxp
+      - generic [ref=e203] [cursor=pointer]: simplemdg-olymel
+      - generic [ref=e205] [cursor=pointer]: simplemdg-panasonic
+      - generic [ref=e207] [cursor=pointer]: simplemdg-par-pacific
+      - generic [ref=e209] [cursor=pointer]: simplemdg-partner
+      - generic [ref=e211] [cursor=pointer]: simplemdg-pmeleven
+      - generic [ref=e213] [cursor=pointer]: simplemdg-pna-sg
+      - generic [ref=e215] [cursor=pointer]: simplemdg-precision-drilling
+      - generic [ref=e217] [cursor=pointer]: simplemdg-product
+      - generic [ref=e219] [cursor=pointer]: simplemdg-public-cloud
+      - generic [ref=e221] [cursor=pointer]: simplemdg-purdue
+      - generic [ref=e223] [cursor=pointer]: simplemdg-saesl
+      - generic [ref=e225] [cursor=pointer]: simplemdg-sibelco
+      - generic [ref=e227] [cursor=pointer]: simplemdg-solace
+      - generic [ref=e229] [cursor=pointer]: simplemdg-solenis
+      - generic [ref=e231] [cursor=pointer]: simplemdg-solvay
+      - generic [ref=e233] [cursor=pointer]: simplemdg-spin-master
+      - generic [ref=e235] [cursor=pointer]: simplemdg-stella
+      - generic [ref=e237] [cursor=pointer]: simplemdg-sto
+      - generic [ref=e239] [cursor=pointer]: simplemdg-sukanda
+      - generic [ref=e241] [cursor=pointer]: simplemdg-sylvamo
+      - generic [ref=e243] [cursor=pointer]: simplemdg-template
+      - generic [ref=e245] [cursor=pointer]: simplemdg-time-tracking
+      - generic [ref=e247] [cursor=pointer]: simplemdg-tyson-foods
+      - generic [ref=e249] [cursor=pointer]: simplemdg-uct
+      - generic [ref=e251] [cursor=pointer]: simplemdg-us-sugar
+      - generic [ref=e253] [cursor=pointer]: simplemdg-vicr

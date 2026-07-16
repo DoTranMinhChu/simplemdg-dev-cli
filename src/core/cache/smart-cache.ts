@@ -22,6 +22,9 @@ export const CACHE_NAMESPACES: Record<string, string> = {
   "db-metadata": "DB metadata",
   "gitlab-groups": "GitLab groups",
   "gitlab-projects": "GitLab projects",
+  "gitlab-branches": "GitLab branches",
+  "object-type-discovery": "Tool Studio object-type discovery",
+  "object-type-suggestions": "Tool Studio object-type cds/consolidation suggestions",
   "cf-recent-targets": "CF recent targets",
   "cf-favorite-targets": "CF favorite targets",
 };
@@ -29,9 +32,10 @@ export const CACHE_NAMESPACES: Record<string, string> = {
 /** Namespace groups for `smdg cache clear|refresh <scope>`. */
 export const CACHE_SCOPES: Record<string, string[]> = {
   cf: ["cf-regions", "cf-targets", "cf-orgs", "cf-spaces", "cf-apps", "cf-env"],
-  gitlab: ["gitlab-groups", "gitlab-projects"],
+  gitlab: ["gitlab-groups", "gitlab-projects", "gitlab-branches"],
   db: ["db-import-candidates", "db-metadata"],
   target: ["cf-targets", "cf-recent-targets", "cf-favorite-targets"],
+  tool: ["object-type-discovery", "object-type-suggestions"],
   all: Object.keys(CACHE_NAMESPACES),
 };
 
@@ -73,6 +77,10 @@ export function buildGitLabGroupsKey(baseUrl: string, userId?: string | number):
 
 export function buildGitLabProjectsKey(baseUrl: string, groupId: string | number): string {
   return `${sanitize(baseUrl)}::${sanitize(String(groupId))}`;
+}
+
+export function buildGitLabBranchesKey(baseUrl: string, projectId: string | number): string {
+  return `${sanitize(baseUrl)}::${sanitize(String(projectId))}`;
 }
 
 export function formatRelativeTime(iso: string | undefined): string {

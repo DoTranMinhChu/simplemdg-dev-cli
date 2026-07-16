@@ -1,11 +1,18 @@
 import http from "node:http";
-import net from "node:net";
-import path from "node:path";
-import fs from "fs-extra";
-import { execa } from "execa";
 import chalk from "chalk";
-import { findNearestRepository } from "../repository";
 import { getDirname } from "../esm-paths";
+import {
+  findAvailablePort,
+  openBrowser,
+  readJsonBody,
+  resolveStudioDistPath,
+  sendJson,
+  sendText,
+  serveStudioAsset as serveStudioAssetFromKit,
+  getString,
+  getNumber,
+  type TJsonBody,
+} from "../studio-shared/studio-server-kit";
 import { StudioConnectionPool } from "./db-connection";
 import { classifyDatabaseError } from "./db-error";
 import {
@@ -80,70 +87,22 @@ export type TStudioServerOptions = {
   apiOnly?: boolean;
 };
 
-const STUDIO_DIST_DIRNAME = path.join("dist", "core", "db", "studio-dist");
 const __dirname = getDirname(import.meta.url);
 
-/**
- * Locate the built React Studio assets. Anchored to the CLI package root (not
- * `__dirname` directly) so this resolves identically whether the CLI is
- * running compiled (`node dist/index.js`) or via `tsx src/index.ts` — in the
- * latter case `__dirname` points at `src/core/db`, but the built assets still
- * live under `<packageRoot>/dist/core/db/studio-dist`.
- */
-async function resolveStudioDistPath(): Promise<string | undefined> {
-  const repository = await findNearestRepository(__dirname);
-  if (!repository) return undefined;
-  return path.join(repository.repositoryPath, STUDIO_DIST_DIRNAME);
-}
+const STUDIO_NOT_BUILT_HTML =
+  "<!doctype html><html><body style=\"font-family:sans-serif;padding:40px;color:#334\"><h2>CF DB Studio UI is not built</h2>" +
+  "<p>Run <code>npm run build:studio</code> (or <code>npm run build</code>) from the repository root, then restart <code>smdg cf db studio</code>.</p>" +
+  "<p>For frontend development, run <code>smdg cf db studio --dev-ui</code> and follow the printed instructions.</p></body></html>";
 
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".mjs": "application/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".map": "application/json; charset=utf-8",
-};
-
-/**
- * Serve the built React Studio (SPA fallback: unknown paths without a file
- * extension resolve to index.html).
- */
+/** Serve the built React Studio (SPA fallback: unknown paths without a file extension resolve to index.html). */
 async function serveStudioAsset(pathname: string, res: http.ServerResponse): Promise<void> {
-  const distPath = await resolveStudioDistPath();
-  const requestedExt = path.extname(pathname);
-
-  if (distPath && (await fs.pathExists(distPath))) {
-    // Prevent path traversal: resolve then verify the result stays inside distPath.
-    const relative = requestedExt ? pathname.replace(/^\/+/, "") : "index.html";
-    const resolved = path.normalize(path.join(distPath, relative));
-
-    if (resolved === distPath || resolved.startsWith(distPath + path.sep)) {
-      const filePath = (await fs.pathExists(resolved)) && (await fs.stat(resolved)).isFile() ? resolved : path.join(distPath, "index.html");
-
-      if (await fs.pathExists(filePath)) {
-        const contentType = MIME_TYPES[path.extname(filePath)] ?? "application/octet-stream";
-        const contents = await fs.readFile(filePath);
-        res.writeHead(200, { "content-type": contentType });
-        res.end(contents);
-        return;
-      }
-    }
-  }
-
-  res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-  res.end(
-    "<!doctype html><html><body style=\"font-family:sans-serif;padding:40px;color:#334\"><h2>CF DB Studio UI is not built</h2>" +
-      "<p>Run <code>npm run build:studio</code> (or <code>npm run build</code>) from the repository root, then restart <code>smdg cf db studio</code>.</p>" +
-      "<p>For frontend development, run <code>smdg cf db studio --dev-ui</code> and follow the printed instructions.</p></body></html>",
-  );
+  await serveStudioAssetFromKit({
+    distPath: await resolveStudioDistPath(__dirname),
+    pathname,
+    res,
+    fallbackHtmlFileName: "index.html",
+    notBuiltMessageHtml: STUDIO_NOT_BUILT_HTML,
+  });
 }
 
 export type TStudioServerHandle = {
@@ -151,58 +110,6 @@ export type TStudioServerHandle = {
   port: number;
   close: () => Promise<void>;
 };
-
-type TJsonBody = Record<string, unknown>;
-
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const tester = net.createServer();
-    tester.once("error", () => resolve(false));
-    tester.once("listening", () => tester.close(() => resolve(true)));
-    tester.listen(port, "127.0.0.1");
-  });
-}
-
-async function findAvailablePort(preferredPort: number): Promise<number> {
-  for (let candidate = preferredPort; candidate < preferredPort + 50; candidate += 1) {
-    if (await isPortAvailable(candidate)) {
-      return candidate;
-    }
-  }
-
-  throw new Error(`No available port found between ${preferredPort} and ${preferredPort + 49}`);
-}
-
-async function readJsonBody(req: http.IncomingMessage): Promise<TJsonBody> {
-  const chunks: Buffer[] = [];
-
-  for await (const chunk of req) {
-    chunks.push(Buffer.from(chunk));
-  }
-
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
-
-  if (!raw) {
-    return {};
-  }
-
-  return JSON.parse(raw) as TJsonBody;
-}
-
-function sendJson(res: http.ServerResponse, value: unknown, status = 200): void {
-  const payload = JSON.stringify(value);
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
-  res.end(payload);
-}
-
-function sendText(res: http.ServerResponse, value: string, contentType: string, fileName?: string): void {
-  const headers: Record<string, string> = { "content-type": contentType };
-  if (fileName) {
-    headers["content-disposition"] = `attachment; filename="${fileName}"`;
-  }
-  res.writeHead(200, headers);
-  res.end(value);
-}
 
 function toCsv(fields: string[], rows: Array<Record<string, unknown>>): string {
   const escapeCell = (value: unknown): string => {
@@ -213,16 +120,6 @@ function toCsv(fields: string[], rows: Array<Record<string, unknown>>): string {
   const header = fields.map(escapeCell).join(",");
   const lines = rows.map((row) => fields.map((field) => escapeCell(row[field])).join(","));
   return [header, ...lines].join("\n");
-}
-
-function getString(body: TJsonBody, key: string): string {
-  const value = body[key];
-  return typeof value === "string" ? value : "";
-}
-
-function getNumber(body: TJsonBody, key: string, fallback: number): number {
-  const value = Number(body[key]);
-  return Number.isFinite(value) ? value : fallback;
 }
 
 const VALID_ENVIRONMENTS = new Set(["DEV", "QAS", "PROD", "SANDBOX", "CUSTOM"]);
@@ -318,12 +215,6 @@ function resolvedFromDraft(draft: TConnectionDraft): TResolvedDatabaseConnection
     createdAt: now,
     updatedAt: now,
   };
-}
-
-async function openBrowser(url: string): Promise<void> {
-  const command = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  await execa(command, args, { reject: false, detached: true, stdio: "ignore" }).catch(() => undefined);
 }
 
 export async function startStudioServer(options: TStudioServerOptions = {}): Promise<TStudioServerHandle> {

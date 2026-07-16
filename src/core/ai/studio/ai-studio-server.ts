@@ -1,11 +1,12 @@
 import http from "node:http";
-import net from "node:net";
-import path from "node:path";
-import fs from "fs-extra";
 import chalk from "chalk";
-import { execa } from "execa";
-import { findNearestRepository } from "../../repository";
 import { getDirname } from "../../esm-paths";
+import {
+  findAvailablePort,
+  openBrowser,
+  resolveStudioDistPath,
+  serveStudioAsset as serveStudioAssetFromKit,
+} from "../../studio-shared/studio-server-kit";
 import { AiSessionStore } from "../ai-session-store";
 import { ingestAiSessions, watchAiSessions } from "../ai-session-ingestion";
 import { handleAiStudioApi } from "./ai-studio-routes";
@@ -26,78 +27,22 @@ export type TAiStudioServerHandle = {
 // dist/core/db/studio-dist directory (see studio/vite.config.ts) — cheaper than a second dist
 // folder, and safe because Vite hashes each entry's asset filenames independently. This server
 // just requests ai-studio.html as its SPA-fallback root instead of index.html.
-const STUDIO_DIST_DIRNAME = path.join("dist", "core", "db", "studio-dist");
 const AI_STUDIO_HTML = "ai-studio.html";
-
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".mjs": "application/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".map": "application/json; charset=utf-8",
-};
 
 const __dirname = getDirname(import.meta.url);
 
-async function resolveStudioDistPath(): Promise<string | undefined> {
-  const repository = await findNearestRepository(__dirname);
-  if (!repository) return undefined;
-  return path.join(repository.repositoryPath, STUDIO_DIST_DIRNAME);
-}
-
-async function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const tester = net
-      .createServer()
-      .once("error", () => resolve(false))
-      .once("listening", () => tester.close(() => resolve(true)))
-      .listen(port, "127.0.0.1");
-  });
-}
-
-async function findAvailablePort(preferredPort: number): Promise<number> {
-  for (let candidate = preferredPort; candidate < preferredPort + 50; candidate += 1) {
-    if (await isPortAvailable(candidate)) return candidate;
-  }
-  throw new Error(`No available port found between ${preferredPort} and ${preferredPort + 49}`);
-}
-
-async function openBrowser(url: string): Promise<void> {
-  const command = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  await execa(command, args, { reject: false, detached: true, stdio: "ignore" }).catch(() => undefined);
-}
+const AI_STUDIO_NOT_BUILT_HTML =
+  "<!doctype html><html><body style=\"font-family:sans-serif;padding:40px;color:#334\"><h2>AI Studio UI is not built</h2>" +
+  "<p>Run <code>npm run build:studio</code> (or <code>npm run build</code>) from the repository root, then restart <code>smdg ai studio</code>.</p></body></html>";
 
 async function serveAiStudioAsset(pathname: string, res: http.ServerResponse): Promise<void> {
-  const distPath = await resolveStudioDistPath();
-  const requestedExt = path.extname(pathname);
-
-  if (distPath && (await fs.pathExists(distPath))) {
-    const relative = requestedExt ? pathname.replace(/^\/+/, "") : AI_STUDIO_HTML;
-    const resolved = path.normalize(path.join(distPath, relative));
-
-    if (resolved === distPath || resolved.startsWith(distPath + path.sep)) {
-      const filePath = (await fs.pathExists(resolved)) && (await fs.stat(resolved)).isFile() ? resolved : path.join(distPath, AI_STUDIO_HTML);
-      if (await fs.pathExists(filePath)) {
-        const contentType = MIME_TYPES[path.extname(filePath)] ?? "application/octet-stream";
-        res.writeHead(200, { "content-type": contentType });
-        res.end(await fs.readFile(filePath));
-        return;
-      }
-    }
-  }
-
-  res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-  res.end(
-    "<!doctype html><html><body style=\"font-family:sans-serif;padding:40px;color:#334\"><h2>AI Studio UI is not built</h2>" +
-      "<p>Run <code>npm run build:studio</code> (or <code>npm run build</code>) from the repository root, then restart <code>smdg ai studio</code>.</p></body></html>",
-  );
+  await serveStudioAssetFromKit({
+    distPath: await resolveStudioDistPath(__dirname),
+    pathname,
+    res,
+    fallbackHtmlFileName: AI_STUDIO_HTML,
+    notBuiltMessageHtml: AI_STUDIO_NOT_BUILT_HTML,
+  });
 }
 
 export async function startAiStudioServer(options: TAiStudioServerOptions = {}): Promise<TAiStudioServerHandle> {

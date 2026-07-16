@@ -124,6 +124,12 @@ export type TNpmrcProjectCache = {
   projectName: string;
   packageIds: string[];
   packages: TNpmrcPackageEntry[];
+  /**
+   * User-chosen override for this project/group's npm registry package ID —
+   * takes precedence over auto-resolution (npmrc-project-resolver.ts) so a
+   * manual pick survives a future re-scan of the GitLab group's projects.
+   */
+  pinnedPackageId?: string;
 };
 
 export type TNpmrcCache = {

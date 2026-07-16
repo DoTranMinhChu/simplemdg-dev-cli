@@ -9,11 +9,12 @@ import react from "@vitejs/plugin-react";
 const STUDIO_DIST = path.resolve(__dirname, "../dist/core/db/studio-dist");
 const BACKEND_PORT = process.env.SMDG_STUDIO_API_PORT ?? "45888";
 
-// AI Studio (smdg ai studio) is a second Vite entry built into the same output directory as DB
-// Studio — its backend (src/core/ai/studio/ai-studio-server.ts) just requests ai-studio.html as
-// its SPA-fallback root instead of index.html. Vite hashes each entry's asset filenames
-// independently, so sharing one outDir/assets folder is safe and avoids a second dist location.
+// AI Studio (smdg ai studio) and Tool Studio (smdg tool studio) are additional Vite entries built
+// into the same output directory as DB Studio — each backend server just requests its own HTML
+// file as SPA-fallback root instead of index.html. Vite hashes each entry's asset filenames
+// independently, so sharing one outDir/assets folder is safe and avoids extra dist locations.
 const AI_STUDIO_BACKEND_PORT = process.env.SMDG_AI_STUDIO_API_PORT ?? "45889";
+const TOOL_STUDIO_BACKEND_PORT = process.env.SMDG_TOOL_STUDIO_API_PORT ?? "45890";
 
 export default defineConfig({
   plugins: [react()],
@@ -24,6 +25,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, "index.html"),
         aiStudio: path.resolve(__dirname, "ai-studio.html"),
+        toolStudio: path.resolve(__dirname, "tool-studio.html"),
       },
     },
   },
@@ -34,6 +36,12 @@ export default defineConfig({
       "/api/ai": {
         target: `http://127.0.0.1:${AI_STUDIO_BACKEND_PORT}`,
         changeOrigin: false,
+      },
+      "/api/tool": {
+        target: `http://127.0.0.1:${TOOL_STUDIO_BACKEND_PORT}`,
+        changeOrigin: false,
+        // SSE (/api/tool/events) needs the connection kept open, not buffered.
+        ws: false,
       },
       "/api": {
         target: `http://127.0.0.1:${BACKEND_PORT}`,

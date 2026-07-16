@@ -7,134 +7,23 @@ import prompts from "prompts";
 import chalk from "chalk";
 import { Command } from "commander";
 import { searchableSelectChoice } from "../core/prompts";
-import { smartRead, buildGitLabGroupsKey, buildGitLabProjectsKey, formatRelativeTime, DEFAULT_CACHE_TTL } from "../core/cache/smart-cache";
-
-const GITLAB_CACHE_DIR = path.join(os.homedir(), ".simplemdg");
-const GITLAB_CACHE_FILE = path.join(GITLAB_CACHE_DIR, "gitlab.json");
-
-type TGitLabAuth = {
-  baseUrl: string;
-  token: string;
-  username?: string;
-  name?: string;
-  expiresAt?: string | null;
-  updatedAt: string;
-};
-
-type TGitLabCache = {
-  instances: TGitLabAuth[];
-  groupsByBaseUrl: Record<string, { updatedAt: string; groups: TGitLabGroup[] }>;
-  projectsByGroup: Record<string, { updatedAt: string; projects: TGitLabProject[] }>;
-  destinations: string[];
-};
-
-type TGitLabGroup = {
-  id: number;
-  name: string;
-  full_path: string;
-  visibility?: string;
-  parent_id?: number | null;
-};
-
-type TGitLabProject = {
-  id: number;
-  name: string;
-  path_with_namespace: string;
-  http_url_to_repo: string;
-  ssh_url_to_repo?: string;
-  default_branch?: string;
-  archived?: boolean;
-};
-
-function emptyGitLabCache(): TGitLabCache {
-  return { instances: [], groupsByBaseUrl: {}, projectsByGroup: {}, destinations: ["."] };
-}
-
-async function readGitLabCache(): Promise<TGitLabCache> {
-  if (!(await fs.pathExists(GITLAB_CACHE_FILE))) return emptyGitLabCache();
-  const value = await fs.readJson(GITLAB_CACHE_FILE).catch(() => emptyGitLabCache()) as Partial<TGitLabCache>;
-  return {
-    instances: value.instances ?? [],
-    groupsByBaseUrl: value.groupsByBaseUrl ?? {},
-    projectsByGroup: value.projectsByGroup ?? {},
-    destinations: value.destinations?.length ? value.destinations : ["."],
-  };
-}
-
-async function writeGitLabCache(cache: TGitLabCache): Promise<void> {
-  await fs.ensureDir(GITLAB_CACHE_DIR);
-  await fs.writeJson(GITLAB_CACHE_FILE, cache, { spaces: 2 });
-}
-
-function normalizeBaseUrl(value: string): string {
-  return value.trim().replace(/\/+$/, "");
-}
-
-function makeGroupCacheKey(baseUrl: string, groupId: number): string {
-  return `${normalizeBaseUrl(baseUrl)}|${groupId}`;
-}
-
-async function openBrowser(url: string): Promise<void> {
-  const platform = process.platform;
-  const command = platform === "win32" ? "cmd" : platform === "darwin" ? "open" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
-  await execa(command, args, { reject: false, detached: true, stdio: "ignore" });
-}
+import { openBrowser } from "../core/studio-shared/studio-server-kit";
+import { formatRelativeTime } from "../core/cache/smart-cache";
+import {
+  listProjects as listProjectsFromClient,
+  listRootGroups as listRootGroupsFromClient,
+  normalizeBaseUrl,
+  readGitLabCache,
+  saveAuth,
+  validateToken,
+  writeGitLabCache,
+} from "../core/gitlab/gitlab-client";
+import type { TGitLabAuth, TGitLabGroup, TGitLabProject } from "../core/gitlab/gitlab-client";
 
 async function readClipboard(): Promise<string | undefined> {
   if (process.platform !== "win32") return undefined;
   const result = await execa("powershell", ["-NoProfile", "-Command", "Get-Clipboard"], { reject: false });
   return result.exitCode === 0 ? result.stdout.trim() : undefined;
-}
-
-async function gitlabFetch<T>(auth: TGitLabAuth, apiPath: string, search?: URLSearchParams): Promise<T> {
-  const url = new URL(`${normalizeBaseUrl(auth.baseUrl)}/api/v4${apiPath}`);
-  if (search) {
-    for (const [key, value] of search.entries()) url.searchParams.set(key, value);
-  }
-  const response = await fetch(url, { headers: { "PRIVATE-TOKEN": auth.token } });
-  if (!response.ok) throw new Error(`GitLab API failed ${response.status}: ${await response.text()}`);
-  return await response.json() as T;
-}
-
-async function gitlabFetchAll<T>(auth: TGitLabAuth, apiPath: string, search?: Record<string, string>): Promise<T[]> {
-  const rows: T[] = [];
-  let page = 1;
-  while (true) {
-    const params = new URLSearchParams({ per_page: "100", page: String(page), ...(search ?? {}) });
-    const chunk = await gitlabFetch<T[]>(auth, apiPath, params);
-    rows.push(...chunk);
-    if (chunk.length < 100) break;
-    page += 1;
-  }
-  return rows;
-}
-
-async function validateToken(baseUrl: string, token: string): Promise<TGitLabAuth> {
-  const auth: TGitLabAuth = { baseUrl: normalizeBaseUrl(baseUrl), token, updatedAt: new Date().toISOString() };
-  const user = await gitlabFetch<{ username?: string; name?: string; email?: string }>(auth, "/user");
-  let expiresAt: string | null | undefined;
-  try {
-    const self = await gitlabFetch<{ expires_at?: string | null }>(auth, "/personal_access_tokens/self");
-    expiresAt = self.expires_at;
-  } catch {
-    expiresAt = undefined;
-  }
-  return { ...auth, username: user.username, name: user.name, expiresAt };
-}
-
-async function saveAuth(auth: TGitLabAuth): Promise<void> {
-  const cache = await readGitLabCache();
-  const next = [auth, ...cache.instances.filter((item) => normalizeBaseUrl(item.baseUrl) !== normalizeBaseUrl(auth.baseUrl))];
-  cache.instances = next.slice(0, 20);
-  await writeGitLabCache(cache);
-  await approveGitCredential(auth).catch(() => undefined);
-}
-
-async function approveGitCredential(auth: TGitLabAuth): Promise<void> {
-  const url = new URL(auth.baseUrl);
-  const input = [`protocol=${url.protocol.replace(":", "")}`, `host=${url.host}`, "username=oauth2", `password=${auth.token}`, "", ""].join("\n");
-  await execa("git", ["credential", "approve"], { input, reject: false });
 }
 
 async function askAuth(): Promise<TGitLabAuth> {
@@ -188,13 +77,7 @@ async function runLoginFlow(): Promise<TGitLabAuth> {
 }
 
 async function listRootGroups(auth: TGitLabAuth, refresh: boolean, notify = false): Promise<TGitLabGroup[]> {
-  const result = await smartRead<TGitLabGroup[]>({
-    namespace: "gitlab-groups",
-    key: buildGitLabGroupsKey(auth.baseUrl, auth.username),
-    ttlMs: DEFAULT_CACHE_TTL.gitlabGroups,
-    mode: refresh ? "network-only" : "stale-while-revalidate",
-    fetcher: () => gitlabFetchAll<TGitLabGroup>(auth, "/groups", { min_access_level: "10", top_level_only: "true", all_available: "false", order_by: "name", sort: "asc" }),
-  });
+  const result = await listRootGroupsFromClient(auth, refresh);
 
   if (notify && result.fromCache) {
     console.log(chalk.gray(`Using ${result.data.length} cached GitLab groups from ${formatRelativeTime(result.updatedAt)}.${result.isRefreshing ? " Refreshing in background..." : ""}`));
@@ -220,14 +103,7 @@ async function askGroup(auth: TGitLabAuth, refresh?: boolean): Promise<TGitLabGr
 }
 
 async function listProjects(auth: TGitLabAuth, group: TGitLabGroup, refresh: boolean, notify = false): Promise<TGitLabProject[]> {
-  const encodedId = encodeURIComponent(String(group.id));
-  const result = await smartRead<TGitLabProject[]>({
-    namespace: "gitlab-projects",
-    key: buildGitLabProjectsKey(auth.baseUrl, group.id),
-    ttlMs: DEFAULT_CACHE_TTL.gitlabProjects,
-    mode: refresh ? "network-only" : "stale-while-revalidate",
-    fetcher: () => gitlabFetchAll<TGitLabProject>(auth, `/groups/${encodedId}/projects`, { include_subgroups: "true", archived: "false", order_by: "path", sort: "asc" }),
-  });
+  const result = await listProjectsFromClient(auth, group, refresh);
 
   if (notify && result.fromCache) {
     console.log(chalk.gray(`Using ${result.data.length} cached projects in ${group.full_path} from ${formatRelativeTime(result.updatedAt)}.${result.isRefreshing ? " Refreshing in background..." : ""}`));
