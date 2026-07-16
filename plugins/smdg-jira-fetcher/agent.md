@@ -34,6 +34,13 @@ Given a Jira ticket URL, do the following:
    Do not proceed to reproduction in this case.
 8. If everything required is present, return ONLY a short summary (a few lines) plus the path to ticket-summary.md. Do not paste the full ticket text back into the conversation.
 
+9. **Second invocation on the same ticket** — you may be called again for a ticket you already wrote a `ticket-summary.md` for, this time with the user's chat-supplied answer to the question you asked in step 7. When that happens:
+   - Read the existing `ticket-summary.md`.
+   - Merge the supplied field(s) into it in place, tagging each one `(source: user-provided in chat, <date>)` — leave fields that came from the ticket itself tagged `(source: ticket)` so a reader can tell what's original vs. supplied.
+   - Apply the same redaction rule from step 6 to anything the user pastes (real credential/token/API-key values → `[REDACTED]` in the file — but keep the actual value in what you hand off in-memory to the next step, since the reproducer still needs it to log in).
+   - Re-run the completeness check (step 7) from scratch against the merged result. If still incomplete, ask again with the same STOP behavior. Only once complete, hand off.
+   This keeps `ticket-summary.md` as the single source of truth for what's known about the ticket — nothing a user says in chat should reach `smdg-jira-reproducer` without first being written back here.
+
 Token discipline:
 - Never take a screenshot when a snapshot would answer the question.
 - Never paste large blocks of ticket text into your final response — summarize and point to the file.

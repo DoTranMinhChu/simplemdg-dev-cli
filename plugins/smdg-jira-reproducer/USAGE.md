@@ -9,6 +9,6 @@ Depends on: `smdg-playwright-browsers` (installed automatically alongside this p
 If invoked directly, tell it which browser to use for this run — it refuses to start otherwise, and this may deliberately be a different browser than the one used to read the ticket (different login/auth per system is common). It writes:
 - `.claude/evidence/<TICKET-KEY>/screenshots/` (error-state capture)
 - `.claude/evidence/<TICKET-KEY>/network/<NN>-<slug>.json` — one file per relevant API call, each with the **full** request (method, URL, query params, headers, body) and response (status, headers, body), so the bug can be fixed from these files alone. Sensitive headers/fields (`Authorization`, `Cookie`, tokens, API keys) are redacted to `[REDACTED]` before writing.
-- `.claude/evidence/<TICKET-KEY>/analysis.md` (final classification, with the key request/response summarized inline, not just referenced)
+- `.claude/evidence/<TICKET-KEY>/analysis.md` (preliminary, symptom-based classification, with the key request/response summarized inline, plus a `## Failure Signature` block — endpoint, exact error text, feature area, evidence paths — for `smdg-root-cause-tracer` to consume next)
 
 It stops and asks rather than guessing on login trouble (failed logins, CAPTCHA/OTP/2FA) or an ambiguous reproduction step.

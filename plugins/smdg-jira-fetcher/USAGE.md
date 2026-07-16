@@ -11,3 +11,5 @@ If invoked directly (e.g. via the Task tool), tell it which browser to use for t
 - `.claude/evidence/<TICKET-KEY>/screenshots/` (only when a ticket attachment genuinely needs visual inspection)
 
 It stops and asks a specific question — rather than guessing — if the environment URL, credentials, or steps to reproduce are missing or ambiguous.
+
+If called again for a ticket it already wrote a summary for — this time with the user's answer to its own question — it merges the answer into the existing `ticket-summary.md` (tagged `source: user-provided in chat`, distinct from `source: ticket`) and re-runs its completeness check, so the evidence trail always reflects what actually happened rather than going stale the moment a human fills a gap.

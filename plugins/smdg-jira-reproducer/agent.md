@@ -40,13 +40,20 @@ You receive: environment_url, credentials, steps_to_reproduce, and relevant tick
 4. Compare the actual API request/response payloads against the expected behavior described in the ticket. This comparison is the core of your root-cause finding — be specific about which field, header, or status code diverges from what's expected, not just "the API returned an error."
 
 5. Write `.claude/evidence/<TICKET-KEY>/analysis.md` containing:
-   - Root cause classification: UI bug / Backend bug / Both / Inconclusive
+   - **Preliminary Classification (symptom-based — not yet code-verified)**: UI bug / Backend bug / Both / Inconclusive. This is a hypothesis from observed behavior only — you have not read the responsible source code, so do not overstate its confidence. A later step (`smdg-root-cause-tracer`) reads the actual code and produces the code-verified final classification.
    - The specific API endpoint(s) and field(s) involved
    - **Key evidence**, inline (not just a file reference): the single most relevant request/response, summarized as method, URL, status code, and the exact field/value that's wrong — e.g. "`POST /api/auth/login` returned `500`; response body: `{"error": "rememberMe is required"}`, but the request body the frontend sends never includes `rememberMe`." A reader must be able to see the root cause without opening another file.
    - A short evidence-based justification, referencing the saved network file path(s) for anyone who needs the full untruncated payload.
+   - **`## Failure Signature`** — a small structured block the next pipeline step consumes directly, without re-deriving it from the rest of the file:
+     ```
+     - endpoint: <method + URL or entity/action name, e.g. POST .../AdminUserService/UploadUserData>
+     - error_text: <the exact, verbatim error string returned — this is the single most valuable field for locating the responsible code>
+     - feature_area: <the human-facing label as written in the ticket/UI, e.g. "Core Setting > Manage Users > Import User" — not a guessed repo or file path>
+     - evidence_paths: <the specific network/*.json file(s) most relevant to this failure, not all of them>
+     ```
 
 6. Return to the main conversation ONLY:
-   - The classification
+   - The preliminary classification
    - The key finding in 2-3 sentences
    - The path to analysis.md
    Do not repeat raw request/response bodies or full screenshots in your reply.
