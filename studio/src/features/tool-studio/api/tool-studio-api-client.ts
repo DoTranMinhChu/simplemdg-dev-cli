@@ -163,11 +163,17 @@ export type TODataServiceMetadata = {
 
 export type TDeployModelResult = {
   entityName: string;
-  mergeRequests: Array<{ role: string; pathWithNamespace: string; webUrl: string; iid: number }>;
+  mergeRequests: Array<{ role: string; pathWithNamespace: string; webUrl: string; iid: number; projectId: number; targetBranch: string }>;
   noChange: Array<{ role: string; pathWithNamespace: string; sourceBranch: string; targetBranch: string }>;
   skipped: Array<{ role: string; pathWithNamespace: string; reason: string }>;
   renamedEntities: TEntityRenameRisk[];
 };
+
+/** Mirrors `TMergeRequestStatus` in `merge-orchestrator.ts` — polled per-MR so the UI can show merge/pipeline state without the user opening GitLab. */
+export type TMrLiveStatus = { state: string; mergedAt?: string; pipeline?: { status: string; webUrl: string }; error?: string };
+
+/** Mirrors `TMergeTarget` in `merge-orchestrator.ts`. */
+export type TMergeTargetInput = { role: string; pathWithNamespace: string; projectId: number; mrIid: number; targetBranch: string };
 
 /** Mirrors `TEntityRenameRisk` in `csn-model-types.ts` — an entity's display label changed since this object type's last deploy while its technical EDMX name stayed the same, a real data-loss risk (see the type's own doc comment). */
 export type TEntityRenameRisk = { technicalName: string; oldLabel: string; newLabel: string };
@@ -267,6 +273,10 @@ export const toolStudioApi = {
     post<{ jobId?: string; error?: string }>("/api/tool/deploy-model/deploy", input),
   previewDeployModelChanges: (input: { uploadId: string; deployTargetId: string; objectTypeSlug: string }) =>
     post<TDeployPreviewResult>("/api/tool/deploy-model/preview-changes", input),
+  getMrStatus: (projectId: number, mrIid: number) => get<TMrLiveStatus>(`/api/tool/deploy-model/mr-status?projectId=${projectId}&mrIid=${mrIid}`),
+  mergeMr: (projectId: number, mrIid: number) => post<{ merged: boolean; state?: string; mergeCommitSha?: string; error?: string }>("/api/tool/deploy-model/merge", { projectId, mrIid }),
+  startAutoMerge: (dbTarget: TMergeTargetInput, restTargets: TMergeTargetInput[]) =>
+    post<{ jobId?: string; error?: string }>("/api/tool/deploy-model/auto-merge", { dbTarget, restTargets }),
   addManualObjectType: (input: { deployTargetId: string; slug: string; envObjectName?: string; projectId: number; pathWithNamespace: string; role: string; defaultBranch?: string }) =>
     post<{ ok?: boolean; error?: string }>("/api/tool/deploy-model/manual-object-type", input),
   removeManualObjectType: (deployTargetId: string, slug: string) =>

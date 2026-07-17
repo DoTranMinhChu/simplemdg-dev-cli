@@ -39,6 +39,14 @@ export type TGitLabMergeRequest = {
   web_url: string;
   title: string;
   state: string;
+  merge_commit_sha?: string;
+  merge_status?: string;
+};
+
+export type TGitLabPipelineSummary = { id: number; status: string; web_url: string; sha: string };
+
+export type TGitLabMergeRequestDetail = TGitLabMergeRequest & {
+  head_pipeline?: TGitLabPipelineSummary | null;
 };
 
 /** UI-agnostic: callers decide how to surface cache/refresh state (same pattern as listRootGroups/listProjects). */
@@ -145,4 +153,35 @@ export async function createMergeRequest(auth: TGitLabAuth, projectId: number, r
   });
   if (!response.ok) throw new Error(`GitLab merge request creation failed ${response.status}: ${await response.text()}`);
   return await response.json() as TGitLabMergeRequest;
+}
+
+export async function getMergeRequest(auth: TGitLabAuth, projectId: number, mrIid: number): Promise<TGitLabMergeRequestDetail> {
+  const encodedId = encodeURIComponent(String(projectId));
+  const url = `${normalizeBaseUrlLocal(auth.baseUrl)}/api/v4/projects/${encodedId}/merge_requests/${mrIid}`;
+  const response = await fetch(url, { headers: { "PRIVATE-TOKEN": auth.token } });
+  if (!response.ok) throw new Error(`GitLab merge request fetch failed ${response.status}: ${await response.text()}`);
+  return await response.json() as TGitLabMergeRequestDetail;
+}
+
+/** Merges an MR right now (no CI gate on the MR itself — matches this project's observed flow: MRs merge immediately, then a pipeline runs on the target branch off the resulting merge commit). Returns the merge commit SHA so callers can correlate the post-merge pipeline. */
+export async function mergeMergeRequest(auth: TGitLabAuth, projectId: number, mrIid: number): Promise<TGitLabMergeRequestDetail> {
+  const encodedId = encodeURIComponent(String(projectId));
+  const url = `${normalizeBaseUrlLocal(auth.baseUrl)}/api/v4/projects/${encodedId}/merge_requests/${mrIid}/merge`;
+  const response = await fetch(url, { method: "PUT", headers: { "PRIVATE-TOKEN": auth.token, "content-type": "application/json" } });
+  if (!response.ok) throw new Error(`GitLab merge failed ${response.status}: ${await response.text()}`);
+  return await response.json() as TGitLabMergeRequestDetail;
+}
+
+/** Most recent pipelines for a branch, optionally filtered to one commit SHA — used to find the pipeline a merge commit triggered on its target branch (GitLab doesn't return that pipeline directly from the merge call itself). */
+export async function listPipelinesForRef(auth: TGitLabAuth, projectId: number, ref: string, options?: { sha?: string }): Promise<TGitLabPipelineSummary[]> {
+  const encodedId = encodeURIComponent(String(projectId));
+  const url = new URL(`${normalizeBaseUrlLocal(auth.baseUrl)}/api/v4/projects/${encodedId}/pipelines`);
+  url.searchParams.set("ref", ref);
+  url.searchParams.set("order_by", "id");
+  url.searchParams.set("sort", "desc");
+  url.searchParams.set("per_page", "10");
+  const response = await fetch(url, { headers: { "PRIVATE-TOKEN": auth.token } });
+  if (!response.ok) throw new Error(`GitLab pipelines fetch failed ${response.status}: ${await response.text()}`);
+  const pipelines = await response.json() as TGitLabPipelineSummary[];
+  return options?.sha ? pipelines.filter((pipeline) => pipeline.sha === options.sha) : pipelines;
 }

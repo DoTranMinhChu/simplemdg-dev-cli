@@ -6,12 +6,13 @@ import { SearchableSelect } from "../../../components/common/SearchableSelect";
 import { Collapsible } from "../../../components/common/Collapsible";
 import { JsonView } from "../../../components/common/JsonView";
 import { useAsync } from "../../../hooks/useAsync";
-import { useJobEvents } from "../hooks/useJobEvents";
+import { useJobEvents, mergeJobSteps } from "../hooks/useJobEvents";
 import type { TJobStep } from "../hooks/useJobEvents";
 import { GitLabLoginModal } from "../components/GitLabLoginModal";
 import { CreateDeployTargetForm } from "../components/CreateDeployTargetForm";
 import { DeployChangesPreview } from "../components/DeployChangesPreview";
 import { EntityRenameAlert } from "../components/EntityRenameAlert";
+import { MergeRequestsPanel } from "../components/MergeRequestsPanel";
 import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TDeployModelResult, TDeployTarget, TDiscoveredObjectType, TJoinFieldRisk } from "../api/tool-studio-api-client";
 
@@ -21,12 +22,6 @@ const JOIN_RISK_SEVERITY_LABEL: Record<TJoinFieldRisk["severity"], string> = {
   medium: "Medium",
   info: "Info",
 };
-
-function mergeSteps(prev: TJobStep[], incoming: TJobStep[]): TJobStep[] {
-  const map = new Map(prev.map((step) => [step.key, step]));
-  for (const step of incoming) map.set(step.key, step);
-  return Array.from(map.values());
-}
 
 function StepHead({ n, title, sub, done }: { n: number; title: string; sub?: string; done?: boolean }): React.ReactElement {
   return (
@@ -96,7 +91,7 @@ export function DeployModelPage(): React.ReactElement {
   );
 
   useJobEvents(jobId, (event) => {
-    if (event.type === "job-step" && event.steps) setJobSteps((prev) => mergeSteps(prev, event.steps!));
+    if (event.type === "job-step" && event.steps) setJobSteps((prev) => mergeJobSteps(prev, event.steps!));
     if (event.type === "job-completed") setJobResult(event.result as TDeployModelResult);
     if (event.type === "job-failed") setJobError(event.error);
   });
@@ -362,16 +357,9 @@ export function DeployModelPage(): React.ReactElement {
                 <EntityRenameAlert renames={jobResult.renamedEntities} />
               </div>
             )}
+            {jobResult && jobResult.mergeRequests.length > 0 && <MergeRequestsPanel mergeRequests={jobResult.mergeRequests} />}
             {jobResult && (
               <div style={{ marginTop: 12 }}>
-                {jobResult.mergeRequests.map((mr) => (
-                  <div className="ts-step-row success" key={mr.webUrl}>
-                    <span className="ts-step-icon">✓</span>
-                    <div>
-                      <a href={mr.webUrl} target="_blank" rel="noreferrer">{mr.pathWithNamespace} — MR</a>
-                    </div>
-                  </div>
-                ))}
                 {jobResult.noChange.map((item) => (
                   <div className="ts-step-row" key={item.pathWithNamespace}>
                     <span className="ts-step-icon">–</span>

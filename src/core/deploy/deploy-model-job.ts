@@ -186,7 +186,7 @@ export type TDeployModelOptions = {
 
 export type TDeployModelResult = {
   entityName: string;
-  mergeRequests: Array<{ role: string; pathWithNamespace: string; webUrl: string; iid: number }>;
+  mergeRequests: Array<{ role: string; pathWithNamespace: string; webUrl: string; iid: number; projectId: number; targetBranch: string }>;
   /**
    * Repos where the commit landed but produced zero diff against the target branch (e.g.
    * re-deploying an EDMX that converts to byte-identical CSN/XML already on the target) — the
@@ -594,7 +594,7 @@ export async function runDeployModelJob(jobId: string, options: TDeployModelOpti
         reviewerIds: options.reviewerIds,
       });
 
-      mergeRequests.push({ role: repo.role, pathWithNamespace: repo.pathWithNamespace, webUrl: mergeRequest.web_url, iid: mergeRequest.iid });
+      mergeRequests.push({ role: repo.role, pathWithNamespace: repo.pathWithNamespace, webUrl: mergeRequest.web_url, iid: mergeRequest.iid, projectId: repo.projectId, targetBranch: repo.defaultBranch });
       emitJobEvent({ jobId, type: "job-step", steps: [{ key: stepKey, label: `${repo.pathWithNamespace}: MR created`, status: "success", detail: mergeRequest.web_url }] });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

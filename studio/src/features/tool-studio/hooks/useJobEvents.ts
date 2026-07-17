@@ -13,6 +13,13 @@ export type TJobEvent = {
   updatedAt: string;
 };
 
+/** Folds an incoming `job-step` event's steps into a running list, keyed by `step.key` (later updates for the same key replace earlier ones, in place). */
+export function mergeJobSteps(prev: TJobStep[], incoming: TJobStep[]): TJobStep[] {
+  const map = new Map(prev.map((step) => [step.key, step]));
+  for (const step of incoming) map.set(step.key, step);
+  return Array.from(map.values());
+}
+
 /** Subscribes to Tool Studio's job-progress SSE stream, filtered to one jobId. */
 export function useJobEvents(jobId: string | undefined, onEvent: (event: TJobEvent) => void): void {
   const handlerRef = useRef(onEvent);

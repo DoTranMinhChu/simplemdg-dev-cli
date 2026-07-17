@@ -3,12 +3,14 @@ import crypto from "node:crypto";
 import { getNumber, getString, readJsonBody, readRawBody, sendJson } from "../../../studio-shared/studio-server-kit";
 import { getDefaultGitLabAuth } from "../../../gitlab/gitlab-client";
 import type { TGitLabGroup } from "../../../gitlab/gitlab-client";
-import { searchProjectMembers } from "../../../gitlab/gitlab-write-client";
+import { mergeMergeRequest, searchProjectMembers } from "../../../gitlab/gitlab-write-client";
 import { discoverObjectTypesForGroup, suggestObjectTypeDefaults } from "../../../deploy/object-type-discovery";
 import type { TObjectTypeRepoRef, TObjectTypeRepoRole } from "../../../deploy/object-type-discovery";
 import { addManualObjectType, findDeployTarget, listManualObjectTypes, mergeObjectTypesWithManual, removeManualObjectType, touchDeployTargetUsage } from "../../../deploy/deploy-target-store";
 import type { TObjectTypeMode } from "../../../deploy/deploy-target-store";
 import { previewDeployModelChanges, previewEdmxImport, resolveUploadPath, runDeployModelJob, saveUploadedEdmx } from "../../../deploy/deploy-model-job";
+import { getMergeRequestStatus, runAutoMergeJob } from "../../../deploy/merge-orchestrator";
+import type { TMergeTarget } from "../../../deploy/merge-orchestrator";
 
 function groupFromTarget(target: { gitlabGroupId: number; gitlabGroupPath: string }): TGitLabGroup {
   return { id: target.gitlabGroupId, full_path: target.gitlabGroupPath, name: target.gitlabGroupPath.split("/").pop() ?? target.gitlabGroupPath };
@@ -233,6 +235,65 @@ export async function handleDeployModelApi(req: http.IncomingMessage, res: http.
       .then(() => touchDeployTargetUsage(target.id))
       .catch(() => undefined);
 
+    return true;
+  }
+
+  if (url.pathname === "/api/tool/deploy-model/mr-status" && method === "GET") {
+    const projectId = Number(url.searchParams.get("projectId"));
+    const mrIid = Number(url.searchParams.get("mrIid"));
+    const auth = await getDefaultGitLabAuth();
+    if (!auth || !projectId || !mrIid) {
+      sendJson(res, { error: "auth/projectId/mrIid required" }, 400);
+      return true;
+    }
+    try {
+      sendJson(res, await getMergeRequestStatus(auth, projectId, mrIid));
+    } catch (error) {
+      sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+    return true;
+  }
+
+  // Manual, single-MR merge — the "Merge" button next to any one of the 3 repo rows, usable
+  // regardless of whether auto-merge is also available, in whatever order the user wants.
+  if (url.pathname === "/api/tool/deploy-model/merge" && method === "POST") {
+    const body = await readJsonBody(req);
+    const projectId = getNumber(body, "projectId", 0);
+    const mrIid = getNumber(body, "mrIid", 0);
+    const auth = await getDefaultGitLabAuth();
+    if (!auth || !projectId || !mrIid) {
+      sendJson(res, { error: "auth/projectId/mrIid required" }, 400);
+      return true;
+    }
+    try {
+      const merged = await mergeMergeRequest(auth, projectId, mrIid);
+      sendJson(res, { merged: true, state: merged.state, mergeCommitSha: merged.merge_commit_sha });
+    } catch (error) {
+      sendJson(res, { merged: false, error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+    return true;
+  }
+
+  // Merge `db` now, wait for the pipeline its merge commit triggers on the target branch, and only
+  // then merge `srv`/`srv_process` — the automated version of the user's own manual sequence.
+  // Doesn't replace the manual "Merge" button above; both are always available.
+  if (url.pathname === "/api/tool/deploy-model/auto-merge" && method === "POST") {
+    const body = await readJsonBody(req);
+    const auth = await getDefaultGitLabAuth();
+    if (!auth) {
+      sendJson(res, { error: "Not logged in to GitLab" }, 400);
+      return true;
+    }
+    const dbTarget = body.dbTarget as TMergeTarget | undefined;
+    const restTargets = Array.isArray(body.restTargets) ? (body.restTargets as TMergeTarget[]) : [];
+    if (!dbTarget) {
+      sendJson(res, { error: "dbTarget is required" }, 400);
+      return true;
+    }
+
+    const jobId = crypto.randomUUID();
+    sendJson(res, { jobId });
+    void runAutoMergeJob(jobId, { auth, dbTarget, restTargets });
     return true;
   }
 
