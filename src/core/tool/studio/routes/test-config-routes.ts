@@ -3,6 +3,7 @@ import { getNumber, getString, readJsonBody, sendJson } from "../../../studio-sh
 import {
   testAzureBlobConfig,
   testOAuth2EmailConfig,
+  testOpenTextConfig,
   testS3Config,
   testSharePointConfig,
   testSmtpEmailConfig,
@@ -80,6 +81,22 @@ export async function handleTestConfigApi(
       clientSecret: getString(body, "clientSecret"),
       userFrom: getString(body, "userFrom"),
       userTo: getString(body, "userTo"),
+    });
+    sendJson(res, result);
+    return true;
+  }
+
+  if (url.pathname === "/api/tool/test-config/opentext" && method === "POST") {
+    const body = await readJsonBody(req);
+    const result = await testOpenTextConfig({
+      url: getString(body, "url"),
+      basicAuthUsername: getString(body, "basicAuthUsername"),
+      basicAuthPassword: getString(body, "basicAuthPassword"),
+      otdsUsername: getString(body, "otdsUsername"),
+      otdsPassword: getString(body, "otdsPassword"),
+      otdsDomain: getString(body, "otdsDomain") || undefined,
+      boType: getString(body, "boType") || undefined,
+      boId: getString(body, "boId") || undefined,
     });
     sendJson(res, result);
     return true;

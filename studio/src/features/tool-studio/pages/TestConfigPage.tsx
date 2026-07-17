@@ -2,7 +2,7 @@
 import { ConnectivityTestForm } from "../components/ConnectivityTestForm";
 import { toolStudioApi } from "../api/tool-studio-api-client";
 
-type TTestConfigTab = "sharepoint" | "azure-blob" | "s3" | "smtp" | "oauth2-email";
+type TTestConfigTab = "sharepoint" | "azure-blob" | "s3" | "smtp" | "oauth2-email" | "opentext";
 
 const TABS: Array<{ id: TTestConfigTab; label: string }> = [
   { id: "sharepoint", label: "SharePoint" },
@@ -10,6 +10,7 @@ const TABS: Array<{ id: TTestConfigTab; label: string }> = [
   { id: "s3", label: "AWS S3" },
   { id: "smtp", label: "SMTP Email" },
   { id: "oauth2-email", label: "OAuth2 Email" },
+  { id: "opentext", label: "OpenText" },
 ];
 
 export function TestConfigPage(): React.ReactElement {
@@ -127,6 +128,33 @@ export function TestConfigPage(): React.ReactElement {
               clientSecret: values.clientSecret,
               userFrom: values.userFrom,
               userTo: values.userTo,
+            })
+          }
+        />
+      )}
+
+      {tab === "opentext" && (
+        <ConnectivityTestForm
+          fields={[
+            { name: "url", label: "OpenText integration URL", placeholder: "https://<tenant>.../http/SimpleMDGToOpenText" },
+            { name: "basicAuthUsername", label: "Basic Auth username (endpoint)", half: true },
+            { name: "basicAuthPassword", label: "Basic Auth password (endpoint)", type: "password", half: true },
+            { name: "otdsUsername", label: "OTDS username", half: true },
+            { name: "otdsPassword", label: "OTDS password", type: "password", half: true },
+            { name: "otdsDomain", label: "OTDS domain (optional)", defaultValue: "otds.admin", half: true },
+            { name: "boType", label: "Business object type (optional)", defaultValue: "BUS2250", placeholder: "BUS2250", half: true },
+            { name: "boId", label: "Business object ID (optional)", defaultValue: "TOOLSTUDIO_TEST", placeholder: "Scratch ID used for the test folder", half: true },
+          ]}
+          onRun={(values) =>
+            toolStudioApi.testOpenText({
+              url: values.url,
+              basicAuthUsername: values.basicAuthUsername,
+              basicAuthPassword: values.basicAuthPassword,
+              otdsUsername: values.otdsUsername,
+              otdsPassword: values.otdsPassword,
+              otdsDomain: values.otdsDomain || undefined,
+              boType: values.boType || undefined,
+              boId: values.boId || undefined,
             })
           }
         />

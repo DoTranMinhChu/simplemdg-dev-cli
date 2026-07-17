@@ -8,6 +8,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { BlobServiceClient } from "@azure/storage-blob";
 import nodemailer from "nodemailer";
+import axios from "axios";
 
 export type TConnectivityTestStep = {
   key: string;
@@ -382,6 +383,148 @@ export async function testOAuth2EmailConfig(options: TOAuth2EmailTestOptions): P
             saveToSentItems: false,
           }),
         });
+      },
+    },
+  ]);
+}
+
+// --- OpenText (via the CPI iflow that fronts OpenText, e.g. SimpleMDGToOpenText) ---
+
+function openTextErrorMessage(error: unknown, fallback: string): string {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as { message?: string; error?: string } | string | undefined;
+    const detail = typeof data === "string" ? data : data?.message || data?.error;
+    return detail || (error.response ? `HTTP ${error.response.status}` : error.message) || fallback;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
+export type TOpenTextTestOptions = {
+  /** Base URL of the CPI iflow fronting OpenText, e.g. https://<tenant>.../http/SimpleMDGToOpenText */
+  url: string;
+  /** Basic Auth credentials for the CPI endpoint itself. */
+  basicAuthUsername: string;
+  basicAuthPassword: string;
+  /** OTDS (OpenText Directory Services) credentials for the underlying OpenText system, exchanged for a ticket via FetchToken. */
+  otdsUsername: string;
+  otdsPassword: string;
+  otdsDomain?: string;
+  /** Business object type/id scoping the test folder + file round-trip (defaults to a scratch value). */
+  boType?: string;
+  boId?: string;
+};
+
+export async function testOpenTextConfig(options: TOpenTextTestOptions): Promise<TConnectivityTestResult> {
+  const baseUrl = options.url.trim().replace(/\/+$/, "");
+  const boType = options.boType?.trim() || "BUS2250";
+  const boId = options.boId?.trim() || "TOOLSTUDIO_TEST";
+  const fileName = "connectivity-test.txt";
+  const fileContent = `SimpleMDG Tool Studio connectivity test — ${new Date().toISOString()}`;
+  const basicAuth = Buffer.from(`${options.basicAuthUsername}:${options.basicAuthPassword}`).toString("base64");
+
+  let tokenHeader: Record<string, string> = {};
+  let nodeId = "";
+
+  return runSteps([
+    {
+      key: "auth",
+      label: "Fetch OTDS token",
+      run: async () => {
+        try {
+          // OpenText's FetchToken is a GET that expects its credentials as a
+          // form-urlencoded body (not query params) — mirrors the real iflow,
+          // which is why this uses axios rather than the spec-strict `fetch`.
+          const response = await axios.request<{ ticket?: string }>({
+            method: "get",
+            url: `${baseUrl}/FetchToken`,
+            headers: {
+              Authorization: `Basic ${basicAuth}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data: new URLSearchParams({
+              Username: options.otdsUsername,
+              Password: options.otdsPassword,
+              Domain: options.otdsDomain?.trim() || "otds.admin",
+            }).toString(),
+          });
+          const ticket = response.data?.ticket;
+          if (!ticket) throw new Error('"ticket" not found in FetchToken response');
+          tokenHeader = { Token: ticket, Authorization: `Basic ${basicAuth}` };
+        } catch (error) {
+          throw new Error(openTextErrorMessage(error, "FetchToken request failed"));
+        }
+      },
+    },
+    {
+      key: "ensure-folder",
+      label: `Ensure folder (boType=${boType}, boId=${boId})`,
+      run: async () => {
+        let folderExists = false;
+        try {
+          const response = await axios.get(`${baseUrl}/ChangeRequest`, { headers: { ...tokenHeader, boType, boId } });
+          folderExists = response.status === 200;
+        } catch (error) {
+          if (!(axios.isAxiosError(error) && error.response?.status === 404)) {
+            throw new Error(openTextErrorMessage(error, "Folder lookup failed"));
+          }
+        }
+        if (folderExists) return "already exists";
+
+        try {
+          await axios.put(
+            `${baseUrl}/ChangeRequest`,
+            {
+              MainBOId: "",
+              MainBOType: "",
+              ChangeRequestName: `SimpleMDG Tool Studio connectivity test ${boId}`,
+              Status: "INPROCESS",
+            },
+            { headers: { ...tokenHeader, boType, boId, "Content-Type": "application/json" } },
+          );
+        } catch (error) {
+          throw new Error(openTextErrorMessage(error, "Folder creation failed"));
+        }
+        return "created";
+      },
+    },
+    {
+      key: "upload",
+      label: "Upload test file",
+      run: async () => {
+        try {
+          const form = new FormData();
+          form.append("File", new Blob([fileContent], { type: "text/plain" }), fileName);
+          const response = await axios.post<{ nodeId?: string | number }>(`${baseUrl}/Nodes`, form, {
+            headers: { ...tokenHeader, boType, boId, docName: fileName },
+          });
+          nodeId = response.data?.nodeId ? String(response.data.nodeId) : "";
+          if (!nodeId) throw new Error('"nodeId" not found in upload response');
+          return nodeId;
+        } catch (error) {
+          throw new Error(openTextErrorMessage(error, "Upload failed"));
+        }
+      },
+    },
+    {
+      key: "download",
+      label: "Read test file back",
+      run: async () => {
+        try {
+          await axios.get(`${baseUrl}/Nodes`, { headers: { ...tokenHeader, nodeId } });
+        } catch (error) {
+          throw new Error(openTextErrorMessage(error, "Download failed"));
+        }
+      },
+    },
+    {
+      key: "delete",
+      label: "Delete test file",
+      run: async () => {
+        try {
+          await axios.delete(`${baseUrl}/Nodes`, { headers: { ...tokenHeader, nodeId } });
+        } catch (error) {
+          throw new Error(openTextErrorMessage(error, "Delete failed"));
+        }
       },
     },
   ]);

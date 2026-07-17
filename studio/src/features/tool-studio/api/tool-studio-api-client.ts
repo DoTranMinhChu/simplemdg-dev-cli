@@ -211,6 +211,16 @@ export const toolStudioApi = {
     post<TConnectivityTestResult>("/api/tool/test-config/smtp", body),
   testOAuth2Email: (body: { tenantId: string; clientId: string; clientSecret: string; userFrom: string; userTo: string }) =>
     post<TConnectivityTestResult>("/api/tool/test-config/oauth2-email", body),
+  testOpenText: (body: {
+    url: string;
+    basicAuthUsername: string;
+    basicAuthPassword: string;
+    otdsUsername: string;
+    otdsPassword: string;
+    otdsDomain?: string;
+    boType?: string;
+    boId?: string;
+  }) => post<TConnectivityTestResult>("/api/tool/test-config/opentext", body),
 
   getCfLogRestartDefaults: () => get<{ appNames: string[] }>("/api/tool/cf-log-restart/defaults"),
   getRecentLogs: (targetKey: string, appNames: string[]) =>
