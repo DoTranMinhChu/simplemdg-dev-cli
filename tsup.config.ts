@@ -11,5 +11,5 @@ export default defineConfig({
   dts: false,
   shims: false,
   splitting: false,
-  external: ["pg", "@sap/hana-client"],
+  external: ["pg", "@sap/hana-client", "playwright", "@sap/cds-lsp"],
 });

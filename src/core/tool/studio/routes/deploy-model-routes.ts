@@ -5,9 +5,10 @@ import { getDefaultGitLabAuth } from "../../../gitlab/gitlab-client";
 import type { TGitLabGroup } from "../../../gitlab/gitlab-client";
 import { searchProjectMembers } from "../../../gitlab/gitlab-write-client";
 import { discoverObjectTypesForGroup, suggestObjectTypeDefaults } from "../../../deploy/object-type-discovery";
-import type { TObjectTypeRepoRole } from "../../../deploy/object-type-discovery";
+import type { TObjectTypeRepoRef, TObjectTypeRepoRole } from "../../../deploy/object-type-discovery";
 import { addManualObjectType, findDeployTarget, listManualObjectTypes, mergeObjectTypesWithManual, removeManualObjectType, touchDeployTargetUsage } from "../../../deploy/deploy-target-store";
-import { previewEdmxImport, resolveUploadPath, runDeployModelJob, saveUploadedEdmx } from "../../../deploy/deploy-model-job";
+import type { TObjectTypeMode } from "../../../deploy/deploy-target-store";
+import { previewDeployModelChanges, previewEdmxImport, resolveUploadPath, runDeployModelJob, saveUploadedEdmx } from "../../../deploy/deploy-model-job";
 
 function groupFromTarget(target: { gitlabGroupId: number; gitlabGroupPath: string }): TGitLabGroup {
   return { id: target.gitlabGroupId, full_path: target.gitlabGroupPath, name: target.gitlabGroupPath.split("/").pop() ?? target.gitlabGroupPath };
@@ -34,7 +35,11 @@ export async function handleDeployModelApi(req: http.IncomingMessage, res: http.
     const body = await readJsonBody(req);
     try {
       const filePath = await resolveUploadPath(getString(body, "uploadId"));
-      const result = await previewEdmxImport(filePath);
+      const objectType = getString(body, "objectType") || undefined;
+      const objectTypeMode = (getString(body, "objectTypeMode") || undefined) as TObjectTypeMode | undefined;
+      const repos = Array.isArray(body.repos) ? (body.repos as TObjectTypeRepoRef[]) : undefined;
+      const auth = await getDefaultGitLabAuth();
+      const result = await previewEdmxImport(filePath, objectType, objectTypeMode, repos, auth ?? undefined);
       sendJson(res, result);
     } catch (error) {
       sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
@@ -142,6 +147,44 @@ export async function handleDeployModelApi(req: http.IncomingMessage, res: http.
     const group = groupFromTarget(target);
     await removeManualObjectType(`${auth.baseUrl}::${group.id}`, getString(body, "slug"));
     sendJson(res, { ok: true });
+    return true;
+  }
+
+  if (url.pathname === "/api/tool/deploy-model/preview-changes" && method === "POST") {
+    const body = await readJsonBody(req);
+    const deployTargetId = getString(body, "deployTargetId");
+    const objectTypeSlug = getString(body, "objectTypeSlug");
+    const target = await findDeployTarget(deployTargetId);
+    const auth = await getDefaultGitLabAuth();
+
+    if (!target || !auth) {
+      sendJson(res, { error: !target ? "Deploy target not found" : "Not logged in to GitLab" }, 400);
+      return true;
+    }
+
+    const group = groupFromTarget(target);
+    const discovered = await discoverObjectTypesForGroup(auth, group, { preferredBranch: target.defaultBranch });
+    const manual = await listManualObjectTypes(`${auth.baseUrl}::${group.id}`);
+    const objectType = mergeObjectTypesWithManual(discovered.data, manual).find((item) => item.slug === objectTypeSlug);
+
+    if (!objectType) {
+      sendJson(res, { error: `Object type '${objectTypeSlug}' was not found for this target.` }, 404);
+      return true;
+    }
+
+    try {
+      const result = await previewDeployModelChanges({
+        auth,
+        uploadId: getString(body, "uploadId"),
+        repos: objectType.repos,
+        objectTypeSlug: objectType.slug,
+        objectType: objectType.envObjectName,
+        objectTypeMode: target.objectTypeMode,
+      });
+      sendJson(res, result);
+    } catch (error) {
+      sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
+    }
     return true;
   }
 

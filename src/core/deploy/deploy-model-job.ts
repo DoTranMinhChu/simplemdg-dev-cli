@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import fs from "fs-extra";
 import { execa } from "execa";
+import { diffLines } from "diff";
 import type { TGitLabAuth } from "../gitlab/gitlab-client";
 import { fetchRawFile } from "../gitlab/gitlab-client";
 import { compareBranches, createBranch, commitMultipleFiles, createMergeRequest, deleteBranch, listBranches } from "../gitlab/gitlab-write-client";
@@ -11,10 +12,11 @@ import { emitJobEvent } from "../tool/studio/job-events";
 import { deriveShortCodeFromRepos } from "./object-type-discovery";
 import type { TObjectTypeRepoRef } from "./object-type-discovery";
 import type { TObjectTypeMode } from "./deploy-target-store";
-import type { TCsnContent } from "./csn-model-types";
+import type { TCsnContent, TEntityRenameRisk, TJoinFieldRisk } from "./csn-model-types";
 import { preprocessCsnForMode } from "./csn-preprocess";
-import { buildDbModelForNamespace, findRootModel } from "./csn-model-builder";
+import { buildDbModelForNamespace, detectRenamedEntityLabels, findRootModel } from "./csn-model-builder";
 import { buildI18nActions } from "./csn-i18n";
+import { resolveCdsDkCli } from "./cds-dk-version-resolver";
 
 const UPLOAD_ROOT = path.join(os.tmpdir(), "smdg-tool-studio", "deploy-model-uploads");
 
@@ -44,9 +46,57 @@ export async function resolveUploadPath(uploadId: string): Promise<string> {
  * removed afterwards either way, so there's no side-effect downside to running the real import —
  * and this guarantees the preview is byte-for-byte what the actual deploy will commit.
  */
-export async function previewEdmxImport(filePath: string): Promise<{ csn: unknown; entityName: string }> {
-  const { entityName, csnContent } = await runEdmxImport(filePath);
-  return { csn: JSON.parse(csnContent), entityName };
+/**
+ * `objectType`/`objectTypeMode`/`repos` are optional because they aren't always known yet at
+ * preview time (e.g. the F4 flow never builds a DB model) — when given, this also runs the real
+ * DB-model generator far enough to collect `joinRisks` (see `csn-model-types.ts`) WITHOUT building
+ * any `CommitAction`s or touching GitLab, so the user sees composition join warnings (missing
+ * `<ReferentialConstraint>`, mismatched field names — the exact issue found on a real CMIR deploy)
+ * before clicking Deploy, not after. A genuine validation failure (bad `@sap.label`, etc.) is
+ * reported as `joinRiskError` instead of failing the whole preview — that same error surfaces again,
+ * fatally, if the user proceeds to Deploy anyway.
+ *
+ * `repos` (when given) reproduces `runDeployModelJob`'s `MDG_<code>.xml` rename-before-import (see
+ * `runEdmxImport`'s doc comment) so the CSN's root namespace prefix matches what the real deploy
+ * will use — without it, `findRootModel` looks for the object type's label under whatever prefix
+ * the UPLOADED FILE'S OWN NAME happens to produce, which is almost never the real one. `repos` +
+ * `auth` together also resolve the same pinned `@sap/cds-dk` version `runDeployModelJob` would use
+ * (see `cds-dk-version-resolver.ts`), so the preview's CSN — and its `joinRisks` — reflect exactly
+ * what a real deploy will produce, not whatever's globally installed on this machine. The same fetch
+ * also feeds `detectRenamedEntityLabels` — confirmed on real data to be the actual root cause of a
+ * production incident (a relabeled-but-otherwise-identical entity silently became a different,
+ * empty CDS entity, orphaning the real HANA table backing the old one) — so this is surfaced at the
+ * earliest possible point, right after upload.
+ */
+export async function previewEdmxImport(
+  filePath: string,
+  objectType?: string,
+  objectTypeMode?: TObjectTypeMode,
+  repos?: TObjectTypeRepoRef[],
+  auth?: TGitLabAuth,
+): Promise<{ csn: unknown; entityName: string; joinRisks?: TJoinFieldRisk[]; joinRiskError?: string; cdsDkVersion?: string; renamedEntities?: TEntityRenameRisk[] }> {
+  const shortCode = repos ? deriveShortCodeFromRepos(repos) : undefined;
+  const entityNameOverride = shortCode ? `MDG_${shortCode.toUpperCase()}` : undefined;
+
+  const archiveRepo = repos?.find((repo) => repo.role === "srv") ?? repos?.find((repo) => repo.role === "db");
+  const resolved =
+    auth && archiveRepo && entityNameOverride
+      ? await resolveCdsDkCli(auth, archiveRepo.projectId, archiveRepo.defaultBranch, `${archiveRepo.role === "db" ? "db" : "srv"}/external/${entityNameOverride}.csn`).catch(() => undefined)
+      : undefined;
+
+  const { entityName, csnContent } = await runEdmxImport(filePath, entityNameOverride, resolved?.cliPath);
+  const csn = JSON.parse(csnContent) as TCsnContent;
+  const renamedEntities = detectRenamedEntityLabels(resolved?.previousCsn, csn);
+  if (!objectType || !objectTypeMode) return { csn, entityName, cdsDkVersion: resolved?.version, renamedEntities };
+
+  try {
+    const preprocessed = preprocessCsnForMode(objectTypeMode, csn);
+    const { rootModelName, shortName } = findRootModel(preprocessed, objectType);
+    const built = buildDbModelForNamespace("final", preprocessed, rootModelName, objectType, shortName, objectTypeMode);
+    return { csn, entityName, joinRisks: built.joinRisks, cdsDkVersion: resolved?.version, renamedEntities };
+  } catch (error) {
+    return { csn, entityName, joinRiskError: error instanceof Error ? error.message : String(error), cdsDkVersion: resolved?.version, renamedEntities };
+  }
 }
 
 export type TImportedCdsFiles = { entityName: string; csnContent: string; xmlContent: string };
@@ -67,8 +117,15 @@ export type TImportedCdsFiles = { entityName: string; csnContent: string; xmlCon
  * content under the wrong CDS namespace and archived external files under the wrong file names,
  * alongside — not replacing — the real `MDG_CMI.csn`/`.xml` already in the repo. Callers pass this
  * whenever they've derived the object type's short code (see `deriveShortCodeFromRepos`).
+ *
+ * `cdsCliPath` (see `cds-dk-version-resolver.ts`), when given, is invoked directly instead of
+ * whatever `cds` resolves to on the running machine's PATH — never rely on an ambient global
+ * install here: confirmed on real data that a different `@sap/cds-dk` version changes the CSN it
+ * produces (not just cosmetically), so every call site that cares about matching a specific
+ * customer repo's history must pin an exact version rather than drift with whatever's installed
+ * wherever this tool happens to run.
  */
-export async function runEdmxImport(filePath: string, entityNameOverride?: string): Promise<TImportedCdsFiles> {
+export async function runEdmxImport(filePath: string, entityNameOverride?: string, cdsCliPath?: string): Promise<TImportedCdsFiles> {
   const entityName = entityNameOverride || path.basename(filePath, path.extname(filePath));
   const scratchDir = await fs.mkdtemp(path.join(os.tmpdir(), "smdg-cds-import-"));
   try {
@@ -77,7 +134,9 @@ export async function runEdmxImport(filePath: string, entityNameOverride?: strin
     const localFile = path.join(scratchDir, localFileName);
     await fs.copy(filePath, localFile);
 
-    const result = await execa("cds", ["import", localFile], { cwd: scratchDir, reject: false });
+    const result = cdsCliPath
+      ? await execa(process.execPath, [cdsCliPath, "import", localFile], { cwd: scratchDir, reject: false })
+      : await execa("cds", ["import", localFile], { cwd: scratchDir, reject: false });
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || result.stdout || "cds import failed");
     }
@@ -86,7 +145,12 @@ export async function runEdmxImport(filePath: string, entityNameOverride?: strin
     const csnPath = path.join(externalDir, `${entityName}.csn`);
     const xmlPath = path.join(externalDir, localFileName);
 
-    const [csnContent, xmlContent] = await Promise.all([fs.readFile(csnPath, "utf8"), fs.readFile(xmlPath, "utf8")]);
+    const [rawCsnContent, xmlContent] = await Promise.all([fs.readFile(csnPath, "utf8"), fs.readFile(xmlPath, "utf8")]);
+    // `cds import`'s own JSON.stringify indent isn't stable across environments (confirmed: the
+    // exact same pinned `@sap/cds-dk@7.9.10` wrote 1-space indent here but every already-committed
+    // customer file uses 2-space) — re-serialize to a fixed indent so a re-deploy's diff reflects
+    // only real content changes, not incidental whitespace churn from wherever `cds import` ran.
+    const csnContent = `${JSON.stringify(JSON.parse(rawCsnContent), null, 2)}\n`;
     return { entityName, csnContent, xmlContent };
   } finally {
     await fs.remove(scratchDir).catch(() => undefined);
@@ -131,6 +195,7 @@ export type TDeployModelResult = {
    */
   noChange: Array<{ role: string; pathWithNamespace: string; sourceBranch: string; targetBranch: string }>;
   skipped: Array<{ role: string; pathWithNamespace: string; reason: string }>;
+  renamedEntities: TEntityRenameRisk[];
 };
 
 /**
@@ -139,6 +204,72 @@ export type TDeployModelResult = {
  * the MR, same as the legacy tool.
  */
 type TDbModel = { dbActions: TGitLabCommitAction[]; srvActions: TGitLabCommitAction[]; shortName: string };
+
+export type TDeployDiffLine = { type: "add" | "remove" | "context" | "collapsed"; text?: string; count?: number };
+
+export type TDeployFileDiff = {
+  filePath: string;
+  changeType: "create" | "update" | "no-change";
+  additions: number;
+  deletions: number;
+  lines: TDeployDiffLine[];
+};
+
+export type TDeployRepoPreview = { role: string; pathWithNamespace: string; files: TDeployFileDiff[] };
+
+export type TDeployPreviewResult = { entityName: string; cdsDkVersion?: string; repos: TDeployRepoPreview[]; renamedEntities: TEntityRenameRisk[] };
+
+const DIFF_CONTEXT_LINES = 3;
+const DIFF_MAX_UNCHANGED_RUN = DIFF_CONTEXT_LINES * 2;
+
+/**
+ * Turns a before/after file pair into a GitHub/GitLab-style collapsed hunk view: full added/removed
+ * blocks, but long unchanged runs are collapsed to a marker (keeping only a few context lines at
+ * each edge) — a full CSN file can be 30KB+ for a single real content change, so sending every
+ * unchanged line to the browser would be both slow and unreadable.
+ */
+function buildFileDiff(oldContent: string, newContent: string): { lines: TDeployDiffLine[]; additions: number; deletions: number } {
+  const changes = diffLines(oldContent, newContent);
+  const rawLines: TDeployDiffLine[] = [];
+  let additions = 0;
+  let deletions = 0;
+
+  for (const change of changes) {
+    const trimmed = change.value.endsWith("\n") ? change.value.slice(0, -1) : change.value;
+    if (!trimmed.length) continue;
+    const type: TDeployDiffLine["type"] = change.added ? "add" : change.removed ? "remove" : "context";
+    for (const text of trimmed.split("\n")) {
+      rawLines.push({ type, text });
+      if (type === "add") additions++;
+      if (type === "remove") deletions++;
+    }
+  }
+
+  const collapsed: TDeployDiffLine[] = [];
+  let i = 0;
+  while (i < rawLines.length) {
+    if (rawLines[i].type !== "context") {
+      collapsed.push(rawLines[i]);
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < rawLines.length && rawLines[j].type === "context") j++;
+    const runLength = j - i;
+    if (runLength <= DIFF_MAX_UNCHANGED_RUN) {
+      collapsed.push(...rawLines.slice(i, j));
+    } else {
+      const headKeep = i === 0 ? 0 : DIFF_CONTEXT_LINES;
+      const tailKeep = j === rawLines.length ? 0 : DIFF_CONTEXT_LINES;
+      collapsed.push(...rawLines.slice(i, i + headKeep));
+      collapsed.push({ type: "collapsed", count: runLength - headKeep - tailKeep });
+      collapsed.push(...rawLines.slice(j - tailKeep, j));
+    }
+    i = j;
+  }
+
+  return { lines: collapsed, additions, deletions };
+}
 
 /**
  * Runs the CSN→CDS DB-model generator (Phase 1 of the port: `final` namespace only, see
@@ -191,9 +322,29 @@ async function buildDbModel(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef, csnCo
   };
 }
 
-export async function runDeployModelJob(jobId: string, options: TDeployModelOptions): Promise<TDeployModelResult> {
-  emitJobEvent({ jobId, type: "job-started", steps: [{ key: "import", label: "Convert EDMX to CSN", status: "running" }] });
+type TStepStatus = "running" | "success" | "failed";
+type TStepReporter = (key: string, label: string, status: TStepStatus, detail?: string) => void;
 
+type TPreparedDeployArtifacts = {
+  isF4: boolean;
+  filePath: string;
+  imported: TImportedCdsFiles;
+  dbModel: TDbModel | undefined;
+  targetRepos: TObjectTypeRepoRef[];
+  cdsDkVersion?: string;
+  renamedEntities: TEntityRenameRisk[];
+};
+
+/**
+ * Everything shared between a real deploy and a dry-run change preview: resolve the pinned
+ * cds-dk version, run the EDMX->CSN import, and (for object types with a `db` repo) generate the
+ * DB model — all pure/read-only against GitLab, no branch/commit/MR calls. `report` lets the real
+ * job stream progress over SSE while the preview path can pass a no-op.
+ */
+async function prepareDeployArtifacts(
+  options: Pick<TDeployModelOptions, "auth" | "uploadId" | "repos" | "objectTypeSlug" | "objectType" | "objectTypeMode">,
+  report: TStepReporter,
+): Promise<TPreparedDeployArtifacts> {
   const isF4 = options.objectTypeSlug === "f4";
   // Reproduce the legacy tool's `MDG_<code>.xml` rename-before-import so the CSN's root namespace
   // prefix matches the customer's real repos (see `runEdmxImport`'s doc comment) — derived from the
@@ -201,20 +352,51 @@ export async function runDeployModelJob(jobId: string, options: TDeployModelOpti
   const shortCode = !isF4 ? deriveShortCodeFromRepos(options.repos) : undefined;
   const entityNameOverride = shortCode ? `MDG_${shortCode.toUpperCase()}` : undefined;
 
-  const filePath = await resolveUploadPath(options.uploadId);
-  const imported = await runEdmxImport(filePath, entityNameOverride);
-  emitJobEvent({ jobId, type: "job-step", steps: [{ key: "import", label: "Convert EDMX to CSN", status: "success", detail: imported.entityName }] });
+  // Never let `cds import` fall back to whatever's globally on this machine's PATH — pin to the
+  // exact version that produced this object type's last archived CSN (see
+  // `cds-dk-version-resolver.ts`), so re-deploying the same object type never silently changes the
+  // CSN's shape just because a different machine happened to run this job.
+  const archiveRepo = (isF4 ? options.repos.find((repo) => repo.role === "db") : options.repos.find((repo) => repo.role === "srv")) ?? options.repos[0];
+  let cdsCliPath: string | undefined;
+  let cdsDkVersion: string | undefined;
+  let previousCsn: TCsnContent | undefined;
+  report("cds-dk-version", "Resolve cds-dk version", "running");
+  if (archiveRepo && entityNameOverride) {
+    const archiveFilePath = `${isF4 ? "db" : "srv"}/external/${entityNameOverride}.csn`;
+    const resolved = await resolveCdsDkCli(options.auth, archiveRepo.projectId, archiveRepo.defaultBranch, archiveFilePath);
+    cdsCliPath = resolved.cliPath;
+    cdsDkVersion = resolved.version;
+    previousCsn = resolved.previousCsn;
+    report("cds-dk-version", "Resolve cds-dk version", "success", `@sap/cds-dk@${resolved.version} (${resolved.source === "detected" ? "matches this object type's last deploy" : "default — no prior deploy found"})`);
+  } else {
+    report("cds-dk-version", "Resolve cds-dk version", "success", "skipped (no archive repo/short code yet)");
+  }
 
-  const mergeRequests: TDeployModelResult["mergeRequests"] = [];
-  const noChange: TDeployModelResult["noChange"] = [];
-  const skipped: TDeployModelResult["skipped"] = [];
+  report("import", "Convert EDMX to CSN", "running");
+  const filePath = await resolveUploadPath(options.uploadId);
+  const imported = await runEdmxImport(filePath, entityNameOverride, cdsCliPath);
+  report("import", "Convert EDMX to CSN", "success", imported.entityName);
+
+  // Confirmed as a real production incident's root cause: an entity relabeled on the SAP side
+  // (same EDMX EntityType, different sap:label) makes this tool silently generate a DIFFERENT CDS
+  // entity, orphaning the old one's real HANA table. Surfaced as a first-class risk, not folded into
+  // `joinRisks`, since its severity (real data-loss potential) and remedy (coordinate a manual HANA
+  // migration, don't just re-deploy) are both categorically different.
+  const renamedEntities = detectRenamedEntityLabels(previousCsn, JSON.parse(imported.csnContent) as TCsnContent);
+  if (renamedEntities.length) {
+    report(
+      "entity-rename-check",
+      "Check entity identity vs. last deploy",
+      "success",
+      `${renamedEntities.length} entity label change(s) detected: ${renamedEntities.map((r) => `${r.oldLabel} -> ${r.newLabel}`).join(", ")}`,
+    );
+  } else {
+    report("entity-rename-check", "Check entity identity vs. last deploy", "success", "no label changes vs. last deploy");
+  }
 
   const targetRepos = isF4 ? options.repos.filter((repo) => repo.role === "db") : options.repos.filter((repo) => repo.role === "db" || repo.role === "srv" || repo.role === "srv_process");
-
   if (!targetRepos.length) {
-    const message = isF4 ? "No db repo found for the F4 model." : "No db/srv/srv_process repo found for this object type.";
-    emitJobEvent({ jobId, type: "job-failed", error: message });
-    throw new Error(message);
+    throw new Error(isF4 ? "No db repo found for the F4 model." : "No db/srv/srv_process repo found for this object type.");
   }
 
   // For a normal (non-F4) object type, generate the `db` repo's model up front — a validation
@@ -225,24 +407,120 @@ export async function runDeployModelJob(jobId: string, options: TDeployModelOpti
   const dbRepo = !isF4 ? targetRepos.find((repo) => repo.role === "db") : undefined;
   if (dbRepo) {
     if (!options.objectType || !options.objectTypeMode) {
-      const message = "Missing object type name/mode — cannot generate the DB model.";
-      emitJobEvent({ jobId, type: "job-failed", error: message });
-      throw new Error(message);
+      throw new Error("Missing object type name/mode — cannot generate the DB model.");
     }
-    emitJobEvent({ jobId, type: "job-step", steps: [{ key: "db-model", label: "Generate DB model from CSN", status: "running" }] });
+    report("db-model", "Generate DB model from CSN", "running");
     try {
       dbModel = await buildDbModel(options.auth, dbRepo, imported.csnContent, options.objectType, options.objectTypeMode);
-      emitJobEvent({ jobId, type: "job-step", steps: [{ key: "db-model", label: "Generate DB model from CSN", status: "success", detail: dbModel.shortName }] });
+      report("db-model", "Generate DB model from CSN", "success", dbModel.shortName);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      emitJobEvent({ jobId, type: "job-step", steps: [{ key: "db-model", label: "Generate DB model from CSN", status: "failed", detail: message }] });
-      emitJobEvent({ jobId, type: "job-failed", error: message });
+      report("db-model", "Generate DB model from CSN", "failed", message);
       throw error;
     }
   }
 
+  return { isF4, filePath, imported, dbModel, targetRepos, cdsDkVersion, renamedEntities };
+}
+
+/**
+ * Builds the exact `TGitLabCommitAction[]` one repo role would receive, without touching GitLab —
+ * shared by the real deploy (which commits these) and the change preview (which only diffs them
+ * against what's currently on the target branch).
+ */
+function buildRepoActions(params: { isF4: boolean; repo: TObjectTypeRepoRef; imported: TImportedCdsFiles; dbModel: TDbModel | undefined; xmlExtension: string; objectType?: string }): { actions: TGitLabCommitAction[]; commitMessage: string } {
+  const { isF4, repo, imported, dbModel, xmlExtension } = params;
+  // Legacy tool's commit message is a bare identifier — never the ticket code — kept separate from
+  // the MR title (which IS the ticket code, verbatim, when provided).
+  const actions: TGitLabCommitAction[] = [];
+  let commitMessage = imported.entityName;
+  // Must match `imported.entityName` (which may be the derived `MDG_<code>` override, not the
+  // uploaded file's own name) — using the raw upload filename here caused a real bug: the `.csn`
+  // action correctly targeted `MDG_CMI.csn` while the `.xml` action still targeted the literal
+  // upload name (e.g. `CMIR v2.xml`), which doesn't exist on the branch, so GitLab rejected the
+  // whole multi-file commit ("A file with this name doesn't exist") even though the `.csn` half
+  // was perfectly valid.
+  const xmlFileName = `${imported.entityName}${xmlExtension}`;
+
+  if (isF4) {
+    actions.push(
+      { action: "create", file_path: `db/external/${imported.entityName}.csn`, content: imported.csnContent },
+      { action: "create", file_path: `db/external/${xmlFileName}`, content: imported.xmlContent },
+    );
+    commitMessage = "F4";
+  } else {
+    if (repo.role === "srv" || repo.role === "srv_process") {
+      actions.push(
+        { action: "create", file_path: `srv/external/${imported.entityName}.csn`, content: imported.csnContent },
+        { action: "create", file_path: `srv/external/${xmlFileName}`, content: imported.xmlContent },
+      );
+    }
+    if (repo.role === "srv" && dbModel) {
+      actions.push(...dbModel.srvActions.map((action) => ({ ...action, action: "create" as const })));
+    }
+    if (repo.role === "db" && dbModel) {
+      actions.push(...dbModel.dbActions.map((action) => ({ ...action, action: "create" as const })));
+      commitMessage = dbModel.shortName;
+    }
+  }
+
+  return { actions, commitMessage };
+}
+
+/**
+ * Dry-run counterpart to `runDeployModelJob`: builds the exact same file content a real deploy
+ * would commit, diffs each file against what's currently on its repo's default branch, and returns
+ * without ever creating a branch, commit, or MR. Lets the user see precisely what would change —
+ * across all of db/srv/srv_process — before they click Deploy, instead of only finding out by
+ * opening the MRs on GitLab afterwards.
+ */
+export async function previewDeployModelChanges(options: Pick<TDeployModelOptions, "auth" | "uploadId" | "repos" | "objectTypeSlug" | "objectType" | "objectTypeMode">): Promise<TDeployPreviewResult> {
+  const { isF4, filePath, imported, dbModel, targetRepos, cdsDkVersion, renamedEntities } = await prepareDeployArtifacts(options, () => undefined);
+  const xmlExtension = path.extname(filePath);
+
+  const repoPreviews: TDeployRepoPreview[] = [];
+  for (const repo of targetRepos) {
+    const { actions } = buildRepoActions({ isF4, repo, imported, dbModel, xmlExtension });
+    const files: TDeployFileDiff[] = [];
+    for (const action of actions) {
+      const oldContent = await fetchRawFile(options.auth, repo.projectId, action.file_path, repo.defaultBranch).catch(() => undefined);
+      const newContent = action.content ?? "";
+      const changeType: TDeployFileDiff["changeType"] = oldContent === undefined ? "create" : oldContent === newContent ? "no-change" : "update";
+      if (changeType === "no-change") {
+        files.push({ filePath: action.file_path, changeType, additions: 0, deletions: 0, lines: [] });
+        continue;
+      }
+      const { lines, additions, deletions } = buildFileDiff(oldContent ?? "", newContent);
+      files.push({ filePath: action.file_path, changeType, additions, deletions, lines });
+    }
+    repoPreviews.push({ role: repo.role, pathWithNamespace: repo.pathWithNamespace, files });
+  }
+
+  return { entityName: imported.entityName, cdsDkVersion, repos: repoPreviews, renamedEntities };
+}
+
+export async function runDeployModelJob(jobId: string, options: TDeployModelOptions): Promise<TDeployModelResult> {
+  emitJobEvent({ jobId, type: "job-started", steps: [{ key: "cds-dk-version", label: "Resolve cds-dk version", status: "running" }] });
+
+  const report: TStepReporter = (key, label, status, detail) => emitJobEvent({ jobId, type: "job-step", steps: [{ key, label, status, detail }] });
+
+  let prepared: TPreparedDeployArtifacts;
+  try {
+    prepared = await prepareDeployArtifacts(options, report);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    emitJobEvent({ jobId, type: "job-failed", error: message });
+    throw error;
+  }
+  const { isF4, filePath, imported, dbModel, targetRepos, renamedEntities } = prepared;
+
+  const mergeRequests: TDeployModelResult["mergeRequests"] = [];
+  const noChange: TDeployModelResult["noChange"] = [];
+  const skipped: TDeployModelResult["skipped"] = [];
+
   const dateSuffix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const branchName = `${options.branchPrefix}-${dateSuffix}`;
+  const xmlExtension = path.extname(filePath);
 
   for (const repo of targetRepos) {
     const stepKey = `repo-${repo.projectId}`;
@@ -267,39 +545,7 @@ export async function runDeployModelJob(jobId: string, options: TDeployModelOpti
         }
       }
 
-      // Legacy tool's commit message is a bare identifier — never the ticket code — kept separate
-      // from the MR title below (which IS the ticket code, verbatim, when provided).
-      const actions: TGitLabCommitAction[] = [];
-      let commitMessage = imported.entityName;
-      // Must match `imported.entityName` (which may be the derived `MDG_<code>` override, not the
-      // uploaded file's own name) — using the raw upload filename here caused a real bug: the `.csn`
-      // action correctly targeted `MDG_CMI.csn` while the `.xml` action still targeted the literal
-      // upload name (e.g. `CMIR v2.xml`), which doesn't exist on the branch, so GitLab rejected the
-      // whole multi-file commit ("A file with this name doesn't exist") even though the `.csn` half
-      // was perfectly valid.
-      const xmlFileName = `${imported.entityName}${path.extname(filePath)}`;
-
-      if (isF4) {
-        actions.push(
-          { action: "create", file_path: `db/external/${imported.entityName}.csn`, content: imported.csnContent },
-          { action: "create", file_path: `db/external/${xmlFileName}`, content: imported.xmlContent },
-        );
-        commitMessage = "F4";
-      } else {
-        if (repo.role === "srv" || repo.role === "srv_process") {
-          actions.push(
-            { action: "create", file_path: `srv/external/${imported.entityName}.csn`, content: imported.csnContent },
-            { action: "create", file_path: `srv/external/${xmlFileName}`, content: imported.xmlContent },
-          );
-        }
-        if (repo.role === "srv" && dbModel) {
-          actions.push(...dbModel.srvActions.map((action) => ({ ...action, action: "create" as const })));
-        }
-        if (repo.role === "db" && dbModel) {
-          actions.push(...dbModel.dbActions.map((action) => ({ ...action, action: "create" as const })));
-          commitMessage = dbModel.shortName;
-        }
-      }
+      const { actions, commitMessage } = buildRepoActions({ isF4, repo, imported, dbModel, xmlExtension, objectType: options.objectType });
 
       try {
         await commitMultipleFiles(options.auth, repo.projectId, branchName, commitMessage, actions);
@@ -357,6 +603,6 @@ export async function runDeployModelJob(jobId: string, options: TDeployModelOpti
     }
   }
 
-  emitJobEvent({ jobId, type: "job-completed", result: { entityName: imported.entityName, mergeRequests, noChange, skipped } });
-  return { entityName: imported.entityName, mergeRequests, noChange, skipped };
+  emitJobEvent({ jobId, type: "job-completed", result: { entityName: imported.entityName, mergeRequests, noChange, skipped, renamedEntities } });
+  return { entityName: imported.entityName, mergeRequests, noChange, skipped, renamedEntities };
 }

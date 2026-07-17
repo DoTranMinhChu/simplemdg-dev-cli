@@ -125,6 +125,7 @@ async function runInteractive(): Promise<void> {
         { title: "GitLab", value: "gitlab" },
         { title: "Database", value: "db" },
         { title: "CF targets/favorites/recent", value: "target" },
+        { title: "Dev Proxy sessions", value: "proxy" },
       ],
       allowCustomValue: false,
     });

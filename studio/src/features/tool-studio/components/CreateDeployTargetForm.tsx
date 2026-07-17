@@ -12,9 +12,20 @@ import type { TCfTargetSummary } from "../../../api/studio-api-types";
 const OBJECT_TYPE_MODES: TObjectTypeMode[] = ["eventmesh", "eventmesh_v1.6+", "multiple_erp", "multiple_erp_central", "buma", "SAP_SF", "natrol_ecc", "custom"];
 const CDS_VERSIONS: TCdsVersion[] = ["cds6", "cds7", "cds8"];
 
-/** Shared "create a deploy target" form — used by both Deploy Model and Check API External so a new
- * environment can be added from wherever the user happens to be, not just one page. */
-export function CreateDeployTargetForm({ onCreated }: { onCreated: (target: TDeployTarget) => void }): React.ReactElement {
+/**
+ * Shared "create OR edit a deploy target" form — used by both Deploy Model and Check API External
+ * so a new environment can be added from wherever the user happens to be, not just one page. Pass
+ * `existingTarget` to edit it in place (pre-fills every field from it, and the save call includes
+ * its `id` so `upsertDeployTarget` updates the existing record instead of creating a new one).
+ *
+ * `defaultBranch` is always taken verbatim from `existingTarget`/the free-text input — this field is
+ * the deploy target's own configured "branch to work from" (e.g. `staging`), which is deliberately
+ * independent of whatever GitLab reports as the repo's actual git default branch (that distinction
+ * is exactly why `object-type-discovery.ts` treats a deploy target's configured branch as
+ * authoritative and only falls back to GitLab's real default for repos that don't have content on
+ * it — see `resolveBuildYamlContent`). This form must never "helpfully" overwrite it from GitLab.
+ */
+export function CreateDeployTargetForm({ existingTarget, onCreated }: { existingTarget?: TDeployTarget; onCreated: (target: TDeployTarget) => void }): React.ReactElement {
   // Always bypass the group-list cache here: this form is opened rarely and deliberately, so a
   // live, authoritative GitLab response (surfacing a real "not logged in"/"token revoked" error)
   // matters more than instant load — a cached empty list would otherwise render silently as if
@@ -26,23 +37,32 @@ export function CreateDeployTargetForm({ onCreated }: { onCreated: (target: TDep
   }, []);
   const [showLogin, setShowLogin] = useState(false);
 
-  const [name, setName] = useState("");
-  const [group, setGroup] = useState<TGitLabGroup | undefined>();
-  const [defaultBranch, setDefaultBranch] = useState("main");
-  const [objectTypeMode, setObjectTypeMode] = useState<TObjectTypeMode>("custom");
-  const [cdsVersionDefault, setCdsVersionDefault] = useState<TCdsVersion>("cds8");
-  const [isConsolidationDefault, setIsConsolidationDefault] = useState(false);
+  const [name, setName] = useState(existingTarget?.name ?? "");
+  // Reconstructed straight from the saved target — not re-fetched/re-suggested from GitLab, so
+  // editing a target never depends on the groups list having loaded yet.
+  const [group, setGroup] = useState<TGitLabGroup | undefined>(
+    existingTarget ? { id: existingTarget.gitlabGroupId, full_path: existingTarget.gitlabGroupPath, name: existingTarget.gitlabGroupPath.split("/").pop() ?? existingTarget.gitlabGroupPath } : undefined,
+  );
+  const [defaultBranch, setDefaultBranch] = useState(existingTarget?.defaultBranch ?? "main");
+  const [objectTypeMode, setObjectTypeMode] = useState<TObjectTypeMode>(existingTarget?.objectTypeMode ?? "custom");
+  const [cdsVersionDefault, setCdsVersionDefault] = useState<TCdsVersion>(existingTarget?.cdsVersionDefault ?? "cds8");
+  const [isConsolidationDefault, setIsConsolidationDefault] = useState(existingTarget?.isConsolidationDefault ?? false);
+  // A saved target only stores the CF target's `key`, not the full org/space/region breakdown, so
+  // there's nothing to reconstruct into a `TCfTargetSummary` without an extra lookup — kept as its
+  // own string, distinct from `cfTarget` (only set once the user actively picks a NEW one below).
+  const [existingCfTargetKey, setExistingCfTargetKey] = useState(existingTarget?.cfTargetKey);
   const [cfTarget, setCfTarget] = useState<TCfTargetSummary | undefined>();
   const [showCfPicker, setShowCfPicker] = useState(false);
 
   const save = useAsync(() =>
     toolStudioApi.saveDeployTarget({
+      id: existingTarget?.id,
       name,
-      gitlabBaseUrl: groups.data?.gitlabBaseUrl ?? "",
+      gitlabBaseUrl: groups.data?.gitlabBaseUrl ?? existingTarget?.gitlabBaseUrl ?? "",
       gitlabGroupId: group!.id,
       gitlabGroupPath: group!.full_path,
       defaultBranch,
-      cfTargetKey: cfTarget?.key,
+      cfTargetKey: cfTarget?.key ?? existingCfTargetKey,
       objectTypeMode,
       cdsVersionDefault,
       isConsolidationDefault,
@@ -120,6 +140,12 @@ export function CreateDeployTargetForm({ onCreated }: { onCreated: (target: TDep
               <Button variant="ghost" size="sm" onClick={() => setShowCfPicker(true)}>Change</Button>
               <Button variant="ghost" size="sm" onClick={() => setCfTarget(undefined)}>Clear</Button>
             </div>
+          ) : existingCfTargetKey ? (
+            <div className="row">
+              <div className="note" style={{ flex: 1 }}>{existingCfTargetKey}</div>
+              <Button variant="ghost" size="sm" onClick={() => setShowCfPicker(true)}>Change</Button>
+              <Button variant="ghost" size="sm" onClick={() => setExistingCfTargetKey(undefined)}>Clear</Button>
+            </div>
           ) : showCfPicker ? (
             <div className="ts-card" style={{ marginTop: 8 }}>
               <BtpTargetSelector onSelect={(selected) => { setCfTarget(selected); setShowCfPicker(false); }} />
@@ -137,7 +163,7 @@ export function CreateDeployTargetForm({ onCreated }: { onCreated: (target: TDep
             if (result?.target) onCreated(result.target);
           }}
         >
-          {save.loading ? <Spinner /> : "Create deploy target"}
+          {save.loading ? <Spinner /> : existingTarget ? "Save changes" : "Create deploy target"}
         </Button>
       </div>
       {save.error && <div className="errbox" style={{ marginTop: 8 }}>{save.error}</div>}

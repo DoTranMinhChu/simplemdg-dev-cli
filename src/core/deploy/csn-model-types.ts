@@ -92,3 +92,55 @@ export const DB_NAMESPACE_CONFIG: Record<TDbNamespace, TDbNamespaceConfig> = {
 export const STAGING_BASE_ASPECT = "business_entity_staging";
 export const STAGING_MAPPING_ASPECT = "mapping_entity_staging";
 export const STAGING_IDENTITY_KEYS = ["objectID", "taskID"];
+
+/**
+ * Early-warning findings for structural anomalies in the uploaded EDMX/CSN that this tool's
+ * traversal could otherwise get wrong or silently drop — surfaced at preview time, before a deploy
+ * commits anything. Three families so far, all confirmed against real customer data or real gaps
+ * in the traversal logic:
+ *
+ * - Join-key mismatches: compositions whose source EDMX has no `<ReferentialConstraint>`, so the
+ *   `on` condition has to be reconstructed by matching field names (see
+ *   `deriveJoinKeysFromKeyIntersection`/`auditKeyIntersectionRisks`) — confirmed to silently drop or
+ *   misjoin a key on real data (CMIR's `CMIRItemClassification` → `Characteristics` relation).
+ * - Non-standard relation naming: the traversal only recognizes a composition/association by its
+ *   property name starting with `to_` (the universal SAP MDG/Gateway convention) — an association
+ *   with a `target`/`cds.Association` type but a differently-named property is invisible to the
+ *   walk and its entire subtree is silently omitted, with no error at all (see
+ *   `auditNonStandardRelationNames`).
+ * - Composition cycles: a child composition pointing back to an ANCESTOR further up than its
+ *   immediate parent (already guarded) would recurse forever — detected and skipped instead of
+ *   crashing with a stack overflow (see the `ancestorModelNames` check in `buildCsnWithLevel`).
+ * - Dangling targets: a composition/association whose CSN `target` has no resolvable definition
+ *   (missing, or present but with no `@sap.label`) would otherwise render literally as `Composition
+ *   of many undefined` — invalid CDS that would only surface as a confusing compile error later,
+ *   far from its actual cause.
+ */
+export type TJoinRiskSeverity = "critical" | "high" | "medium" | "info";
+
+export type TJoinFieldRisk = {
+  relationName: string;
+  parentBusinessTable: string;
+  targetBusinessTable: string;
+  parentKeyField: string;
+  severity: TJoinRiskSeverity;
+  outcome: "dropped-no-suggestion" | "dropped-with-label-suggestion" | "label-mismatch" | "resolved-by-override" | "non-standard-relation-name" | "composition-cycle" | "dangling-target";
+  message: string;
+};
+
+/**
+ * An entity's `@sap.label` (its EDMX `sap:label`) changed between this object type's last deploy
+ * and the freshly-uploaded EDMX, while its underlying EDMX `EntityType` technical name (e.g.
+ * `CMIRItemTextType`) stayed the same. Confirmed on real customer data as the actual root cause of a
+ * production incident: this tool names/generates each CDS entity after its `@sap.label` (not the
+ * stable technical name), so a label change makes it emit a DIFFERENT entity — the old one (backed
+ * by a real, populated HANA table) silently disappears from the generated model and a same-shaped
+ * but unrelated "new" entity takes its place. If that reaches an HDI deployment, the old physical
+ * table can be dropped/orphaned and the new one created empty — real data-loss risk, not just a
+ * cosmetic rename. See `detectRenamedEntityLabels` in `csn-model-builder.ts`.
+ */
+export type TEntityRenameRisk = {
+  technicalName: string;
+  oldLabel: string;
+  newLabel: string;
+};

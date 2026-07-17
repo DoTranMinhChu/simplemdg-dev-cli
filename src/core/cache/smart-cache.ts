@@ -28,6 +28,7 @@ export const CACHE_NAMESPACES: Record<string, string> = {
   "srv-app-services": "Tool Studio live-app CDS-service resolution",
   "cf-recent-targets": "CF recent targets",
   "cf-favorite-targets": "CF favorite targets",
+  "proxy-sessions": "Proxy captured sessions (cookies/CSRF/headers)",
 };
 
 /** Namespace groups for `smdg cache clear|refresh <scope>`. */
@@ -37,6 +38,7 @@ export const CACHE_SCOPES: Record<string, string[]> = {
   db: ["db-import-candidates", "db-metadata"],
   target: ["cf-targets", "cf-recent-targets", "cf-favorite-targets"],
   tool: ["object-type-discovery", "object-type-suggestions", "srv-app-services"],
+  proxy: ["proxy-sessions"],
   all: Object.keys(CACHE_NAMESPACES),
 };
 

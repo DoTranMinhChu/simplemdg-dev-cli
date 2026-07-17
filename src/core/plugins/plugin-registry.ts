@@ -88,10 +88,28 @@ function validateManifest(context: string, raw: unknown): TPluginManifest {
         throw new Error(`Invalid plugin manifest (${context}): "components.mcpServers[${index}]" must be an object.`);
       }
       const entryRecord = entry as Record<string, unknown>;
+      const entryContext = `${context} mcpServers[${index}]`;
+      const name = requireString(entryRecord, "name", entryContext);
+      const transportRaw = entryRecord.transport;
+
+      if (entryRecord.url !== undefined || transportRaw === "http") {
+        if (transportRaw !== undefined && transportRaw !== "http") {
+          throw new Error(`Invalid plugin manifest (${entryContext}): "transport" must be "http" when "url" is present.`);
+        }
+        if (entryRecord.package !== undefined || entryRecord.args !== undefined) {
+          throw new Error(`Invalid plugin manifest (${entryContext}): "package"/"args" must not be set when "transport" is "http".`);
+        }
+        return { name, transport: "http" as const, url: requireString(entryRecord, "url", entryContext) };
+      }
+
+      if (transportRaw !== undefined && transportRaw !== "stdio") {
+        throw new Error(`Invalid plugin manifest (${entryContext}): "transport" must be "stdio" or "http".`);
+      }
       return {
-        name: requireString(entryRecord, "name", `${context} mcpServers[${index}]`),
-        package: requireString(entryRecord, "package", `${context} mcpServers[${index}]`),
-        args: optionalStringArray(entryRecord, "args", `${context} mcpServers[${index}]`) ?? [],
+        name,
+        transport: "stdio" as const,
+        package: requireString(entryRecord, "package", entryContext),
+        args: optionalStringArray(entryRecord, "args", entryContext) ?? [],
       };
     });
   }

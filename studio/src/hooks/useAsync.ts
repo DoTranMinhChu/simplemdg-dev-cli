@@ -13,7 +13,7 @@ export type TAsyncState<T> = {
  */
 export function useAsync<TArgs extends unknown[], TResult>(
   action: (...args: TArgs) => Promise<TResult>,
-): TAsyncState<TResult> & { run: (...args: TArgs) => Promise<TResult | undefined> } {
+): TAsyncState<TResult> & { run: (...args: TArgs) => Promise<TResult | undefined>; reset: () => void } {
   const [state, setState] = useState<TAsyncState<TResult>>({ data: undefined, error: undefined, loading: false });
   const callId = useRef(0);
 
@@ -35,5 +35,13 @@ export function useAsync<TArgs extends unknown[], TResult>(
     [action],
   );
 
-  return { ...state, run };
+  // Invalidates any in-flight `run` (its result, once it arrives, is ignored) and clears state back
+  // to initial — used when upstream selections change and a previous result would otherwise show
+  // as if it were still current (e.g. a stale file-change preview from a since-replaced upload).
+  const reset = useCallback(() => {
+    callId.current++;
+    setState({ data: undefined, error: undefined, loading: false });
+  }, []);
+
+  return { ...state, run, reset };
 }

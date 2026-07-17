@@ -7,11 +7,9 @@ export type TInstallScope = "user" | "project";
 
 export type TPluginKind = "agent" | "skill" | "mcp-bundle";
 
-export type TMcpServerSpec = {
-  name: string;
-  package: string;
-  args: string[];
-};
+export type TMcpServerSpec =
+  | { name: string; package: string; args: string[]; transport?: "stdio" }
+  | { name: string; transport: "http"; url: string };
 
 export type TStudioExtensionFileRule = {
   match: string;

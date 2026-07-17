@@ -1,0 +1,13 @@
+{
+  "id": "smdg-jira-mcp",
+  "version": "1.0.0",
+  "displayName": "Jira MCP (Atlassian, OAuth)",
+  "description": "Registers Atlassian's official remote MCP server for Jira, authenticated via a one-time OAuth 2.1 browser login — no manual API token copy/paste. Claude Code caches and auto-refreshes the session afterward, so future runs don't need to re-authenticate unless the session actually breaks.",
+  "kind": "mcp-bundle",
+  "dependsOn": [],
+  "mcpScope": "always-user",
+  "components": {
+    "mcpServers": [{ "name": "smdg-atlassian", "transport": "http", "url": "https://mcp.atlassian.com/v1/mcp/authv2" }]
+  },
+  "usageFile": "USAGE.md"
+}

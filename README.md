@@ -103,6 +103,7 @@ smdg gitlab login
 smdg gitlab clone
 smdg gitlab pull
 smdg cf db studio
+smdg proxy studio
 smdg git move-code
 ```
 
@@ -206,6 +207,44 @@ HANA and PostgreSQL drivers are optional dependencies. If a driver is missing, t
 ```powershell
 npm i -g pg @sap/hana-client
 ```
+
+## Dev Proxy
+
+A local reverse proxy for developing a UI against a real SAP/enterprise web backend
+(SimpleMDG web apps): it logs in, captures the authenticated session (cookies + CSRF +
+headers), and forwards your locally-running UI's API calls to the real backend — no CORS,
+no manual re-login.
+
+```powershell
+smdg proxy studio                          # browser UI: manage environments, start/stop, quick proxy
+smdg proxy add                             # interactive: add an environment + user
+smdg proxy start <env-name>                # headless: start one environment's proxy (foreground; Ctrl+C to stop)
+smdg proxy login <env-name>                # open a real browser window logged in, no proxy involved
+smdg proxy quick --auto <url>              # credential-free: open a browser, log in, auto-capture the session
+```
+
+- **Storage**: environments live in one local file, `~/.simplemdg/proxy/environments.json` —
+  same as this CLI's other local data (DB connections, BTP credentials). No profiles or
+  directory picking; `smdg proxy export`/`smdg proxy import` (or the Studio's Export/Import
+  buttons) handle backup/restore and moving to a new machine.
+- **Passwords**: stored raw, same as the environment/URL fields — no encryption, no key to
+  generate or manage. `smdg proxy export` includes them by default (a real, portable backup);
+  pass `--redact-passwords` to hand a sanitized copy to someone else instead. The Studio can
+  show a saved password back on request ("Show current" in the user dialog).
+- **Login capture**: tries a fast, dependency-light HTTP form login first, and only falls
+  back to a headless Playwright browser when the login page is JS-rendered/SSO
+  (`captureMode: "auto" | "http" | "browser"` per environment). Playwright is an optional
+  dependency — only needed if a login page actually requires it.
+- **Auto-refresh**: sessions refresh proactively every ~25 minutes and reactively on a
+  401/403/login-redirect, for as long as the owning process (`smdg proxy start` or
+  `smdg proxy studio`) keeps running — closing it stops the proxy and its refresh together.
+- **Quick proxy** (no stored credential): `smdg proxy quick --auto <url>` opens a real,
+  visible browser at the URL — log in yourself, and the session is captured automatically
+  from the first authenticated API call, no DevTools needed. `smdg proxy quick --paste`
+  remains as an offline fallback for pasting a DevTools "Copy as fetch" snippet.
+- **Port management**: each environment gets its own port(s) (default `3000`/`3001`,
+  customizable per environment), with `smdg proxy status`/the Studio's "Running now" panel
+  (kept near the top, not buried at the bottom) showing what's bound and a one-click stop.
 
 ## AI Studio
 

@@ -116,20 +116,27 @@ export async function executeInstallPlan(plan: TInstallPlan, scope: TInstallScop
         writtenFiles.push(await writePlannedFile(planned));
       }
 
-      const registeredMcpServers: Array<{ name: string; scope: TInstallScope }> = [];
+      // Two lists, not one: `allMcpServers` always reflects every server this plugin depends on
+      // (persisted so plugin-doctor/uninstall keep tracking it even if a later `addMcpServer` call
+      // finds it already registered by someone/something else), while `freshlyRegistered` only
+      // holds servers THIS call actually created — rollback must never remove a server it didn't
+      // create (e.g. a pre-existing OAuth-authenticated http registration).
+      const allMcpServers: Array<{ name: string; scope: TInstallScope }> = [];
+      const freshlyRegisteredMcpServers: Array<{ name: string; scope: TInstallScope }> = [];
       for (const spec of step.manifest.components.mcpServers ?? []) {
-        await addMcpServer(spec, effectiveScope);
-        registeredMcpServers.push({ name: spec.name, scope: effectiveScope });
+        const { registered } = await addMcpServer(spec, effectiveScope);
+        allMcpServers.push({ name: spec.name, scope: effectiveScope });
+        if (registered) freshlyRegisteredMcpServers.push({ name: spec.name, scope: effectiveScope });
       }
 
-      completedSteps.push({ pluginId: step.pluginId, writtenFiles, registeredMcpServers });
+      completedSteps.push({ pluginId: step.pluginId, writtenFiles, registeredMcpServers: freshlyRegisteredMcpServers });
       newRecordsByScope[effectiveScope].push({
         pluginId: step.pluginId,
         version: step.manifest.version,
         scope: effectiveScope,
         installedAt: new Date().toISOString(),
         files: writtenFiles,
-        mcpServers: registeredMcpServers,
+        mcpServers: allMcpServers,
       });
     }
   } catch (error) {

@@ -1,6 +1,6 @@
 {
   "id": "smdg-jira-reproducer",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "displayName": "Jira Bug Reproducer & Analyst",
   "description": "Reproduces a bug in a live test environment via browser, captures relevant network evidence to disk, and determines whether the root cause is frontend (UI) or backend (API). Only invoke once environment_url, credentials, and steps_to_reproduce are confirmed complete.",
   "kind": "agent",

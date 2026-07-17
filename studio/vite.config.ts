@@ -15,6 +15,7 @@ const BACKEND_PORT = process.env.SMDG_STUDIO_API_PORT ?? "45888";
 // independently, so sharing one outDir/assets folder is safe and avoids extra dist locations.
 const AI_STUDIO_BACKEND_PORT = process.env.SMDG_AI_STUDIO_API_PORT ?? "45889";
 const TOOL_STUDIO_BACKEND_PORT = process.env.SMDG_TOOL_STUDIO_API_PORT ?? "45890";
+const PROXY_STUDIO_BACKEND_PORT = process.env.SMDG_PROXY_STUDIO_API_PORT ?? "45891";
 
 export default defineConfig({
   plugins: [react()],
@@ -26,6 +27,7 @@ export default defineConfig({
         main: path.resolve(__dirname, "index.html"),
         aiStudio: path.resolve(__dirname, "ai-studio.html"),
         toolStudio: path.resolve(__dirname, "tool-studio.html"),
+        proxyStudio: path.resolve(__dirname, "proxy-studio.html"),
       },
     },
   },
@@ -41,6 +43,12 @@ export default defineConfig({
         target: `http://127.0.0.1:${TOOL_STUDIO_BACKEND_PORT}`,
         changeOrigin: false,
         // SSE (/api/tool/events) needs the connection kept open, not buffered.
+        ws: false,
+      },
+      "/api/proxy": {
+        target: `http://127.0.0.1:${PROXY_STUDIO_BACKEND_PORT}`,
+        changeOrigin: false,
+        // SSE (/api/proxy/events) needs the connection kept open, not buffered.
         ws: false,
       },
       "/api": {

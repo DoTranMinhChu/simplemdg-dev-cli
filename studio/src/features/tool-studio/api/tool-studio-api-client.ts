@@ -166,7 +166,28 @@ export type TDeployModelResult = {
   mergeRequests: Array<{ role: string; pathWithNamespace: string; webUrl: string; iid: number }>;
   noChange: Array<{ role: string; pathWithNamespace: string; sourceBranch: string; targetBranch: string }>;
   skipped: Array<{ role: string; pathWithNamespace: string; reason: string }>;
+  renamedEntities: TEntityRenameRisk[];
 };
+
+/** Mirrors `TEntityRenameRisk` in `csn-model-types.ts` — an entity's display label changed since this object type's last deploy while its technical EDMX name stayed the same, a real data-loss risk (see the type's own doc comment). */
+export type TEntityRenameRisk = { technicalName: string; oldLabel: string; newLabel: string };
+
+/** Mirrors `TJoinFieldRisk` in `csn-model-types.ts` — early-warning findings for structural anomalies in the uploaded EDMX/CSN. */
+export type TJoinFieldRisk = {
+  relationName: string;
+  parentBusinessTable: string;
+  targetBusinessTable: string;
+  parentKeyField: string;
+  severity: "critical" | "high" | "medium" | "info";
+  outcome: "dropped-no-suggestion" | "dropped-with-label-suggestion" | "label-mismatch" | "resolved-by-override" | "non-standard-relation-name" | "composition-cycle" | "dangling-target";
+  message: string;
+};
+
+/** Mirrors `TDeployDiffLine`/`TDeployFileDiff`/`TDeployRepoPreview`/`TDeployPreviewResult` in `deploy-model-job.ts`. */
+export type TDeployDiffLine = { type: "add" | "remove" | "context" | "collapsed"; text?: string; count?: number };
+export type TDeployFileDiff = { filePath: string; changeType: "create" | "update" | "no-change"; additions: number; deletions: number; lines: TDeployDiffLine[] };
+export type TDeployRepoPreview = { role: string; pathWithNamespace: string; files: TDeployFileDiff[] };
+export type TDeployPreviewResult = { entityName: string; cdsDkVersion?: string; repos: TDeployRepoPreview[]; renamedEntities?: TEntityRenameRisk[]; error?: string };
 
 export const toolStudioApi = {
   getGitlabAuthStatus: () => get<{ isLoggedIn: boolean; username?: string; name?: string; baseUrl?: string; expiresAt?: string | null }>("/api/tool/gitlab/auth-status"),
@@ -240,9 +261,12 @@ export const toolStudioApi = {
     get<{ members: TGitLabUserSummary[]; error?: string }>(`/api/tool/deploy-model/members?projectId=${projectId}&query=${encodeURIComponent(query)}`),
 
   uploadEdmx: (file: File) => uploadRawFile<{ uploadId: string; fileName: string; error?: string }>("/api/tool/deploy-model/upload", file),
-  previewEdmxImport: (uploadId: string) => post<{ csn?: unknown; entityName?: string; error?: string }>("/api/tool/deploy-model/preview", { uploadId }),
+  previewEdmxImport: (uploadId: string, objectType?: string, objectTypeMode?: TObjectTypeMode, repos?: TObjectTypeRepoRef[]) =>
+    post<{ csn?: unknown; entityName?: string; joinRisks?: TJoinFieldRisk[]; joinRiskError?: string; cdsDkVersion?: string; renamedEntities?: TEntityRenameRisk[]; error?: string }>("/api/tool/deploy-model/preview", { uploadId, objectType, objectTypeMode, repos }),
   startDeployModelJob: (input: { uploadId: string; deployTargetId: string; objectTypeSlug: string; ticketCode?: string; assigneeId?: number; reviewerIds?: number[] }) =>
     post<{ jobId?: string; error?: string }>("/api/tool/deploy-model/deploy", input),
+  previewDeployModelChanges: (input: { uploadId: string; deployTargetId: string; objectTypeSlug: string }) =>
+    post<TDeployPreviewResult>("/api/tool/deploy-model/preview-changes", input),
   addManualObjectType: (input: { deployTargetId: string; slug: string; envObjectName?: string; projectId: number; pathWithNamespace: string; role: string; defaultBranch?: string }) =>
     post<{ ok?: boolean; error?: string }>("/api/tool/deploy-model/manual-object-type", input),
   removeManualObjectType: (deployTargetId: string, slug: string) =>

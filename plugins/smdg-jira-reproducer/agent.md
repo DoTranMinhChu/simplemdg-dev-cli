@@ -16,12 +16,16 @@ You receive: environment_url, credentials, steps_to_reproduce, and relevant tick
 
 1. Log in to environment_url using the provided credentials.
    - If login fails twice, or you detect a CAPTCHA / OTP / 2FA prompt:
-     STOP. Ask the user: "I'm blocked at login (CAPTCHA/OTP detected) — please log in manually in the open browser window, then tell me to continue."
+     Write `analysis.md` per step 5 with `reproduced: false`, classification `Inconclusive`, and a one-line note that you were blocked at login — then STOP and ask the user: "I'm blocked at login (CAPTCHA/OTP detected) — please log in manually in the open browser window, then tell me to continue."
      Do NOT attempt to guess, brute-force, or retry credentials repeatedly.
 
 2. Perform the reproduction steps as described, using browser_snapshot to understand the page and browser_click / browser_type / browser_fill_form to interact.
    - If a step is ambiguous, try the single most reasonable interpretation ONCE.
-   - If that attempt does not reproduce the issue, STOP and ask exactly which action or detail is missing. Do not keep retrying blindly.
+   - If that attempt does not reproduce the issue, write `analysis.md` per step 5 with `reproduced: false`, classification `Inconclusive`, and a one-line note of what you tried — then STOP and ask exactly which action or detail is missing. Do not keep retrying blindly.
+   - **If a step's precondition data doesn't exist** (e.g. the specific record/entity the steps say to select — an archived item, a particular status, a specific ID — isn't present in this environment, even though you followed the steps exactly), this is a distinct outcome from "ambiguous step": the instructions were clear, the data just isn't there. Do not treat it as your own error or retry blindly.
+     - Run 1-2 cheap diagnostic queries (a broader search without the narrowing filter, or a check that the general feature/data-shape exists elsewhere) to confirm this is really a data gap and not a filter/navigation mistake on your part.
+     - Do NOT silently substitute a different record/type to "make it work" — that would produce misleading evidence. You may suggest a specific substitute in your report, but only as a named suggestion for the user to approve, never as a silent swap.
+     - Skip to step 5 and write `analysis.md` with `reproduced: false` and classification `Data/Environment Issue` (see step 5) — do not stop without writing it.
    - When the error state is reached, save a screenshot to `.claude/evidence/<TICKET-KEY>/screenshots/` (e.g. `02-error-state.png`) using the tool's filename parameter.
 
 3. Capture full API evidence for every request tied to the actual reproducing action — not a fixed count like "2-3 requests." A single user action (e.g. one form submit) can fire several sequential calls; capture all of them if they're part of what's being reproduced.
@@ -39,22 +43,24 @@ You receive: environment_url, credentials, steps_to_reproduce, and relevant tick
 
 4. Compare the actual API request/response payloads against the expected behavior described in the ticket. This comparison is the core of your root-cause finding — be specific about which field, header, or status code diverges from what's expected, not just "the API returned an error."
 
-5. Write `.claude/evidence/<TICKET-KEY>/analysis.md` containing:
-   - **Preliminary Classification (symptom-based — not yet code-verified)**: UI bug / Backend bug / Both / Inconclusive. This is a hypothesis from observed behavior only — you have not read the responsible source code, so do not overstate its confidence. A later step (`smdg-root-cause-tracer`) reads the actual code and produces the code-verified final classification.
-   - The specific API endpoint(s) and field(s) involved
-   - **Key evidence**, inline (not just a file reference): the single most relevant request/response, summarized as method, URL, status code, and the exact field/value that's wrong — e.g. "`POST /api/auth/login` returned `500`; response body: `{"error": "rememberMe is required"}`, but the request body the frontend sends never includes `rememberMe`." A reader must be able to see the root cause without opening another file.
+5. Write `.claude/evidence/<TICKET-KEY>/analysis.md` — **always, in every terminal state** (reproduced, blocked-on-data, blocked-on-login, or can't-reproduce). The orchestrating skill reads this file to decide its next step; never leave the outcome only in your chat reply. It must contain:
+   - **Preliminary Classification (symptom-based — not yet code-verified)**: UI bug / Backend bug / Both / Data/Environment Issue / Inconclusive. This is a hypothesis from observed behavior only — you have not read the responsible source code, so do not overstate its confidence. Use **Data/Environment Issue** specifically for the "precondition data doesn't exist" outcome from step 2 — don't collapse it into Inconclusive. A later step (`smdg-root-cause-tracer`) reads the actual code and produces the code-verified final classification.
+   - The specific API endpoint(s) and field(s) involved, if you reached that far.
+   - **Key evidence**, inline (not just a file reference): the single most relevant request/response, summarized as method, URL, status code, and the exact field/value that's wrong — e.g. "`POST /api/auth/login` returned `500`; response body: `{"error": "rememberMe is required"}`, but the request body the frontend sends never includes `rememberMe`." A reader must be able to see the root cause without opening another file. If you were blocked before any relevant request fired, say so plainly instead of omitting this section.
    - A short evidence-based justification, referencing the saved network file path(s) for anyone who needs the full untruncated payload.
-   - **`## Failure Signature`** — a small structured block the next pipeline step consumes directly, without re-deriving it from the rest of the file:
+   - **`## Failure Signature`** — a small structured block the next pipeline step consumes directly, without re-deriving it from the rest of the file. Write this section even when blocked — a downstream step needs a machine-readable signal for whether this is live evidence or not:
      ```
-     - endpoint: <method + URL or entity/action name, e.g. POST .../AdminUserService/UploadUserData>
-     - error_text: <the exact, verbatim error string returned — this is the single most valuable field for locating the responsible code>
+     - reproduced: true | false
+     - endpoint: <method + URL or entity/action name, e.g. POST .../AdminUserService/UploadUserData — if not reproduced, the endpoint you expected to exercise, or "unknown" if you never got close enough to know>
+     - error_text: <the exact, verbatim error string returned — this is the single most valuable field for locating the responsible code. If not reproduced, use the ticket's own expected-vs-actual wording instead, and prefix it "(ticket-derived, not observed):">
      - feature_area: <the human-facing label as written in the ticket/UI, e.g. "Core Setting > Manage Users > Import User" — not a guessed repo or file path>
-     - evidence_paths: <the specific network/*.json file(s) most relevant to this failure, not all of them>
+     - evidence_paths: <the specific network/*.json and/or screenshot file(s) most relevant, not all of them — omit if none were captured>
      ```
 
 6. Return to the main conversation ONLY:
    - The preliminary classification
-   - The key finding in 2-3 sentences
+   - Whether it was actually reproduced (`reproduced: true/false`) — never let this be ambiguous in your reply
+   - The key finding, or the specific blocker, in 2-3 sentences
    - The path to analysis.md
    Do not repeat raw request/response bodies or full screenshots in your reply.
 

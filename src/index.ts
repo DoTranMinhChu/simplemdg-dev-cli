@@ -29,6 +29,7 @@ import { registerGitCommands } from "./commands/git.command";
 import { registerAiCommands } from "./commands/ai.command";
 import { registerPluginCommands } from "./commands/plugin.command";
 import { registerToolCommands } from "./commands/tool.command";
+import { registerProxyCommands } from "./commands/proxy.command";
 import { enableInteractiveNavigation } from "./core/navigator";
 import { launchInteractiveShell } from "./terminal/services/terminal-launcher";
 import type { TInstallCommandOptions, TKeyValueMap } from "./types-local";
@@ -444,6 +445,7 @@ registerGitCommands(program);
 registerAiCommands(program);
 registerPluginCommands(program);
 registerToolCommands(program);
+registerProxyCommands(program);
 
 program
   .command("shell")

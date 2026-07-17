@@ -2,12 +2,13 @@ export type TInstallScope = "user" | "project";
 
 export type TPluginKind = "agent" | "skill" | "mcp-bundle";
 
-/** One MCP server this plugin registers, always run via `npx -y <package> <args...>`. */
-export type TMcpServerSpec = {
-  name: string;
-  package: string;
-  args: string[];
-};
+/** One MCP server this plugin registers. The stdio branch (default, backward-compatible with
+ * every existing manifest) is spawned via `npx -y <package> <args...>`. The http branch registers
+ * a remote MCP server by URL instead (e.g. an OAuth-authenticated hosted server) — no local process
+ * spawned, no package/args. */
+export type TMcpServerSpec =
+  | { name: string; package: string; args: string[]; transport?: "stdio" }
+  | { name: string; transport: "http"; url: string };
 
 export type TStudioExtensionFileRule = {
   /** Glob relative to an instance directory, e.g. "screenshots/*.{png,jpg,jpeg}". */
