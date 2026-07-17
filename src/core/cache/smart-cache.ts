@@ -25,6 +25,7 @@ export const CACHE_NAMESPACES: Record<string, string> = {
   "gitlab-branches": "GitLab branches",
   "object-type-discovery": "Tool Studio object-type discovery",
   "object-type-suggestions": "Tool Studio object-type cds/consolidation suggestions",
+  "srv-app-services": "Tool Studio live-app CDS-service resolution",
   "cf-recent-targets": "CF recent targets",
   "cf-favorite-targets": "CF favorite targets",
 };
@@ -35,7 +36,7 @@ export const CACHE_SCOPES: Record<string, string[]> = {
   gitlab: ["gitlab-groups", "gitlab-projects", "gitlab-branches"],
   db: ["db-import-candidates", "db-metadata"],
   target: ["cf-targets", "cf-recent-targets", "cf-favorite-targets"],
-  tool: ["object-type-discovery", "object-type-suggestions"],
+  tool: ["object-type-discovery", "object-type-suggestions", "srv-app-services"],
   all: Object.keys(CACHE_NAMESPACES),
 };
 

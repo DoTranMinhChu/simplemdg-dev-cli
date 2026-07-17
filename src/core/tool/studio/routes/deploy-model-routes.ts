@@ -58,7 +58,7 @@ export async function handleDeployModelApi(req: http.IncomingMessage, res: http.
 
     try {
       const group = groupFromTarget(target);
-      const [discovered, manual] = await Promise.all([discoverObjectTypesForGroup(auth, group, { refresh }), listManualObjectTypes(`${auth.baseUrl}::${group.id}`)]);
+      const [discovered, manual] = await Promise.all([discoverObjectTypesForGroup(auth, group, { refresh, preferredBranch: target.defaultBranch }), listManualObjectTypes(`${auth.baseUrl}::${group.id}`)]);
       sendJson(res, { objectTypes: mergeObjectTypesWithManual(discovered.data, manual), fromCache: discovered.fromCache, updatedAt: discovered.updatedAt });
     } catch (error) {
       sendJson(res, { objectTypes: [], error: error instanceof Error ? error.message : String(error) });
@@ -158,7 +158,7 @@ export async function handleDeployModelApi(req: http.IncomingMessage, res: http.
     }
 
     const group = groupFromTarget(target);
-    const discovered = await discoverObjectTypesForGroup(auth, group, {});
+    const discovered = await discoverObjectTypesForGroup(auth, group, { preferredBranch: target.defaultBranch });
     const manual = await listManualObjectTypes(`${auth.baseUrl}::${group.id}`);
     const objectType = mergeObjectTypesWithManual(discovered.data, manual).find((item) => item.slug === objectTypeSlug);
 
@@ -180,6 +180,8 @@ export async function handleDeployModelApi(req: http.IncomingMessage, res: http.
       uploadId: getString(body, "uploadId"),
       repos: objectType.repos,
       objectTypeSlug: objectType.slug,
+      objectType: objectType.envObjectName,
+      objectTypeMode: target.objectTypeMode,
       branchPrefix,
       ticketCode: getString(body, "ticketCode") || undefined,
       assigneeId,

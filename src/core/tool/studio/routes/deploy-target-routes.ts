@@ -65,6 +65,7 @@ export async function handleDeployTargetApi(req: http.IncomingMessage, res: http
       gitlabGroupId: Number(body.gitlabGroupId),
       gitlabGroupPath: getString(body, "gitlabGroupPath"),
       defaultBranch: getString(body, "defaultBranch") || "main",
+      cfTargetKey: getString(body, "cfTargetKey") || undefined,
       objectTypeMode: (getString(body, "objectTypeMode") || "custom") as TDeployTargetDraft["objectTypeMode"],
       cdsVersionDefault: (getString(body, "cdsVersionDefault") || "cds8") as TDeployTargetDraft["cdsVersionDefault"],
       isConsolidationDefault: getBoolean(body, "isConsolidationDefault"),

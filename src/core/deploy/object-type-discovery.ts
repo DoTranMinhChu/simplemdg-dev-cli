@@ -12,6 +12,13 @@ export type TObjectTypeRepoRef = {
   pathWithNamespace: string;
   role: TObjectTypeRepoRole;
   defaultBranch: string;
+  /** The repo's real deployed CF app name, from `_laidonBuild.yaml`'s `build.flow.name` — this is
+   * what a live `cf apps` listing actually shows, which is NOT simply `<space>-srv-<slug>` (confirmed
+   * empirically against a real customer checkout: no `mta.yaml`/`manifest.yml` exists anywhere, CF
+   * app names come straight from this field, and app routes follow CF's default per-app-name
+   * behavior rather than any space-prefixed convention). Falls back to the repo's own name
+   * (underscores to hyphens) when the field is missing. */
+  cfAppName?: string;
 };
 
 export type TDiscoveredObjectType = {
@@ -27,8 +34,13 @@ export type TObjectTypeDefaultsSuggestion = {
 };
 
 type TLaidonBuildFile = {
-  build?: { flow?: { objecttype?: string; envObject?: string } };
+  build?: { flow?: { objecttype?: string; envObject?: string; name?: string } };
 };
+
+/** `simplemdg_srv_bp` -> `simplemdg-srv-bp` — the literal fallback CF app name when `_laidonBuild.yaml` has no `build.flow.name` (confirmed as the real naming rule: repos declare it explicitly, but it's always just their own name with underscores hyphenated). */
+function deriveCfAppNameFromRepo(project: TGitLabProject): string {
+  return project.name.replace(/_/g, "-");
+}
 
 /**
  * `_laidonBuild.yaml`'s repo-name convention (`simplemdg_(db|srv|srv_process)_<code>`) is used
@@ -45,8 +57,44 @@ function classifyRepoRole(project: TGitLabProject): TObjectTypeRepoRole {
   return "unknown";
 }
 
-function buildGroupKey(auth: TGitLabAuth, group: TGitLabGroup): string {
-  return `${normalizeBaseUrl(auth.baseUrl)}::${group.id}`;
+/**
+ * Derives the object type's short business code (e.g. `"cmi"`) from its repos' own GitLab naming
+ * convention (`simplemdg_db_<code>`, `simplemdg_srv_<code>`, `simplemdg_srv_<code>_process`/`_sf`).
+ * Needed to reproduce the legacy tool's `MDG_<CODE>.<ObjectType>` CSN root-entity naming when
+ * importing an uploaded EDMX: `cds import` derives that namespace prefix from the INPUT FILE'S OWN
+ * NAME, not from anything inside the XML content, and the legacy tool always renamed the upload to
+ * `MDG_<code>.xml` before running it. Confirmed against a real upload: without that rename, the
+ * CSN's root prefix is just whatever the uploaded file happened to be called (e.g. `CMIR_v2` for
+ * "CMIR v2.xml") — the code is NOT recoverable from the CSN content itself, only from the repo
+ * names (which is also, separately, the only place a stable per-object-type namespace segment like
+ * `cmi.model.final` — already used by the customer's existing `db` repo — can come from).
+ */
+export function deriveShortCodeFromRepos(repos: TObjectTypeRepoRef[]): string | undefined {
+  const lastSegment = (repo: TObjectTypeRepoRef) => (repo.pathWithNamespace.split("/").pop() ?? repo.pathWithNamespace).toLowerCase();
+
+  const dbRepo = repos.find((repo) => repo.role === "db");
+  if (dbRepo?.pathWithNamespace) {
+    const name = lastSegment(dbRepo);
+    if (name.startsWith("simplemdg_db_")) return name.slice("simplemdg_db_".length);
+  }
+
+  const srvRepo = repos.find((repo) => repo.role === "srv");
+  if (srvRepo) {
+    const name = lastSegment(srvRepo);
+    if (name.startsWith("simplemdg_srv_")) return name.slice("simplemdg_srv_".length);
+  }
+
+  const srvProcessRepo = repos.find((repo) => repo.role === "srv_process");
+  if (srvProcessRepo) {
+    const name = lastSegment(srvProcessRepo);
+    if (name.startsWith("simplemdg_srv_")) return name.slice("simplemdg_srv_".length).replace(/_(process|sf)$/, "");
+  }
+
+  return undefined;
+}
+
+function buildGroupKey(auth: TGitLabAuth, group: TGitLabGroup, preferredBranch?: string): string {
+  return `${normalizeBaseUrl(auth.baseUrl)}::${group.id}::${preferredBranch ?? ""}`;
 }
 
 /**
@@ -67,19 +115,42 @@ function findRepoByExactName(projects: TGitLabProject[], repoName: string): TGit
   });
 }
 
-async function scanGroupForObjectTypes(auth: TGitLabAuth, group: TGitLabGroup): Promise<TDiscoveredObjectType[]> {
+/**
+ * Resolves which branch to read `_laidonBuild.yaml` from (and to record as the repo's
+ * `defaultBranch` for later deploys). Prefers the deploy target's own configured working branch
+ * over the project's GitLab-reported default — confirmed against a real customer group where two
+ * of an object type's three repos (`db`/`srv`) had their GitLab default branch repointed at a
+ * `forkbk-main-*` snapshot (from some backup/restore operation) while `_laidonBuild.yaml` still
+ * only existed on the real working branch (`staging`, matching the deploy target's configured
+ * branch). Reading from `project.default_branch` unconditionally silently dropped both repos from
+ * discovery — same failure mode a stale/rebased default branch could hit on any customer. Falls
+ * back to the project's own reported default when the preferred branch doesn't have the file
+ * (e.g. a repo genuinely using a different branch), so this can't regress anything that worked
+ * before.
+ */
+async function resolveBuildYamlContent(auth: TGitLabAuth, project: TGitLabProject, preferredBranch?: string): Promise<{ ref: string; raw: string } | undefined> {
+  const projectDefaultRef = project.default_branch || "main";
+  const firstRef = preferredBranch || projectDefaultRef;
+  const firstRaw = await fetchRawFile(auth, project.id, "_laidonBuild.yaml", firstRef).catch(() => undefined);
+  if (firstRaw !== undefined) return { ref: firstRef, raw: firstRaw };
+
+  if (firstRef === projectDefaultRef) return undefined;
+  const fallbackRaw = await fetchRawFile(auth, project.id, "_laidonBuild.yaml", projectDefaultRef).catch(() => undefined);
+  return fallbackRaw !== undefined ? { ref: projectDefaultRef, raw: fallbackRaw } : undefined;
+}
+
+async function scanGroupForObjectTypes(auth: TGitLabAuth, group: TGitLabGroup, preferredBranch?: string): Promise<TDiscoveredObjectType[]> {
   const projectsResult = await listProjects(auth, group, false);
   const bySlug = new Map<string, TDiscoveredObjectType>();
 
   await Promise.all(
     projectsResult.data.map(async (project) => {
-      const ref = project.default_branch || "main";
-      const raw = await fetchRawFile(auth, project.id, "_laidonBuild.yaml", ref).catch(() => undefined);
-      if (!raw) return;
+      const found = await resolveBuildYamlContent(auth, project, preferredBranch);
+      if (!found) return;
 
       let parsed: TLaidonBuildFile | undefined;
       try {
-        parsed = parseYaml(raw) as TLaidonBuildFile;
+        parsed = parseYaml(found.raw) as TLaidonBuildFile;
       } catch {
         return;
       }
@@ -87,9 +158,10 @@ async function scanGroupForObjectTypes(auth: TGitLabAuth, group: TGitLabGroup): 
       const slug = parsed?.build?.flow?.objecttype?.trim();
       if (!slug) return;
       const envObjectName = parsed?.build?.flow?.envObject?.trim() || slug;
+      const cfAppName = parsed?.build?.flow?.name?.trim() || deriveCfAppNameFromRepo(project);
 
       const existing = bySlug.get(slug) ?? { slug, envObjectName, repos: [], source: "laidonBuild" as const };
-      existing.repos.push({ projectId: project.id, pathWithNamespace: project.path_with_namespace, role: classifyRepoRole(project), defaultBranch: ref });
+      existing.repos.push({ projectId: project.id, pathWithNamespace: project.path_with_namespace, role: classifyRepoRole(project), defaultBranch: found.ref, cfAppName });
       bySlug.set(slug, existing);
     }),
   );
@@ -101,7 +173,7 @@ async function scanGroupForObjectTypes(auth: TGitLabAuth, group: TGitLabGroup): 
         slug: "f4",
         envObjectName: "F4 (Value Help)",
         source: "laidonBuild",
-        repos: [{ projectId: f4Repo.id, pathWithNamespace: f4Repo.path_with_namespace, role: "db", defaultBranch: f4Repo.default_branch || "main" }],
+        repos: [{ projectId: f4Repo.id, pathWithNamespace: f4Repo.path_with_namespace, role: "db", defaultBranch: preferredBranch || f4Repo.default_branch || "main", cfAppName: deriveCfAppNameFromRepo(f4Repo) }],
       });
     }
   }
@@ -115,13 +187,13 @@ async function scanGroupForObjectTypes(auth: TGitLabAuth, group: TGitLabGroup): 
  * Cached per group (TTL-based, background-refreshable like the rest of the
  * GitLab caches) since a full group scan touches every repo in the group.
  */
-export async function discoverObjectTypesForGroup(auth: TGitLabAuth, group: TGitLabGroup, options?: { refresh?: boolean }): Promise<TSmartCacheResult<TDiscoveredObjectType[]>> {
+export async function discoverObjectTypesForGroup(auth: TGitLabAuth, group: TGitLabGroup, options?: { refresh?: boolean; preferredBranch?: string }): Promise<TSmartCacheResult<TDiscoveredObjectType[]>> {
   return smartRead<TDiscoveredObjectType[]>({
     namespace: "object-type-discovery",
-    key: buildGroupKey(auth, group),
+    key: buildGroupKey(auth, group, options?.preferredBranch),
     ttlMs: DEFAULT_CACHE_TTL.objectTypeDiscovery,
     mode: options?.refresh ? "network-only" : "stale-while-revalidate",
-    fetcher: () => scanGroupForObjectTypes(auth, group),
+    fetcher: () => scanGroupForObjectTypes(auth, group, options?.preferredBranch),
   });
 }
 

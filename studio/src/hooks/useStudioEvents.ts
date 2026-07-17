@@ -7,10 +7,23 @@ let sharedSource: EventSource | undefined;
 const listeners = new Set<TEventListener>();
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
+/**
+ * This hook (and the components that use it, e.g. BtpTargetSelector/BtpAppSelector) is shared
+ * across studios that each run their OWN local HTTP server on their OWN port — DB Studio exposes
+ * this stream at `/api/events`, Tool Studio at `/api/tool/events` (its `/api/events` doesn't exist
+ * at all, which previously 404'd in an infinite reconnect loop whenever a BTP component was reused
+ * there). Each studio's entry point (main.tsx/tool-main.tsx) stamps its own path onto `window`
+ * before rendering, so a relative EventSource here always targets the server actually serving the
+ * page — defaulting to DB Studio's path when unset, since that was this hook's original/only home.
+ */
+function eventsPath(): string {
+  return (window as { __SMDG_STUDIO_EVENTS_PATH__?: string }).__SMDG_STUDIO_EVENTS_PATH__ ?? "/api/events";
+}
+
 function connect(): void {
   if (sharedSource || typeof window === "undefined" || !("EventSource" in window)) return;
 
-  const source = new EventSource("/api/events");
+  const source = new EventSource(eventsPath());
   sharedSource = source;
 
   source.onmessage = (message) => {

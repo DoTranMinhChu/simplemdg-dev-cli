@@ -154,11 +154,12 @@ export async function fetchRawFile(auth: TGitLabAuth, projectId: number, filePat
 export type TGitLabTreeEntry = { id: string; name: string; type: "blob" | "tree"; path: string };
 
 /** List a repository directory's entries (no clone required). Returns `[]` on 404 (path not found). */
-export async function fetchRepositoryTree(auth: TGitLabAuth, projectId: number, treePath: string, ref: string): Promise<TGitLabTreeEntry[]> {
+export async function fetchRepositoryTree(auth: TGitLabAuth, projectId: number, treePath: string, ref: string, options?: { recursive?: boolean }): Promise<TGitLabTreeEntry[]> {
   const encodedId = encodeURIComponent(String(projectId));
   const url = new URL(`${normalizeBaseUrl(auth.baseUrl)}/api/v4/projects/${encodedId}/repository/tree`);
   url.searchParams.set("path", treePath);
   url.searchParams.set("ref", ref);
+  if (options?.recursive) url.searchParams.set("recursive", "true");
   const response = await fetch(url, { headers: { "PRIVATE-TOKEN": auth.token } });
   if (response.status === 404) return [];
   if (!response.ok) throw new Error(`GitLab repository tree fetch failed ${response.status}: ${treePath}`);

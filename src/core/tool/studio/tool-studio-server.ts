@@ -8,6 +8,7 @@ import {
   sendJson,
   serveStudioAsset as serveStudioAssetFromKit,
 } from "../../studio-shared/studio-server-kit";
+import { onCacheEvent } from "../../cache/smart-cache";
 import { onJobEvent } from "./job-events";
 import { handleTestConfigApi } from "./routes/test-config-routes";
 import { handleBtpTargetApi } from "./routes/btp-target-routes";
@@ -87,10 +88,17 @@ export async function startToolStudioServer(options: TToolStudioServerOptions = 
           });
           res.write(": connected\n\n");
           const unsubscribeJobs = onJobEvent((event) => res.write(`data: ${JSON.stringify(event)}\n\n`));
+          // The "cache" side of the multiplex documented above — BtpTargetSelector/BtpAppSelector
+          // (shared with DB Studio, which streams these same bare events over its own /api/events)
+          // subscribe to background cf-apps/cf-cross-region-target refreshes to auto-reload without
+          // a manual click. Tagged `channel: "cache"` only here (DB Studio's stream stays untagged/
+          // unchanged) so useJobEvents' `channel === "job"` filter on this same connection ignores them.
+          const unsubscribeCache = onCacheEvent((event) => res.write(`data: ${JSON.stringify({ ...event, channel: "cache" })}\n\n`));
           const keepAlive = setInterval(() => res.write(": ping\n\n"), 25000);
           req.on("close", () => {
             clearInterval(keepAlive);
             unsubscribeJobs();
+            unsubscribeCache();
           });
           return;
         }

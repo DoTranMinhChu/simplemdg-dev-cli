@@ -117,6 +117,8 @@ export type TDeployTarget = {
   gitlabGroupId: number;
   gitlabGroupPath: string;
   defaultBranch: string;
+  /** `region::org::space` — links this deploy target to a live CF space, so Check API External can cross-reference discovered srv repos against a real `cf apps` listing. */
+  cfTargetKey?: string;
   objectTypeMode: TObjectTypeMode;
   cdsVersionDefault: TCdsVersion;
   isConsolidationDefault: boolean;
@@ -130,6 +132,34 @@ export type TObjectTypeRepoRef = { projectId: number; pathWithNamespace: string;
 export type TDiscoveredObjectType = { slug: string; envObjectName: string; repos: TObjectTypeRepoRef[]; source: "laidonBuild" | "manual" };
 
 export type TGitLabUserSummary = { id: number; username: string; name: string };
+
+export type TCdsServiceInfo = { name: string; path: string; sourceFile: string };
+export type TResolvedAppServices = {
+  matched: boolean;
+  pathWithNamespace?: string;
+  defaultBranch?: string;
+  services: TCdsServiceInfo[];
+  scanError?: string;
+  /** `"live-index"` when discovered directly from the app's own root index (no GitLab involved); `"gitlab"` when that wasn't available and the fallback source-scan was used instead. */
+  source?: "live-index" | "gitlab";
+  fromCache?: boolean;
+  updatedAt?: string;
+  error?: string;
+};
+
+export type TODataProperty = { name: string; type: string; nullable: boolean };
+export type TODataNavigationProperty = { name: string };
+export type TODataEntityType = { name: string; keys: string[]; properties: TODataProperty[]; navigationProperties: TODataNavigationProperty[] };
+export type TODataEntitySet = { name: string; entityTypeName: string };
+export type TODataFunctionParameter = { name: string; type: string; nullable: boolean };
+export type TODataFunctionImport = { name: string; httpMethod: string; parameters: TODataFunctionParameter[] };
+export type TODataServiceMetadata = {
+  version: "v2" | "v4";
+  entitySets: TODataEntitySet[];
+  entityTypes: Record<string, TODataEntityType>;
+  functionImports: TODataFunctionImport[];
+  error?: string;
+};
 
 export type TDeployModelResult = {
   entityName: string;
@@ -164,12 +194,27 @@ export const toolStudioApi = {
   getXsuaaCandidates: (targetKey: string, appName: string) =>
     get<{ candidates: TXsuaaCandidate[]; error?: string }>(`/api/btp/xsuaa-candidates?targetKey=${encodeURIComponent(targetKey)}&appName=${encodeURIComponent(appName)}`),
   listBtpCredentials: () => get<{ credentials: TBtpServiceCredential[] }>("/api/tool/btp/credentials"),
+  getBtpCredentialSuggestion: (cfTargetKey: string) =>
+    get<{ credential?: TBtpServiceCredential }>(`/api/tool/btp/credentials/suggestion?cfTargetKey=${encodeURIComponent(cfTargetKey)}`),
   saveBtpCredential: (input: { targetKey: string; appName: string; serviceName: string; name?: string }) =>
     post<{ credential?: TBtpServiceCredential; error?: string }>("/api/tool/btp/credentials/save", input),
   removeBtpCredential: (id: string) => post<{ removed: boolean }>("/api/tool/btp/credentials/remove", { id }),
 
-  callCheckApi: (input: { credentialId: string; region?: string; space?: string; serviceKey: string; objectTypeShortName?: string; path: string; method?: string; filter?: string }) =>
-    post<{ status: number; ok: boolean; body: unknown; url: string; error?: string }>("/api/tool/check-api/call", input),
+  getAppServices: (input: { cfTargetKey: string; appName: string; credentialId?: string; baseUrl?: string; refresh?: boolean }) =>
+    get<TResolvedAppServices>(
+      `/api/tool/check-api/app-services?cfTargetKey=${encodeURIComponent(input.cfTargetKey)}&appName=${encodeURIComponent(input.appName)}` +
+        `${input.credentialId ? `&credentialId=${encodeURIComponent(input.credentialId)}` : ""}${input.baseUrl ? `&baseUrl=${encodeURIComponent(input.baseUrl)}` : ""}${input.refresh ? "&refresh=true" : ""}`,
+    ),
+  getCheckApiMetadata: (credentialId: string, baseUrl: string, path: string) =>
+    get<TODataServiceMetadata>(`/api/tool/check-api/metadata?credentialId=${encodeURIComponent(credentialId)}&baseUrl=${encodeURIComponent(baseUrl)}&path=${encodeURIComponent(path)}`),
+  callCheckApi: (input: {
+    credentialId: string;
+    baseUrl: string;
+    path: string;
+    method?: string;
+    queryParams?: Record<string, string>;
+    body?: unknown;
+  }) => post<{ status: number; ok: boolean; body: unknown; url: string; error?: string }>("/api/tool/check-api/call", input),
 
   uploadCpiQueueZip: (file: File) => uploadRawFile<{ results: TCpiQueueFileResult[]; error?: string }>("/api/tool/cpi-queue/upload-and-create", file),
 
