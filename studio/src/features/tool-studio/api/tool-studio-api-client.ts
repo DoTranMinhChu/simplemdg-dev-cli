@@ -73,14 +73,39 @@ export type TBtpServiceCredential = {
   tags?: string[];
 };
 
-export type TQueueCreationResult = { queueName: string; ok: boolean; error?: string };
+export type TQueueHealthStatus = "healthy" | "busy" | "stuck" | "failed" | "missing";
 
-export type TCpiQueueFileResult = {
-  serviceKeyFileName: string;
-  namespace?: string;
-  ok: boolean;
+export type TQueueHealthInfo = {
+  queueName: string;
+  isDeadLetter: boolean;
+  exists: boolean;
+  status: TQueueHealthStatus;
+  messageCount?: number;
+  unacknowledgedMessageCount?: number;
+  consumerCount?: number;
+  queueSizeInBytes?: number;
+  maxQueueSizeInBytes?: number;
   error?: string;
-  queues?: TQueueCreationResult[];
+};
+
+export type TCpiQueueHealthResult = {
+  serviceKeyFileName: string;
+  namespace: string;
+  queues: TQueueHealthInfo[];
+  error?: string;
+};
+
+export type TDestinationSummary = { name: string; type?: string; url?: string; authentication?: string; proxyType?: string };
+
+export type TCpiMessageProcessingLogEntry = {
+  messageGuid: string;
+  status?: string;
+  integrationFlowName?: string;
+  logStart?: string;
+  logEnd?: string;
+  sender?: string;
+  receiver?: string;
+  applicationMessageId?: string;
 };
 
 async function uploadRawFile<T>(path: string, file: File): Promise<T> {
@@ -253,7 +278,12 @@ export const toolStudioApi = {
     body?: unknown;
   }) => post<{ status: number; ok: boolean; body: unknown; url: string; error?: string }>("/api/tool/check-api/call", input),
 
-  uploadCpiQueueZip: (file: File) => uploadRawFile<{ results: TCpiQueueFileResult[]; error?: string }>("/api/tool/cpi-queue/upload-and-create", file),
+  checkEventMeshHealth: (input: { targetKey: string; appName: string }) =>
+    post<{ results: TCpiQueueHealthResult[]; error?: string }>("/api/tool/cpi-queue/health", input),
+  listCpiDestinations: (input: { targetKey: string; appName: string }) =>
+    post<{ destinations: TDestinationSummary[]; error?: string }>("/api/tool/cpi-queue/destinations", input),
+  getCpiMessageProcessingLogs: (input: { targetKey: string; appName: string; destinationName: string }) =>
+    post<{ entries: TCpiMessageProcessingLogEntry[]; error?: string }>("/api/tool/cpi-queue/mpl", input),
 
   getJiraDeployInfo: (input: { baseUrl: string; email: string; apiToken: string; issueKey: string }) =>
     post<{ source?: TJiraIssueSummary; referenced?: TJiraIssueSummary[]; error?: string }>("/api/tool/jira/deploy-info", input),

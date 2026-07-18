@@ -1,64 +1,107 @@
 import http from "node:http";
-import AdmZip from "adm-zip";
-import { readRawBody, sendJson } from "../../../studio-shared/studio-server-kit";
-import { createPredefinedQueues, parseEventMeshServiceKey } from "../../../deploy/cpi-queue-service";
-import type { TQueueCreationResult } from "../../../deploy/cpi-queue-service";
+import { getString, readJsonBody, sendJson } from "../../../studio-shared/studio-server-kit";
+import { detectEventMeshCandidates, getQueueHealth } from "../../../deploy/cpi-queue-service";
+import type { TQueueHealthInfo } from "../../../deploy/cpi-queue-service";
+import { fetchMessageProcessingLogs, listSubaccountDestinations, resolveDestination } from "../../../deploy/cpi-integration-service";
+import { withCfTarget } from "../../../cf/cf-target-switcher";
+import { readAppVcapServicesInContext } from "../../../db/db-btp";
+import { detectDestinationServiceCredential } from "../../../cf/btp-service-credential-parser";
 
-export type TCpiQueueFileResult = {
+export type TCpiQueueHealthResult = {
   serviceKeyFileName: string;
-  namespace?: string;
-  ok: boolean;
+  namespace: string;
+  queues: TQueueHealthInfo[];
   error?: string;
-  queues?: TQueueCreationResult[];
 };
 
+/**
+ * Read-only by design — every route here is a GET-shaped lookup (queue counts, destination
+ * listing, CPI run history). There is deliberately no route that creates, modifies, or deletes
+ * anything in BTP; that capability was removed at the user's request (see git history for the
+ * prior queue-creation/upload-and-create routes if it's ever needed again).
+ */
 export async function handleCpiQueueApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL, method: string): Promise<boolean> {
-  if (url.pathname === "/api/tool/cpi-queue/upload-and-create" && method === "POST") {
-    const fileName = req.headers["x-file-name"];
-    if (typeof fileName !== "string" || !fileName) {
-      sendJson(res, { error: "X-File-Name header is required" }, 400);
+  if (url.pathname === "/api/tool/cpi-queue/health" && method === "POST") {
+    const body = await readJsonBody(req);
+    const targetKey = getString(body, "targetKey");
+    const appName = getString(body, "appName");
+    if (!targetKey || !appName) {
+      sendJson(res, { results: [], error: "targetKey and appName are required" }, 400);
       return true;
     }
 
-    let zipBuffer: Buffer;
     try {
-      zipBuffer = await readRawBody(req, 50 * 1024 * 1024);
+      const candidates = await withCfTarget(targetKey, async (context) => {
+        const vcapServices = await readAppVcapServicesInContext(context, appName);
+        return detectEventMeshCandidates(vcapServices);
+      });
+
+      if (!candidates.length) {
+        sendJson(res, { results: [], error: `No Event Mesh (enterprise-messaging) service was found bound to ${appName}'s cf env.` });
+        return true;
+      }
+
+      const results: TCpiQueueHealthResult[] = [];
+      for (const candidate of candidates) {
+        try {
+          const queues = await getQueueHealth(candidate);
+          results.push({ serviceKeyFileName: candidate.serviceKeyFileName, namespace: candidate.namespace, queues });
+        } catch (error) {
+          results.push({ serviceKeyFileName: candidate.serviceKeyFileName, namespace: candidate.namespace, queues: [], error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      sendJson(res, { results });
     } catch (error) {
-      sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 413);
+      sendJson(res, { results: [], error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/tool/cpi-queue/destinations" && method === "POST") {
+    const body = await readJsonBody(req);
+    const targetKey = getString(body, "targetKey");
+    const appName = getString(body, "appName");
+    if (!targetKey || !appName) {
+      sendJson(res, { destinations: [], error: "targetKey and appName are required" }, 400);
       return true;
     }
 
-    let entries: AdmZip.IZipEntry[];
     try {
-      entries = new AdmZip(zipBuffer).getEntries();
+      const destinations = await withCfTarget(targetKey, async (context) => {
+        const vcapServices = await readAppVcapServicesInContext(context, appName);
+        const credential = detectDestinationServiceCredential(vcapServices);
+        if (!credential) throw new Error(`No destination service was found bound to ${appName}'s cf env.`);
+        return listSubaccountDestinations(credential);
+      });
+      sendJson(res, { destinations });
     } catch (error) {
-      sendJson(res, { error: `Could not read '${fileName}' as a zip archive: ${error instanceof Error ? error.message : String(error)}` }, 400);
+      sendJson(res, { destinations: [], error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/tool/cpi-queue/mpl" && method === "POST") {
+    const body = await readJsonBody(req);
+    const targetKey = getString(body, "targetKey");
+    const appName = getString(body, "appName");
+    const destinationName = getString(body, "destinationName");
+    if (!targetKey || !appName || !destinationName) {
+      sendJson(res, { entries: [], error: "targetKey, appName, and destinationName are required" }, 400);
       return true;
     }
 
-    const jsonEntries = entries.filter((entry) => !entry.isDirectory && entry.entryName.toLowerCase().endsWith(".json"));
-    if (!jsonEntries.length) {
-      sendJson(res, { error: "No .json service-key files were found inside the uploaded zip." }, 400);
-      return true;
+    try {
+      const entries = await withCfTarget(targetKey, async (context) => {
+        const vcapServices = await readAppVcapServicesInContext(context, appName);
+        const credential = detectDestinationServiceCredential(vcapServices);
+        if (!credential) throw new Error(`No destination service was found bound to ${appName}'s cf env.`);
+        const destination = await resolveDestination(credential, destinationName);
+        return fetchMessageProcessingLogs(destination);
+      });
+      sendJson(res, { entries });
+    } catch (error) {
+      sendJson(res, { entries: [], error: error instanceof Error ? error.message : String(error) }, 500);
     }
-
-    const results: TCpiQueueFileResult[] = [];
-    for (const entry of jsonEntries) {
-      const rawJson = entry.getData().toString("utf8");
-      const credential = parseEventMeshServiceKey(entry.entryName, rawJson);
-      if (!credential) {
-        results.push({ serviceKeyFileName: entry.entryName, ok: false, error: "Not a recognizable Event Mesh service-key JSON (missing namespace/management/oa2 credentials)." });
-        continue;
-      }
-      try {
-        const queues = await createPredefinedQueues(credential);
-        results.push({ serviceKeyFileName: entry.entryName, namespace: credential.namespace, ok: queues.every((queue) => queue.ok), queues });
-      } catch (error) {
-        results.push({ serviceKeyFileName: entry.entryName, namespace: credential.namespace, ok: false, error: error instanceof Error ? error.message : String(error) });
-      }
-    }
-
-    sendJson(res, { results });
     return true;
   }
 

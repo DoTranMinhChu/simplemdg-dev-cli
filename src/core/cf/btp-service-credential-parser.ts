@@ -86,3 +86,46 @@ export function detectOAuthCredentialCandidates(vcapServices: unknown): TBtpServ
 
   return candidates;
 }
+
+export type TDestinationServiceCredential = {
+  clientId: string;
+  clientSecret: string;
+  /** XSUAA base URL — token endpoint is `${tokenUrl}/oauth/token`. */
+  tokenUrl: string;
+  /** Destination Configuration Service API host, e.g. https://destination-configuration.cfapps.<region>.hana.ondemand.com */
+  destinationConfigUri: string;
+};
+
+const DESTINATION_SERVICE_HINTS = ["destination"];
+
+/**
+ * Find the `destination` service instance's own credentials in a live `cf env` VCAP_SERVICES —
+ * every app in a space typically shares one, bound broadly (confirmed against a real customer
+ * space). Its own REST API (`/destination-configuration/v1/...`) can list and resolve every BTP
+ * Destination configured for the subaccount, which is how CPI/other systems' connection details
+ * get discovered without the user having to dig one up manually.
+ */
+export function detectDestinationServiceCredential(vcapServices: unknown): TDestinationServiceCredential | undefined {
+  if (!vcapServices || typeof vcapServices !== "object") return undefined;
+
+  for (const [label, entries] of Object.entries(vcapServices as Record<string, unknown>)) {
+    if (!Array.isArray(entries)) continue;
+
+    for (const rawEntry of entries as TVcapServiceEntry[]) {
+      const credentials = (rawEntry.credentials ?? {}) as Record<string, unknown>;
+      if (Object.keys(credentials).length === 0) continue;
+
+      const haystack = buildHaystack(label, rawEntry, credentials);
+      if (!matchesAnyHint(haystack, DESTINATION_SERVICE_HINTS)) continue;
+
+      const clientId = toStringValue(credentials.clientid ?? credentials.clientId);
+      const clientSecret = toStringValue(credentials.clientsecret ?? credentials.clientSecret);
+      const tokenUrl = toStringValue(credentials.url);
+      const destinationConfigUri = toStringValue(credentials.uri);
+      if (!clientId || !clientSecret || !tokenUrl || !destinationConfigUri) continue;
+
+      return { clientId, clientSecret, tokenUrl, destinationConfigUri };
+    }
+  }
+  return undefined;
+}
