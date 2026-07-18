@@ -10,6 +10,11 @@ export type TBuildResumeCommandOptions = {
   shell?: TShellKind;
   includeChangeDirectory?: boolean;
   preferSessionName?: boolean;
+  /** Extra `claude` CLI argv tokens appended after the resume/continue flag (e.g.
+   *  `["--dangerously-skip-permissions"]` or `["--model", "sonnet"]`) — see resume-flags.ts on the
+   *  Studio frontend for the curated picker that produces these. Appended as literal argv entries,
+   *  never through a shell, so arbitrary token content here can't cause injection. */
+  extraArgs?: string[];
 };
 
 export type TAiSessionLaunchCommand = {
@@ -45,6 +50,13 @@ function quoteForShell(value: string, shell: TShellKind): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+/** Only quotes a display token when it actually needs it (contains whitespace/quotes) — flag names
+ *  like `--verbose` read a lot cleaner bare than as `'--verbose'`, and it's purely cosmetic since the
+ *  real spawn always goes through the argv array in `args`, never this string. */
+function quoteForShellIfNeeded(value: string, shell: TShellKind): string {
+  return /[\s'"]/.test(value) ? quoteForShell(value, shell) : value;
+}
+
 function changeDirectoryLine(workingDirectory: string, shell: TShellKind): string {
   if (shell === "powershell") return `Set-Location ${quoteForShell(workingDirectory, shell)}`;
   if (shell === "cmd") return `cd /d ${quoteForShell(workingDirectory, shell)}`;
@@ -69,10 +81,11 @@ export function buildResumeCommand(session: TAiSession, options: TBuildResumeCom
   const shell = options.shell ?? detectDefaultShell();
   const rawSessionId = claudeRawSessionId(session);
   const identifier = rawSessionId;
+  const extraArgs = options.extraArgs ?? [];
   void options.preferSessionName;
 
-  const args = ["--resume", identifier];
-  const commandLine = `claude --resume ${quoteForShell(identifier, shell)}`;
+  const args = ["--resume", identifier, ...extraArgs];
+  const commandLine = [`claude --resume ${quoteForShell(identifier, shell)}`, ...extraArgs.map((arg) => quoteForShellIfNeeded(arg, shell))].join(" ");
   const lines = options.includeChangeDirectory ? [changeDirectoryLine(session.cwd, shell), commandLine] : [commandLine];
 
   return {
@@ -89,7 +102,8 @@ export function buildResumeCommand(session: TAiSession, options: TBuildResumeCom
 
 export function buildContinueCommand(session: TAiSession, options: TBuildResumeCommandOptions = {}): TAiSessionLaunchCommand {
   const shell = options.shell ?? detectDefaultShell();
-  const commandLine = "claude --continue";
+  const extraArgs = options.extraArgs ?? [];
+  const commandLine = ["claude --continue", ...extraArgs.map((arg) => quoteForShellIfNeeded(arg, shell))].join(" ");
   const lines = options.includeChangeDirectory !== false ? [changeDirectoryLine(session.cwd, shell), commandLine] : [commandLine];
 
   return {
@@ -98,7 +112,7 @@ export function buildContinueCommand(session: TAiSession, options: TBuildResumeC
     workingDirectory: session.cwd,
     command: joinLines(lines, shell),
     executable: "claude",
-    args: ["--continue"],
+    args: ["--continue", ...extraArgs],
     shell,
   };
 }

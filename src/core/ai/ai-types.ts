@@ -63,6 +63,14 @@ export type TAiSession = {
   /** Tokens spent writing new cache entries (Anthropic's `cache_creation_input_tokens`); already folded into `inputTokens` too — kept separate only so cache-reuse-rate can be computed. Always 0 for providers without a cache-write concept (Codex). */
   cacheCreationTokens: number;
 
+  /** Best-effort estimate of how full the context window is *right now* — the most recent turn's
+   *  total context size (its input + cache-read + cache-creation + output tokens for Claude; the
+   *  provider's own live running total for Codex), NOT a sum across every turn. `inputTokens` /
+   *  `outputTokens` above are a lifetime spend total (they grow every turn and routinely exceed
+   *  `contextWindowTokens` in a long session) — this field is what the "how much context is used"
+   *  meter should read instead, so it doesn't report e.g. 150% on a perfectly healthy session. */
+  liveContextTokens: number;
+
   turnCount: number;
   observationCount: number;
   toolCallCount: number;

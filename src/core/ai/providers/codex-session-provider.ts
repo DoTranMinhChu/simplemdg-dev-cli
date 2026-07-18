@@ -55,6 +55,19 @@ export function parseCodexSession(filePath: string, content: string): TParsedAiS
   let cacheReadTokens = 0;
   let userIdx = -1;
   let assistantIdx = -1;
+  let lastObservationIndex = -1;
+
+  // Codex reports usage via periodic `token_count` events (each carrying a `last_token_usage` delta
+  // for the turn just completed), fired *after* the response_item(s) that produced it — so once a
+  // token_count event arrives, its output-token delta is attributed retroactively to whichever
+  // observation was most recently created. Without this, every observation carries 0 tokens (Codex
+  // has no other per-message token field), which is why turn-level token sums never lined up with
+  // the session total for Codex sessions either.
+  const pushObservation = (observation: TAiObservation): TAiObservation => {
+    observations.push(observation);
+    lastObservationIndex = observations.length - 1;
+    return observation;
+  };
 
   for (const line of jsonLines(content)) {
     const timestamp = str(line.timestamp);
@@ -84,6 +97,14 @@ export function parseCodexSession(filePath: string, content: string): TParsedAiS
         inputTokens = num(usage.input_tokens) - num(usage.cached_input_tokens);
         outputTokens = num(usage.output_tokens);
         cacheReadTokens = num(usage.cached_input_tokens);
+        // `last_token_usage` is Codex's own per-turn delta (as opposed to `total_token_usage`'s
+        // running total above) — attributed to the most recently created observation as a
+        // best-effort per-turn breakdown. It won't always sum to *exactly* `outputTokens` (Codex's
+        // own rounding/reasoning-token accounting can differ slightly turn-to-turn), but it's a large
+        // improvement over every Codex observation carrying 0 tokens.
+        const lastUsage = obj(obj(event.info).last_token_usage);
+        const lastOutputTokens = num(lastUsage.output_tokens);
+        if (lastOutputTokens > 0 && lastObservationIndex >= 0) observations[lastObservationIndex].tokens += lastOutputTokens;
       } else if (event.type === "user_message") {
         promptTitle = promptTitle || str(event.message).trim();
       }
@@ -99,22 +120,21 @@ export function parseCodexSession(filePath: string, content: string): TParsedAiS
         title = title || text;
         userIdx = observations.length;
         assistantIdx = -1;
-        observations.push(makeObservation(userIdx, "user", "user", timestamp, text, "", 0, false));
+        pushObservation(makeObservation(userIdx, "user", "user", timestamp, text, "", 0, false));
       } else if (payload.role === "assistant" && text) {
         assistantIdx = observations.length;
-        observations.push(makeObservation(assistantIdx, "assistant", "assistant", timestamp, "", text, 0, false, userIdx));
+        pushObservation(makeObservation(assistantIdx, "assistant", "assistant", timestamp, "", text, 0, false, userIdx));
       }
     } else if (payload.type === "reasoning") {
       const text = contentText(payload.summary) || contentText(payload.content);
       if (text.trim()) {
-        observations.push(makeObservation(observations.length, "reasoning", "reasoning", timestamp, "", text, 0, false, assistantIdx >= 0 ? assistantIdx : userIdx));
+        pushObservation(makeObservation(observations.length, "reasoning", "reasoning", timestamp, "", text, 0, false, assistantIdx >= 0 ? assistantIdx : userIdx));
       }
     } else if (payload.type === "function_call" || payload.type === "custom_tool_call") {
       const parentIdx = assistantIdx >= 0 ? assistantIdx : userIdx;
       const toolName = str(payload.name) || "tool";
       const type: TAiObservationType = toolName.startsWith("mcp__") ? "mcp-call" : "tool-call";
-      const tool = makeObservation(observations.length, type, toolName, timestamp, str(payload.arguments) || str(payload.input), "", 0, false, parentIdx);
-      observations.push(tool);
+      const tool = pushObservation(makeObservation(observations.length, type, toolName, timestamp, str(payload.arguments) || str(payload.input), "", 0, false, parentIdx));
       pendingTools.set(str(payload.call_id), tool);
     } else if (payload.type === "function_call_output" || payload.type === "custom_tool_call_output") {
       const pending = pendingTools.get(str(payload.call_id));
@@ -129,7 +149,7 @@ export function parseCodexSession(filePath: string, content: string): TParsedAiS
       const action = obj(payload.action);
       const command = Array.isArray(action.command) ? action.command.join(" ") : str(action.command);
       const parentIdx = assistantIdx >= 0 ? assistantIdx : userIdx;
-      observations.push(makeObservation(observations.length, "shell-command", "shell", timestamp, command, "", 0, false, parentIdx));
+      pushObservation(makeObservation(observations.length, "shell-command", "shell", timestamp, command, "", 0, false, parentIdx));
     }
   }
 
@@ -147,6 +167,11 @@ export function parseCodexSession(filePath: string, content: string): TParsedAiS
     inputTokens,
     outputTokens,
     cacheReadTokens,
+    // Unlike Claude, `inputTokens`/`outputTokens`/`cacheReadTokens` above are already the *last*
+    // `token_count` event's running total (each event assigns, never accumulates — see the loop
+    // above), so they're already a live-context snapshot rather than a lifetime sum. No separate
+    // tracking needed; just add the three components together.
+    liveContextTokens: inputTokens + cacheReadTokens + outputTokens,
     file: filePath,
     parentSessionId: parentThreadId ? `codex:${parentThreadId}` : undefined,
     observations,
@@ -165,6 +190,7 @@ function buildParsedSession(input: {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  liveContextTokens: number;
   file: string;
   parentSessionId?: string;
   observations: TAiObservation[];
@@ -184,7 +210,7 @@ function buildParsedSession(input: {
       provider: input.provider,
       project: input.cwd ? path.basename(input.cwd) : input.fallbackProject,
       cwd: input.cwd,
-      title: clip(input.title, 120) || input.id,
+      title: clip(input.title, 500) || input.id,
       model: input.model,
       gitBranch: undefined,
       startedAt: input.firstAt,
@@ -193,6 +219,7 @@ function buildParsedSession(input: {
       outputTokens: input.outputTokens,
       cacheReadTokens: input.cacheReadTokens,
       cacheCreationTokens: 0,
+      liveContextTokens: input.liveContextTokens,
       parentSessionId: input.parentSessionId,
       sourceFile: input.file,
     },

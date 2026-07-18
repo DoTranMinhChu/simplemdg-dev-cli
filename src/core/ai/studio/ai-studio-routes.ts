@@ -7,6 +7,7 @@ import { exportSession } from "../ai-session-export";
 import { previewExport, runExport } from "../export/ai-export-service";
 import type { TAiExportFormat, TAiExportInclude, TAiExportPreset, TAiSessionExportInput } from "../export/ai-export-types";
 import { openFileInVsCode, openProjectFolder, openProjectInVsCode, type TShellKind } from "../ai-session-command-service";
+import { summarizeCurrentContext } from "../ai-context-summary";
 import { buildSessionLaunchResponse } from "../ai-session-launch";
 import { getSessionLauncher } from "../launchers/claude-session-launcher";
 import { aiStudioStorageDir } from "../ai-session-store";
@@ -49,6 +50,20 @@ function sendText(res: http.ServerResponse, value: string | Buffer, contentType:
 function getString(body: TJsonBody, key: string): string {
   const value = body[key];
   return typeof value === "string" ? value : "";
+}
+
+/** Reads a bounded array of trimmed, non-empty strings from a JSON body — used for the resume flag
+ *  picker's argv tokens, which get spawned literally (never through a shell), but are still capped
+ *  here defensively against an oversized/malformed payload. */
+function getStringArray(body: TJsonBody, key: string, limits: { maxItems: number; maxItemLength: number }): string[] {
+  const value = body[key];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, limits.maxItems)
+    .map((item) => item.slice(0, limits.maxItemLength));
 }
 
 function redactObservation(observation: TAiObservation, reveal: boolean): TAiObservation {
@@ -133,6 +148,11 @@ export async function handleAiStudioApi(req: http.IncomingMessage, res: http.Ser
       return true;
     }
 
+    if (subPath === "/children" && method === "GET") {
+      sendJson(res, { sessions: store.listChildSessions(sessionId) });
+      return true;
+    }
+
     if (subPath === "/turns" && method === "GET") {
       const reveal = url.searchParams.get("reveal") === "true";
       const observations = store.getObservations(sessionId);
@@ -200,6 +220,13 @@ export async function handleAiStudioApi(req: http.IncomingMessage, res: http.Ser
       return true;
     }
 
+    if (subPath === "/rename" && method === "POST") {
+      const body = await readJsonBody(req);
+      store.setCustomTitle(sessionId, getString(body, "title"));
+      sendJson(res, { ok: true, session: store.getSession(sessionId) });
+      return true;
+    }
+
     if (subPath === "/launch" && method === "GET") {
       const shell = (url.searchParams.get("shell") as TShellKind | null) ?? undefined;
       const launch = await buildSessionLaunchResponse(session, shell ?? undefined);
@@ -215,7 +242,8 @@ export async function handleAiStudioApi(req: http.IncomingMessage, res: http.Ser
       }
       const body = await readJsonBody(req);
       const mode = getString(body, "mode") === "continue" ? "continue" : "resume";
-      const result = mode === "continue" ? await launcher.openContinueInTerminal(session) : await launcher.openInTerminal(session);
+      const extraArgs = getStringArray(body, "extraArgs", { maxItems: 24, maxItemLength: 300 });
+      const result = mode === "continue" ? await launcher.openContinueInTerminal(session, extraArgs) : await launcher.openInTerminal(session, extraArgs);
       sendJson(res, result);
       return true;
     }
@@ -241,6 +269,13 @@ export async function handleAiStudioApi(req: http.IncomingMessage, res: http.Ser
       }
       const line = typeof body.line === "number" && Number.isFinite(body.line) ? body.line : undefined;
       const result = await openFileInVsCode(session.cwd, filePath, line);
+      sendJson(res, result);
+      return true;
+    }
+
+    if (subPath === "/summarize-context" && method === "POST") {
+      const observations = store.getObservations(sessionId);
+      const result = await summarizeCurrentContext(session, observations);
       sendJson(res, result);
       return true;
     }

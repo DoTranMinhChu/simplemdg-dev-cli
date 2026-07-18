@@ -18,7 +18,7 @@ export interface IAiSessionLauncher {
   readonly provider: "claude" | "codex" | "cursor" | "unknown";
   canResume(session: TAiSession): Promise<TSessionLaunchCapability>;
   buildResumeCommand(session: TAiSession, options?: TBuildResumeCommandOptions): TAiSessionLaunchCommand;
-  openInTerminal(session: TAiSession): Promise<{ ok: boolean; error?: string }>;
+  openInTerminal(session: TAiSession, extraArgs?: string[]): Promise<{ ok: boolean; error?: string }>;
 }
 
 export class ClaudeSessionLauncher implements IAiSessionLauncher {
@@ -42,16 +42,16 @@ export class ClaudeSessionLauncher implements IAiSessionLauncher {
     return buildContinueCommand(session, options);
   }
 
-  async openInTerminal(session: TAiSession): Promise<{ ok: boolean; error?: string }> {
+  async openInTerminal(session: TAiSession, extraArgs?: string[]): Promise<{ ok: boolean; error?: string }> {
     const capability = await this.canResume(session);
     if (!capability.canResume) return { ok: false, error: capability.reason };
-    return openTerminalWithCommand(this.buildResumeCommand(session, { includeChangeDirectory: false }));
+    return openTerminalWithCommand(this.buildResumeCommand(session, { includeChangeDirectory: false, extraArgs }));
   }
 
-  async openContinueInTerminal(session: TAiSession): Promise<{ ok: boolean; error?: string }> {
+  async openContinueInTerminal(session: TAiSession, extraArgs?: string[]): Promise<{ ok: boolean; error?: string }> {
     const dir = await checkWorkingDirectory(session.cwd);
     if (!dir.exists) return { ok: false, error: "Project folder no longer exists." };
-    return openTerminalWithCommand(this.buildContinueCommand(session, { includeChangeDirectory: false }));
+    return openTerminalWithCommand(this.buildContinueCommand(session, { includeChangeDirectory: false, extraArgs }));
   }
 }
 

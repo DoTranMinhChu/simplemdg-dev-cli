@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { SearchInput } from "../../../components/common/SearchInput";
 import { EmptyState } from "../../../components/common/EmptyState";
 import { Button } from "../../../components/common/Button";
@@ -12,12 +12,74 @@ import { SessionRow } from "./SessionRow";
 import { ProjectPicker } from "./ProjectPicker";
 import type { TAiSession } from "../../../api/ai-studio-api-types";
 
+type TDisplayRow = { kind: "session"; session: TAiSession; nested: boolean } | { kind: "loading"; parentId: string };
+
 export function SessionNavigator(): React.ReactElement {
-  const { sessions, sessionsLoading, sessionsError, nextCursor, filter, setFilter, loadMoreSessions, selectedSessionId, selectSession, refreshing, refreshAll, toast, patchSession } =
-    useAiStudioStore();
+  const {
+    sessions,
+    sessionsLoading,
+    sessionsError,
+    nextCursor,
+    filter,
+    setFilter,
+    loadMoreSessions,
+    reloadSessions,
+    selectedSessionId,
+    selectSession,
+    refreshing,
+    refreshAll,
+    toast,
+    patchSession,
+  } = useAiStudioStore();
   const { pending, requestLaunch, confirmPending, cancelPending } = useSessionResume(toast);
   const [menu, setMenu] = useState<(TContextMenuState & { session: TAiSession }) | undefined>();
-  const { containerRef, firstRowRef, window: virtualWindow } = useVirtualList(sessions.length);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [childrenByParent, setChildrenByParent] = useState<Map<string, TAiSession[]>>(new Map());
+  const [loadingParents, setLoadingParents] = useState<Set<string>>(new Set());
+
+  const toggleExpand = async (session: TAiSession): Promise<void> => {
+    const isExpanded = expandedIds.has(session.id);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (isExpanded) next.delete(session.id);
+      else next.add(session.id);
+      return next;
+    });
+    if (isExpanded || childrenByParent.has(session.id)) return;
+    setLoadingParents((prev) => new Set(prev).add(session.id));
+    try {
+      const result = await aiStudioApi.getChildSessions(session.id);
+      setChildrenByParent((prev) => new Map(prev).set(session.id, result.sessions));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "err");
+    } finally {
+      setLoadingParents((prev) => {
+        const next = new Set(prev);
+        next.delete(session.id);
+        return next;
+      });
+    }
+  };
+
+  // Sub-agent sessions never appear as their own top-level row (see AiSessionStore.listSessions) —
+  // expanding a parent splices its children in directly beneath it here, so the flat list the user
+  // scrolls through always reflects "main sessions, with sub-agents nested", never siblings.
+  const displayRows = useMemo<TDisplayRow[]>(() => {
+    const rows: TDisplayRow[] = [];
+    for (const session of sessions) {
+      rows.push({ kind: "session", session, nested: false });
+      if (expandedIds.has(session.id)) {
+        if (loadingParents.has(session.id)) {
+          rows.push({ kind: "loading", parentId: session.id });
+        } else {
+          for (const child of childrenByParent.get(session.id) ?? []) rows.push({ kind: "session", session: child, nested: true });
+        }
+      }
+    }
+    return rows;
+  }, [sessions, expandedIds, childrenByParent, loadingParents]);
+
+  const { containerRef, firstRowRef, window: virtualWindow } = useVirtualList(displayRows.length);
 
   const copy = (text: string, label: string): void => {
     navigator.clipboard.writeText(text);
@@ -28,6 +90,21 @@ export function SessionNavigator(): React.ReactElement {
     const next = !session.pinned;
     patchSession(session.id, { pinned: next });
     aiStudioApi.setPinned(session.id, next);
+  };
+
+  const renameSession = async (session: TAiSession): Promise<void> => {
+    const name = window.prompt("Rename session (leave blank to reset to the auto-detected name)", session.title);
+    if (name === null) return;
+    try {
+      await aiStudioApi.renameSession(session.id, name);
+      patchSession(session.id, { title: name.trim() || session.title });
+      // Auto-derived titles can change once cleared (e.g. re-ingestion), so a full reload beats a
+      // stale patch — but only bother refetching for the "reset" path, since a real rename already
+      // has the exact right value in hand from the input above.
+      if (!name.trim()) reloadSessions();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "err");
+    }
   };
 
   const openProject = async (session: TAiSession): Promise<void> => {
@@ -74,24 +151,38 @@ export function SessionNavigator(): React.ReactElement {
       ) : (
         <div className="wlist" ref={containerRef} style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
           {virtualWindow.topPadding > 0 ? <div style={{ height: virtualWindow.topPadding }} /> : null}
-          {sessions.slice(virtualWindow.startIndex, virtualWindow.endIndex).map((session, sliceIndex) => (
-            <SessionRow
-              key={session.id}
-              ref={virtualWindow.startIndex === 0 && sliceIndex === 0 ? firstRowRef : undefined}
-              session={session}
-              active={session.id === selectedSessionId}
-              onClick={() => selectSession(session.id)}
-              onResume={(event) => {
-                event.stopPropagation();
-                requestLaunch(session, "resume");
-              }}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setMenu({ x: event.clientX, y: event.clientY, session, items: [] });
-              }}
-            />
-          ))}
+          {displayRows.slice(virtualWindow.startIndex, virtualWindow.endIndex).map((row, sliceIndex) => {
+            const rowRef = virtualWindow.startIndex === 0 && sliceIndex === 0 ? firstRowRef : undefined;
+            if (row.kind === "loading") {
+              return (
+                <div key={`loading:${row.parentId}`} ref={rowRef} className="tnote" style={{ paddingLeft: 34 }}>
+                  <span className="spin" /> loading sub-agents...
+                </div>
+              );
+            }
+            const { session, nested } = row;
+            return (
+              <SessionRow
+                key={session.id}
+                ref={rowRef}
+                session={session}
+                nested={nested}
+                expanded={expandedIds.has(session.id)}
+                onToggleExpand={session.subAgentCount > 0 && !nested ? () => toggleExpand(session) : undefined}
+                active={session.id === selectedSessionId}
+                onClick={() => selectSession(session.id)}
+                onResume={(event) => {
+                  event.stopPropagation();
+                  requestLaunch(session, "resume");
+                }}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setMenu({ x: event.clientX, y: event.clientY, session, items: [] });
+                }}
+              />
+            );
+          })}
           {virtualWindow.bottomPadding > 0 ? <div style={{ height: virtualWindow.bottomPadding }} /> : null}
           {sessionsLoading ? (
             <div className="tnote">
@@ -117,6 +208,7 @@ export function SessionNavigator(): React.ReactElement {
             { label: "Resume in Claude Code", icon: "play", onClick: () => requestLaunch(menu.session, "resume") },
             { label: "Continue Latest Session in Project", icon: "play", onClick: () => requestLaunch(menu.session, "continue") },
             { sep: true },
+            { label: "Rename Session", onClick: () => renameSession(menu.session) },
             { label: menu.session.pinned ? "Unpin Session" : "Pin Session", icon: "pin", onClick: () => togglePinned(menu.session) },
             { sep: true },
             { label: "Copy Session ID", icon: "copy", onClick: () => copy(menu.session.id, "session ID") },

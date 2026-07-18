@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   output_tokens INTEGER NOT NULL,
   cache_read_tokens INTEGER NOT NULL,
   cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+  live_context_tokens INTEGER NOT NULL DEFAULT 0,
   turn_count INTEGER NOT NULL,
   observation_count INTEGER NOT NULL,
   tool_call_count INTEGER NOT NULL,
@@ -76,6 +77,7 @@ CREATE TABLE IF NOT EXISTS session_flags (
   session_id TEXT PRIMARY KEY,
   pinned INTEGER NOT NULL DEFAULT 0,
   favorite INTEGER NOT NULL DEFAULT 0,
+  custom_title TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
 
@@ -98,7 +100,24 @@ CREATE TABLE IF NOT EXISTS parser_diagnostics (
   occurred_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_diagnostics_file ON parser_diagnostics(source_file);
+
+CREATE TABLE IF NOT EXISTS studio_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `;
+
+/**
+ * Bump this whenever a change to a provider's `parseSession` (or anything it feeds, like
+ * `deriveTurns`) would produce *different derived values* for a session that's already been
+ * ingested — new/changed token attribution, a new field that needs backfilling, a corrected title
+ * heuristic, etc. Incremental ingestion only re-parses a file when its mtime/size changed on disk
+ * (see ai-session-ingestion.ts), so a parser-only change would otherwise leave every
+ * already-ingested session silently stale (e.g. showing 0 for a brand-new column) until its source
+ * file happened to change for an unrelated reason. Bumping this clears the ingested-files tracking
+ * table, so the next Refresh does a full re-parse regardless of file mtimes.
+ */
+const PARSER_VERSION = "2";
 
 export function aiStudioStorageDir(): string {
   return path.join(os.homedir(), ".simplemdg", "ai-studio");
@@ -118,6 +137,32 @@ function migrateCacheCreationColumn(db: TSqliteDatabase): void {
   if (!columns.some((column) => column.name === "cache_creation_tokens")) {
     db.exec("ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0");
   }
+}
+
+/** Adds the `custom_title` column to a pre-existing `session_flags` table (manual renames — see setCustomTitle). */
+function migrateCustomTitleColumn(db: TSqliteDatabase): void {
+  const columns = db.prepare("PRAGMA table_info(session_flags)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "custom_title")) {
+    db.exec("ALTER TABLE session_flags ADD COLUMN custom_title TEXT NOT NULL DEFAULT ''");
+  }
+}
+
+/** Adds the `live_context_tokens` column to a pre-existing `sessions` table. Pre-migration rows default to 0 (reads as "unknown" — the session's Context meter falls back to 0% — until the source file is re-ingested). */
+function migrateLiveContextTokensColumn(db: TSqliteDatabase): void {
+  const columns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "live_context_tokens")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN live_context_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+}
+
+/** See `PARSER_VERSION`'s doc comment. Forces a full re-parse on the next Refresh whenever the
+ *  stored version doesn't match the code's current version (including on a brand-new database,
+ *  where the stored value is simply absent) — a no-op once they match. */
+function reconcileParserVersion(db: TSqliteDatabase): void {
+  const row = db.prepare("SELECT value FROM studio_meta WHERE key = 'parser_version'").get() as { value: string } | undefined;
+  if (row?.value === PARSER_VERSION) return;
+  db.exec("DELETE FROM ingested_files");
+  db.prepare("INSERT OR REPLACE INTO studio_meta (key, value) VALUES ('parser_version', ?)").run(PARSER_VERSION);
 }
 
 export type TSessionFilter = {
@@ -155,6 +200,9 @@ export class AiSessionStore {
     db.exec(SCHEMA);
     migrateOutcomeColumn(db);
     migrateCacheCreationColumn(db);
+    migrateCustomTitleColumn(db);
+    migrateLiveContextTokensColumn(db);
+    reconcileParserVersion(db);
     const store = new AiSessionStore(db);
     store.backfillOutcomes();
     return store;
@@ -238,9 +286,9 @@ export class AiSessionStore {
         .prepare(
           `INSERT OR REPLACE INTO sessions
            (id, provider, project, cwd, title, model, git_branch, started_at, ended_at, duration_ms,
-            input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, turn_count, observation_count, tool_call_count,
+            input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, live_context_tokens, turn_count, observation_count, tool_call_count,
             error_count, parent_session_id, source_file, analysis_status, outcome)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           session.id,
@@ -257,6 +305,7 @@ export class AiSessionStore {
           session.outputTokens,
           session.cacheReadTokens,
           session.cacheCreationTokens,
+          session.liveContextTokens,
           derived.turnCount,
           observations.length,
           derived.toolCallCount,
@@ -308,7 +357,12 @@ export class AiSessionStore {
   }
 
   listSessions(options: { filter?: TSessionFilter; cursor?: string; limit: number }): { sessions: TAiSession[]; nextCursor?: string } {
-    const conditions: string[] = [];
+    // Sub-agent sessions (spawned via the Task/Agent tool, or Codex forked threads) carry a
+    // `parent_session_id` and are meant to be browsed nested under their parent (see
+    // listChildSessions below / the session list's expand row) — never as their own top-level
+    // card. Without this they'd show up interleaved with real, user-initiated sessions at the
+    // same level, indistinguishable from them.
+    const conditions: string[] = ["s.parent_session_id = ''"];
     const params: unknown[] = [];
 
     if (options.filter?.provider) {
@@ -345,6 +399,7 @@ export class AiSessionStore {
     const rows = this.db
       .prepare(
         `SELECT s.*, COALESCE(sc.value, '') AS user_score, COALESCE(f.pinned, 0) AS pinned, COALESCE(f.favorite, 0) AS favorite,
+                COALESCE(f.custom_title, '') AS custom_title,
                 (SELECT COUNT(*) FROM sessions c WHERE c.parent_session_id = s.id) AS sub_agent_count
          FROM sessions s
          LEFT JOIN scores sc ON sc.session_id = s.id
@@ -367,6 +422,7 @@ export class AiSessionStore {
     const row = this.db
       .prepare(
         `SELECT s.*, COALESCE(sc.value, '') AS user_score, COALESCE(f.pinned, 0) AS pinned, COALESCE(f.favorite, 0) AS favorite,
+                COALESCE(f.custom_title, '') AS custom_title,
                 (SELECT COUNT(*) FROM sessions c WHERE c.parent_session_id = s.id) AS sub_agent_count
          FROM sessions s
          LEFT JOIN scores sc ON sc.session_id = s.id
@@ -382,6 +438,7 @@ export class AiSessionStore {
     const rows = this.db
       .prepare(
         `SELECT s.*, COALESCE(sc.value, '') AS user_score, COALESCE(f.pinned, 0) AS pinned, COALESCE(f.favorite, 0) AS favorite,
+                COALESCE(f.custom_title, '') AS custom_title,
                 (SELECT COUNT(*) FROM sessions c WHERE c.parent_session_id = s.id) AS sub_agent_count
          FROM sessions s
          LEFT JOIN scores sc ON sc.session_id = s.id
@@ -394,12 +451,23 @@ export class AiSessionStore {
   }
 
   setFlag(sessionId: string, flag: "pinned" | "favorite", value: boolean): void {
-    const existing = this.db.prepare("SELECT pinned, favorite FROM session_flags WHERE session_id = ?").get(sessionId) as { pinned: number; favorite: number } | undefined;
+    const existing = this.db.prepare("SELECT pinned, favorite, custom_title FROM session_flags WHERE session_id = ?").get(sessionId) as
+      | { pinned: number; favorite: number; custom_title: string }
+      | undefined;
     const pinned = flag === "pinned" ? value : Boolean(existing?.pinned);
     const favorite = flag === "favorite" ? value : Boolean(existing?.favorite);
     this.db
-      .prepare("INSERT OR REPLACE INTO session_flags (session_id, pinned, favorite, updated_at) VALUES (?, ?, ?, ?)")
-      .run(sessionId, pinned ? 1 : 0, favorite ? 1 : 0, new Date().toISOString());
+      .prepare("INSERT OR REPLACE INTO session_flags (session_id, pinned, favorite, custom_title, updated_at) VALUES (?, ?, ?, ?, ?)")
+      .run(sessionId, pinned ? 1 : 0, favorite ? 1 : 0, existing?.custom_title ?? "", new Date().toISOString());
+  }
+
+  /** Manual rename override (Studio-only — never written back to the provider's own session file).
+   *  An empty `title` clears the override, reverting the session back to its auto-derived title. */
+  setCustomTitle(sessionId: string, title: string): void {
+    const existing = this.db.prepare("SELECT pinned, favorite FROM session_flags WHERE session_id = ?").get(sessionId) as { pinned: number; favorite: number } | undefined;
+    this.db
+      .prepare("INSERT OR REPLACE INTO session_flags (session_id, pinned, favorite, custom_title, updated_at) VALUES (?, ?, ?, ?, ?)")
+      .run(sessionId, existing?.pinned ? 1 : 0, existing?.favorite ? 1 : 0, title.trim(), new Date().toISOString());
   }
 
   /**
@@ -496,7 +564,7 @@ function rowToSession(row: Record<string, unknown>): TAiSession {
     provider: row.provider as TAiSession["provider"],
     project: String(row.project),
     cwd: String(row.cwd),
-    title: redactSecrets(String(row.title)),
+    title: redactSecrets(String(row.custom_title ?? "").trim() || String(row.title)),
     model: String(row.model),
     gitBranch: String(row.git_branch ?? "") || undefined,
     startedAt: String(row.started_at),
@@ -506,6 +574,7 @@ function rowToSession(row: Record<string, unknown>): TAiSession {
     outputTokens: Number(row.output_tokens),
     cacheReadTokens: Number(row.cache_read_tokens),
     cacheCreationTokens: Number(row.cache_creation_tokens ?? 0),
+    liveContextTokens: Number(row.live_context_tokens ?? 0),
     turnCount: Number(row.turn_count),
     observationCount: Number(row.observation_count),
     toolCallCount: Number(row.tool_call_count),

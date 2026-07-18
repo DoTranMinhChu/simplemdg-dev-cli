@@ -6,7 +6,9 @@ import { TurnNavigator } from "./TurnNavigator";
 import { SearchInSession } from "./SearchInSession";
 import { ReaderMode } from "./ReaderMode";
 import { ExportDialog } from "../export/ExportDialog";
+import { ContextSummaryModal } from "../components/ContextSummaryModal";
 import { useConversationPreferences, type TConversationDensity, type TFocusMode } from "./conversation-preferences";
+import { parseMetadata } from "./conversation-model";
 import { useAiStudioStore } from "../state/ai-studio-store";
 import { aiStudioApi } from "../../../api/ai-studio-api-client";
 import type { TAiObservation, TAiSession, TAiTurn } from "../../../api/ai-studio-api-types";
@@ -35,13 +37,26 @@ export function ConversationView({
   const [searchOpen, setSearchOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [activeTurnIndex, setActiveTurnIndex] = useState<number | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const realTurns = useMemo(() => turns.filter((turn) => !turn.isContext), [turns]);
 
+  // Last (most recent) auto-compaction boundary, if any — everything from here on is what the
+  // model actually retains right now; earlier turns have been summarized away. See the
+  // `compactBoundary` metadata set in claude-session-provider.ts and rendered by UserMessageBlock.
+  const lastCompactBoundaryId = useMemo(() => {
+    const boundaries = observations.filter((observation) => observation.type === "user" && parseMetadata(observation).compactBoundary === true);
+    return boundaries.length ? boundaries[boundaries.length - 1].id : undefined;
+  }, [observations]);
+
   const scrollToTurn = (turnIndex: number): void => {
     document.getElementById(`turn-${turnIndex}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const scrollToCurrentContext = (): void => {
+    if (lastCompactBoundaryId) document.getElementById(`compact-boundary-${lastCompactBoundaryId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   /** File-reference links in rendered markdown (e.g. Claude's own `[file.ts:42](src/file.ts#L42)`
@@ -123,6 +138,16 @@ export function ConversationView({
           </select>
         </div>
         <div className="conv-toolbar-group">
+          {lastCompactBoundaryId ? (
+            <button type="button" onClick={scrollToCurrentContext} title="Scroll to the most recent context compaction — everything below it is what the model currently retains">
+              Jump to current context
+            </button>
+          ) : null}
+          {session.provider === "claude" ? (
+            <button type="button" onClick={() => setSummaryOpen(true)} title="Ask the model to summarize what it currently understands about this session (makes a small real API call)">
+              Summarize Context
+            </button>
+          ) : null}
           <button type="button" onClick={() => setSearchOpen((prev) => !prev)}>
             Search (Ctrl+F)
           </button>
@@ -156,6 +181,7 @@ export function ConversationView({
 
       {readerOpen ? <ReaderMode session={session} turns={turns} observations={observations} onClose={() => setReaderOpen(false)} /> : null}
       {exportOpen ? <ExportDialog sessionId={session.id} onClose={() => setExportOpen(false)} /> : null}
+      {summaryOpen ? <ContextSummaryModal sessionId={session.id} onClose={() => setSummaryOpen(false)} /> : null}
     </div>
   );
 }

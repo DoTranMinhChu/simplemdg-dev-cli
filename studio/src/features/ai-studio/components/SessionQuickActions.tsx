@@ -85,7 +85,14 @@ export function SessionQuickActions({ session, lastUserPrompt }: { session: TAiS
       </Button>
       <IconButton icon="pin" label={pinned ? "Unpin session" : "Pin session"} className={pinned ? "active" : ""} onClick={togglePinned} />
       <IconButton icon="star" label={favorite ? "Remove from favorites" : "Add to favorites"} className={favorite ? "active" : ""} onClick={toggleFavorite} />
-      <Button size="sm" variant="ghost" onClick={(event) => setMenu({ x: event.clientX, y: event.clientY, items: [] })}>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={(event) => {
+          event.stopPropagation();
+          setMenu({ x: event.clientX, y: event.clientY, items: [] });
+        }}
+      >
         More ▾
       </Button>
       {!canResume && launch?.reason ? <span className="note">{launch.reason}</span> : null}

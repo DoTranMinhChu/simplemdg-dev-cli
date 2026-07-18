@@ -60,6 +60,7 @@ export function parseClaudeSession(filePath: string, content: string): TParsedAi
   let outputTokens = 0;
   let cacheReadTokens = 0;
   let cacheCreationTokens = 0;
+  let liveContextTokens = 0;
   let pendingObsTokens = 0;
   let userIdx = -1;
   let assistantIdx = -1;
@@ -107,10 +108,18 @@ export function parseClaudeSession(filePath: string, content: string): TParsedAi
             continue;
           }
           if (!text || text.startsWith("<")) continue;
-          title = title || text;
+          // Auto-compaction re-injects a synthetic "This session is being continued from a
+          // previous conversation..." user message (marked `isCompactSummary`) to carry the
+          // pre-compaction summary forward. It's real conversation content worth keeping as an
+          // observation (and a useful "current context starts here" marker — see metadata below),
+          // but it was never typed by a human, so it must never win the title fallback below.
+          const isCompactBoundary = line.isCompactSummary === true;
+          if (!isCompactBoundary) title = title || text;
           userIdx = observations.length;
           assistantIdx = -1;
-          observations.push(makeObservation(userIdx, "user", "user", timestamp, text, "", 0, sidechain));
+          const userObs = makeObservation(userIdx, "user", "user", timestamp, text, "", 0, sidechain);
+          if (isCompactBoundary) userObs.metadata = JSON.stringify({ compactBoundary: true });
+          observations.push(userObs);
         } else if (block.type === "tool_result") {
           const pending = pendingTools.get(str(block.tool_use_id));
           if (pending) {
@@ -149,18 +158,53 @@ export function parseClaudeSession(filePath: string, content: string): TParsedAi
         cacheReadTokens += num(usage.cache_read_input_tokens);
         cacheCreationTokens += num(usage.cache_creation_input_tokens);
         pendingObsTokens = num(usage.output_tokens);
+        // Overwritten (not accumulated) on every message, so once parsing finishes this holds the
+        // *last* turn's total context size — see the `liveContextTokens` field doc in ai-types.ts.
+        liveContextTokens = num(usage.input_tokens) + num(usage.cache_read_input_tokens) + num(usage.cache_creation_input_tokens) + num(usage.output_tokens);
       }
+
+      // Claude reports `usage` once per *message*, not per content block — the previous logic
+      // attributed it only to a message's first text block, so any message that was thinking/
+      // tool-calls only (no text at all, which is common) silently dropped its output-token count
+      // from every per-observation and per-turn sum, even though it's still folded into the
+      // session-level `outputTokens` total above. That's exactly why turn-level token sums never
+      // matched the session total. Fix: attribute the whole message's tokens to whichever
+      // observation this message produces *first* (text, thinking, or a tool call — whatever
+      // appears first in `blocks`), exactly once, so per-observation sums always equal the total.
+      const messageTokens = pendingObsTokens;
+      pendingObsTokens = 0;
+      let tokensAssigned = false;
+      const takeTokens = (): number => {
+        if (tokensAssigned) return 0;
+        tokensAssigned = true;
+        return messageTokens;
+      };
 
       const blocks = Array.isArray(message.content) ? message.content : [];
       for (const rawBlock of blocks) {
         const block = obj(rawBlock);
         if (block.type === "text" && str(block.text).trim()) {
           assistantIdx = observations.length;
-          observations.push(makeObservation(assistantIdx, "assistant", "assistant", timestamp, "", str(block.text), pendingObsTokens, sidechain, userIdx));
-          pendingObsTokens = 0;
-        } else if (block.type === "thinking" && str(block.thinking).trim()) {
+          observations.push(makeObservation(assistantIdx, "assistant", "assistant", timestamp, "", str(block.text), takeTokens(), sidechain, userIdx));
+        } else if (block.type === "thinking") {
+          // Extended thinking can come back "redacted" — `thinking` is an empty string and only an
+          // opaque `signature` is present — yet the model still spent real output tokens producing
+          // it. Always create the observation (with a placeholder when there's nothing visible to
+          // show) so those tokens always land somewhere, instead of vanishing from every
+          // per-observation/per-turn sum while still counting toward the session total above.
+          const thinkingText = str(block.thinking).trim();
           observations.push(
-            makeObservation(observations.length, "reasoning", "thinking", timestamp, "", str(block.thinking), 0, sidechain, assistantIdx >= 0 ? assistantIdx : userIdx),
+            makeObservation(
+              observations.length,
+              "reasoning",
+              "thinking",
+              timestamp,
+              "",
+              thinkingText || "(redacted — extended thinking content not exposed in the transcript)",
+              takeTokens(),
+              sidechain,
+              assistantIdx >= 0 ? assistantIdx : userIdx,
+            ),
           );
         } else if (block.type === "tool_use") {
           const toolName = str(block.name) || "tool";
@@ -181,7 +225,7 @@ export function parseClaudeSession(filePath: string, content: string): TParsedAi
             type = "mcp-call";
           }
           const parentIdx = assistantIdx >= 0 ? assistantIdx : userIdx;
-          const tool = makeObservation(observations.length, type, name, timestamp, JSON.stringify(block.input ?? {}, null, 2), "", 0, sidechain, parentIdx);
+          const tool = makeObservation(observations.length, type, name, timestamp, JSON.stringify(block.input ?? {}, null, 2), "", takeTokens(), sidechain, parentIdx);
           if (isSubagentMarker) tool.metadata = "__subagent__";
           observations.push(tool);
           pendingTools.set(str(block.id), tool);
@@ -209,6 +253,7 @@ export function parseClaudeSession(filePath: string, content: string): TParsedAi
     outputTokens,
     cacheReadTokens,
     cacheCreationTokens,
+    liveContextTokens,
     file: filePath,
     gitBranch,
     parentSessionId: subagentId ? `claude:${sessionId}` : undefined,
@@ -229,6 +274,7 @@ function buildParsedSession(input: {
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
+  liveContextTokens: number;
   file: string;
   gitBranch: string;
   parentSessionId?: string;
@@ -248,7 +294,7 @@ function buildParsedSession(input: {
       provider: input.provider,
       project: input.cwd ? path.basename(input.cwd) : input.fallbackProject,
       cwd: input.cwd,
-      title: clip(input.title, 120) || input.id,
+      title: clip(input.title, 500) || input.id,
       model: input.model,
       gitBranch: input.gitBranch || undefined,
       startedAt: input.firstAt,
@@ -257,6 +303,7 @@ function buildParsedSession(input: {
       outputTokens: input.outputTokens,
       cacheReadTokens: input.cacheReadTokens,
       cacheCreationTokens: input.cacheCreationTokens,
+      liveContextTokens: input.liveContextTokens,
       parentSessionId: input.parentSessionId,
       sourceFile: input.file,
     },

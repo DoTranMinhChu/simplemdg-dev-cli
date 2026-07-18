@@ -39,6 +39,8 @@ export type TAiSession = {
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
+  /** Most recent turn's context snapshot (not a lifetime sum) — what the "Context" meter should read. */
+  liveContextTokens: number;
   turnCount: number;
   observationCount: number;
   toolCallCount: number;
@@ -247,6 +249,10 @@ export type TAiSessionLaunchResponse = {
 };
 
 export type TAiActionResult = { ok: boolean; error?: string };
+
+/** Result of an on-demand "Summarize context" call (see /summarize-context) — a real, small API
+ *  call the model makes about its own reconstructed current context, only run when the user asks. */
+export type TContextSummaryResult = { ok: true; summary: string } | { ok: false; error: string };
 
 // --- Export system (src/core/ai/export/ai-export-types.ts) -----------------------
 

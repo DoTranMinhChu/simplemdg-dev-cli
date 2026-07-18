@@ -39,9 +39,11 @@ function clip(value: string, length: number): string {
 // --- Per-dimension scoring (0-100). Each is independently computable from a single TAiSession
 // row except orchestration, which needs the joined sub-agent list. ------------------------------
 
-function contextHealthScore(session: Pick<TAiSession, "inputTokens" | "outputTokens" | "contextWindowTokens">): number {
-  const used = session.inputTokens + session.outputTokens;
-  const percent = session.contextWindowTokens > 0 ? (used / session.contextWindowTokens) * 100 : 0;
+function contextHealthScore(session: Pick<TAiSession, "liveContextTokens" | "contextWindowTokens">): number {
+  // `liveContextTokens` is the most recent turn's context snapshot, not `inputTokens + outputTokens`
+  // (a lifetime spend total that grows every turn and would make any long session score as
+  // permanently "over the limit" regardless of how full its context actually is right now).
+  const percent = session.contextWindowTokens > 0 ? (session.liveContextTokens / session.contextWindowTokens) * 100 : 0;
   if (percent <= 50) return 100;
   if (percent <= 90) return 100 - (percent - 50) * 1.5;
   return Math.max(0, 40 - (percent - 90) * 4);
@@ -179,8 +181,7 @@ function buildRecommendations(
   const severityOf = (score: number): TAdvisorRecommendation["severity"] => (score < CRITICAL_THRESHOLD ? "critical" : "warning");
 
   if (scores.context < RECOMMENDATION_THRESHOLD) {
-    const used = session.inputTokens + session.outputTokens;
-    const percent = session.contextWindowTokens > 0 ? Math.round((used / session.contextWindowTokens) * 100) : 0;
+    const percent = session.contextWindowTokens > 0 ? Math.round((session.liveContextTokens / session.contextWindowTokens) * 100) : 0;
     recommendations.push({
       category: "context",
       severity: severityOf(scores.context),

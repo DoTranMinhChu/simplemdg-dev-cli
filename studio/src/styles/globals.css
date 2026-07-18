@@ -3399,6 +3399,39 @@ td.cell-active {
    border-color: var(--accent);
 }
 
+/* Sub-agent session nested under its parent (see SessionNavigator's expand row) — indented and
+   toned down so it visibly reads as a child, never as a sibling top-level session. */
+.ai-session-card.nested {
+   margin-left: 18px;
+   border-left: 2px solid var(--pink);
+   background: var(--bg-1);
+}
+
+.ai-scard-expand-toggle {
+   flex: 0 0 auto;
+   width: 16px;
+   height: 16px;
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   background: none;
+   border: none;
+   padding: 0;
+   color: var(--muted);
+   cursor: pointer;
+   font-size: 10px;
+}
+
+.ai-scard-expand-toggle:hover {
+   color: var(--text);
+}
+
+.ai-chip.sub-agent {
+   color: var(--pink);
+   border-color: rgba(236, 72, 153, .5);
+   background: rgba(236, 72, 153, .12);
+}
+
 .ai-scard-top {
    display: flex;
    align-items: center;
@@ -4117,6 +4150,53 @@ td.cell-active {
    line-height: 1.65;
 }
 
+/* Auto-compaction boundary marker (UserMessageBlock.tsx) — everything above this line in the
+   transcript has been summarized away and is no longer part of the model's live context. */
+.compact-boundary {
+   border: 1px dashed var(--amber);
+   border-radius: var(--radius-lg);
+   background: rgba(251, 191, 36, .08);
+   margin: var(--space-2) 0;
+}
+
+.compact-boundary-head {
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
+   padding: var(--space-2) var(--space-3);
+   font-size: var(--font-size-sm);
+   color: var(--amber);
+   cursor: pointer;
+}
+
+.compact-boundary-icon {
+   flex: none;
+}
+
+.compact-boundary-head > span:nth-child(2) {
+   flex: 1;
+   font-weight: 600;
+}
+
+.compact-boundary-toggle {
+   flex: none;
+   background: none;
+   border: 1px solid var(--amber);
+   border-radius: var(--radius-sm);
+   color: var(--amber);
+   font-size: var(--font-size-xs);
+   padding: 2px 8px;
+   cursor: pointer;
+}
+
+.compact-boundary-body {
+   padding: 0 var(--space-3) var(--space-3);
+   font-size: var(--font-size-sm);
+   color: var(--muted);
+   max-height: 320px;
+   overflow-y: auto;
+}
+
 .msg-actions {
    display: flex;
    gap: var(--space-2);
@@ -4347,6 +4427,25 @@ td.cell-active {
    display: flex;
    gap: var(--space-2);
    margin-bottom: var(--space-2);
+}
+
+.jsonview-filter {
+   background: var(--bg-3);
+   border: 1px solid var(--border);
+   border-radius: 8px;
+   padding: 7px 9px;
+   color: var(--text);
+   font-family: inherit;
+   font-size: var(--font-size-sm);
+}
+
+.jsonview-filter::placeholder {
+   color: var(--muted);
+}
+
+.jsonview-filter:focus {
+   outline: none;
+   border-color: var(--accent);
 }
 
 .jsonview-toolbar .jsonview-filter {

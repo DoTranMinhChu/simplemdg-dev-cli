@@ -15,13 +15,13 @@ type TToastFn = (message: string, kind?: "ok" | "err" | "warn") => void;
 export function useSessionResume(toast: TToastFn): {
   pending: TPendingLaunch | undefined;
   requestLaunch: (session: TAiSession, mode: "resume" | "continue") => Promise<void>;
-  confirmPending: () => void;
+  confirmPending: (extraArgs?: string[]) => void;
   cancelPending: () => void;
 } {
   const [pending, setPending] = useState<TPendingLaunch | undefined>();
 
-  const launchNow = async (sessionId: string, mode: "resume" | "continue"): Promise<void> => {
-    const result = await aiStudioApi.openTerminal(sessionId, mode);
+  const launchNow = async (sessionId: string, mode: "resume" | "continue", extraArgs: string[] = []): Promise<void> => {
+    const result = await aiStudioApi.openTerminal(sessionId, mode, extraArgs);
     if (!result.ok) toast(result.error ?? "Failed to open a terminal.", "err");
     else toast(mode === "resume" ? "Opened a new terminal, resuming this session." : "Opened a new terminal, continuing the latest session in this project.");
   };
@@ -50,11 +50,11 @@ export function useSessionResume(toast: TToastFn): {
     }
   };
 
-  const confirmPending = (): void => {
+  const confirmPending = (extraArgs: string[] = []): void => {
     if (!pending) return;
     const { sessionId, mode } = pending;
     setPending(undefined);
-    launchNow(sessionId, mode);
+    launchNow(sessionId, mode, extraArgs);
   };
 
   return { pending, requestLaunch, confirmPending, cancelPending: () => setPending(undefined) };

@@ -8,6 +8,7 @@ import type {
   TAiSessionExportInput,
   TAiSessionLaunchResponse,
   TAiTurn,
+  TContextSummaryResult,
   TIngestionResult,
   TSessionAdvisor,
   TSessionAnalysis,
@@ -89,6 +90,8 @@ export const aiStudioApi = {
 
   getSession: (sessionId: string) => get<{ session: TAiSession }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}`),
 
+  getChildSessions: (sessionId: string) => get<{ sessions: TAiSession[] }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/children`),
+
   getTurns: (sessionId: string, reveal = false) => get<{ turns: TAiTurn[] }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/turns${qs({ reveal })}`),
 
   getObservations: (sessionId: string, options?: { turnIndex?: number; reveal?: boolean }) =>
@@ -106,11 +109,14 @@ export const aiStudioApi = {
 
   setFavorite: (sessionId: string, value: boolean) => post<{ ok: boolean }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/favorite`, { value }),
 
+  /** Manual rename override (Studio-only). Pass an empty string to clear it and revert to the auto-derived title. */
+  renameSession: (sessionId: string, title: string) => post<{ ok: boolean; session?: TAiSession }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/rename`, { title }),
+
   getLaunch: (sessionId: string, shell?: TShellKind) =>
     get<TAiSessionLaunchResponse>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/launch${qs({ shell })}`),
 
-  openTerminal: (sessionId: string, mode: "resume" | "continue" = "resume") =>
-    post<TAiActionResult>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/open-terminal`, { mode }),
+  openTerminal: (sessionId: string, mode: "resume" | "continue" = "resume", extraArgs: string[] = []) =>
+    post<TAiActionResult>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/open-terminal`, { mode, extraArgs }),
 
   openProject: (sessionId: string) => post<TAiActionResult>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/open-project`),
 
@@ -122,6 +128,9 @@ export const aiStudioApi = {
 
   getContinuationPrompt: (sessionId: string) =>
     get<{ prompt: string }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/continuation-prompt`),
+
+  /** On-demand only — makes a real (small) API call, so never call this automatically. */
+  summarizeContext: (sessionId: string) => post<TContextSummaryResult>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/summarize-context`),
 
   previewExport: (sessionId: string, input: TAiSessionExportInput) =>
     post<TAiExportPreview>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/export/preview`, input),
