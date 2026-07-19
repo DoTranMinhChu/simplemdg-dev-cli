@@ -8,3 +8,6 @@ studio/package-lock.json
 
 # Local-only scratch data — real credentials live here (e.g. environment-raw.txt), never commit.
 /data-local
+
+# GitNexus code-intelligence index (local only, rebuildable via `smdg ai nexus analyze`)
+/.gitnexus

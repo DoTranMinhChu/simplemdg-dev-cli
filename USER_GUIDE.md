@@ -291,6 +291,59 @@ smdg ai copy-command [sessionId]  # print the resume command without running it
 
 Not yet built: the Graph view, loop/dead-end detection, context-quality and instruction-compliance checks, session comparison, project-level analytics, rule/skill recommendations from repeated findings, the global quick-launch picker (Ctrl+K), a command palette (Ctrl+Shift+P), session aliases, and renaming a Claude session from within Studio. These are tracked as follow-up phases, not abandoned.
 
+## Code Intelligence (GitNexus)
+
+**Code Intelligence** is a tab inside AI Studio that answers questions a normal code search can't: *what calls this function*, *what breaks if I change it*, and *did the AI agent that just edited this file actually look at everything it should have*. Under the hood it's powered by [GitNexus](https://github.com/abhigyanpatwari/GitNexus), a local code-knowledge-graph engine — but you never need to know that, write a graph query, or understand what a "knowledge graph" is. Everything runs on your machine; nothing about your code is uploaded anywhere.
+
+The value in one example: instead of "8 incoming edges", Code Intelligence tells you **"Used by 6 direct callers and participates in 3 business flows"** — a plain sentence you can act on.
+
+### First-time setup
+
+1. `smdg ai studio` → click **Code Intelligence** in the left navigation rail.
+2. Click **+ Add** → point it at a parent folder (defaults to the current directory) → **Discover** finds every git repository nested inside it, however deep. Useful for products where the "project" is actually dozens of independent repositories.
+3. Tick the repositories you care about → **Analyze**. This builds a local index (a `.gitnexus/` folder inside each repo — never touching your source files) — seconds for a small repo, longer for a large one. The very first analysis on a machine also has to fetch GitNexus itself once (via `npx`), which adds some extra time only that first time.
+4. Pick an analyzed repository from the list. You land on **Overview**.
+
+### What each tab does
+
+- **Overview** — a plain-English summary: how many files/functions/dependencies GitNexus found in this repo, whether the index is up to date, and a button into the graph explorer. No graph, no jargon — just numbers you can act on.
+- **Graph** — GitNexus's own interactive graph explorer, embedded directly and already pointed at the repository you selected (you don't need to pick it again). Pan, zoom, and click through files/functions/classes to see how they connect — this is where you explore "how does X work" or "what calls this".
+- **Change Impact** — pick a scope (uncommitted changes, staged changes, one commit, or branch vs. branch) or type a specific function/class name, and get back a plain risk level (Low/Medium/High/Unknown) *with the reason spelled out* — never a bare number or score. Use this before you commit, to see who else might be affected by what you just changed.
+- **AI Agents** — one click to let Claude Code or Codex query this same knowledge graph directly while they work, instead of guessing from what they can `grep`. Removable the same way if you change your mind.
+
+### Workspaces (multi-repo)
+
+If what you're actually working on is several repositories that belong together (a frontend, its backend, shared packages), switch to the **Workspaces** tab in the sidebar, create one, and add each repository to it under a short name (e.g. `frontend`, `backend`). Click **Sync** and GitNexus cross-references the members for shared HTTP endpoints/package usage between them — shown with a **Suggested** badge (it detected the relationship by matching, not a hand-confirmed link) — plus lets you check whether a change in one repository could ripple into another.
+
+### Inside an AI session
+
+Every Claude Code / Codex session under **Sessions** gets its own **Code Intelligence** tab, comparing the files that session actually touched against what GitNexus reports as related in that same repository right now — a concrete finding like *"the agent touched every file GitNexus flagged as changed"*, or a named list of files it never inspected. The **Copy Suggested Continuation Prompt** action folds these findings in automatically once the project has been analyzed.
+
+### Privacy
+
+Everything is local: analysis runs on your machine, indexes live in `.gitnexus/` inside each analyzed repository (source files are never modified), and GitNexus's own local server binds to `localhost` only. Removing a repository from Code Intelligence deletes its index — never your code.
+
+### Terminal alternatives
+
+```powershell
+smdg ai nexus setup                    # guided install check + agent config + analyze current repo
+smdg ai nexus status                   # readiness + analyzed repos at a glance
+smdg ai nexus analyze [path]           # analyze a repository (index-only by default)
+smdg ai nexus discover [folder]        # find nested git repositories under a folder
+smdg ai nexus changes [--staged|--commit <hash>|--branch <src:tgt>]   # change impact analysis
+smdg ai nexus impact <symbol>          # blast-radius for one function/class
+smdg ai nexus trace <symbol>           # callers/callees for one function/class
+smdg ai nexus overview                 # project overview for an analyzed repo
+smdg ai nexus configure --agent <claude|codex|cursor|opencode>   # connect an AI agent
+smdg ai nexus workspace <list|create|add|remove|sync|status|contracts|impact|query>
+smdg ai nexus graph                    # open GitNexus's own graph explorer in your browser
+smdg ai nexus doctor                   # diagnose Code Intelligence problems
+```
+
+### Known limits (today)
+
+Full-text keyword search (`smdg ai nexus search`) exists at the CLI level but isn't in the Studio UI today — GitNexus's own search index has been unreliable on some machines (its own diagnostics can report the search extension as unavailable, a native-module limitation independent of anything this integration controls), so the **Graph** tab is the primary way to explore code inside Studio for now. Cross-repo relationship detection in Workspaces works best once every member has been analyzed and the workspace has been synced at least once. GitNexus doesn't understand SAP CAP/CDS files directly — it sees the surrounding TypeScript/JavaScript, not `.cds` service/entity definitions.
+
 ## Git move-code (release dependency tracing)
 
 `smdg git move-code` is a release dependency tracing assistant: it moves a **scoped** set of commits from one branch to another across a microservice repository — typically `staging` → `uat` or `qas` — without ever merging the whole source branch and without blindly cherry-picking unrelated commits.

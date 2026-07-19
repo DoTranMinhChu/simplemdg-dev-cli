@@ -3,6 +3,7 @@ import { Button } from "../../../components/common/Button";
 import { IconButton } from "../../../components/common/IconButton";
 import { ContextMenu, type TContextMenuState } from "../../../components/common/ContextMenu";
 import { aiStudioApi } from "../../../api/ai-studio-api-client";
+import { nexusApi } from "../../../api/nexus-api-client";
 import { useAiStudioStore } from "../state/ai-studio-store";
 import { useSessionResume } from "../use-session-resume";
 import { LaunchConfirmModal } from "./LaunchConfirmModal";
@@ -64,9 +65,13 @@ export function SessionQuickActions({ session, lastUserPrompt }: { session: TAiS
 
   const copyContinuationPrompt = async (): Promise<void> => {
     try {
-      const { prompt } = await aiStudioApi.getContinuationPrompt(session.id);
+      // Prefer the Code Intelligence-enhanced prompt (adds GitNexus findings on top of the same
+      // session evidence) — falls back to the plain prompt for sessions whose project hasn't been
+      // analyzed, so this action keeps working exactly as before when Code Intelligence isn't set up.
+      const enhanced = await nexusApi.getEnhancedContinuationPrompt(session.id).catch(() => undefined);
+      const prompt = enhanced?.prompt ?? (await aiStudioApi.getContinuationPrompt(session.id)).prompt;
       navigator.clipboard.writeText(prompt);
-      toast("Copied suggested continuation prompt.");
+      toast(enhanced?.codeIntelligenceAvailable ? "Copied continuation prompt with Code Intelligence findings." : "Copied suggested continuation prompt.");
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), "err");
     }

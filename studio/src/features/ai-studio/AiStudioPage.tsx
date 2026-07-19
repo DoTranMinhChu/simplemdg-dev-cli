@@ -7,6 +7,7 @@ import { AiSessionsPage } from "./pages/AiSessionsPage";
 import { AiProjectsPage } from "./pages/AiProjectsPage";
 import { AiDoctorPage } from "./pages/AiDoctorPage";
 import { PluginsCatalogPage } from "../plugins/pages/PluginsCatalogPage";
+import { AiNexusPage } from "./nexus/AiNexusPage";
 import { isNavRailCollapsed, setNavRailCollapsed } from "./nav-rail-collapsed";
 import { useAiStudioStore } from "./state/ai-studio-store";
 
@@ -51,6 +52,8 @@ export function AiStudioPage(): React.ReactElement {
         <div className="ai-page-area">
           {currentPage === "overview" ? (
             <AiOverviewPage />
+          ) : currentPage === "nexus" ? (
+            <AiNexusPage />
           ) : currentPage === "projects" ? (
             <AiProjectsPage />
           ) : currentPage === "doctor" ? (

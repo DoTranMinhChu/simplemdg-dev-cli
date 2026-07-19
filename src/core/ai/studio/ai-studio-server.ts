@@ -11,6 +11,7 @@ import { AiSessionStore } from "../ai-session-store";
 import { ingestAiSessions, watchAiSessions } from "../ai-session-ingestion";
 import { handleAiStudioApi } from "./ai-studio-routes";
 import { handlePluginsApi } from "./plugins-routes";
+import { handleNexusApi } from "../../nexus/studio/nexus-routes";
 
 export type TAiStudioServerOptions = {
   port?: number;
@@ -69,8 +70,13 @@ export async function startAiStudioServer(options: TAiStudioServerOptions = {}):
         const method = req.method ?? "GET";
 
         // Plugin management is independent of the SQLite store — it must keep working on
-        // Node < 22.5, where handleAiStudioApi 503s every /api/ai/* route.
-        const handled = (await handleAiStudioApi(req, res, url, store)) || (await handlePluginsApi(req, res, url));
+        // Node < 22.5, where handleAiStudioApi 503s every /api/ai/* route. Nexus (Code
+        // Intelligence) routes are mounted here too, not a 4th dedicated server — the
+        // session-comparison route needs both `store` and GitNexus data in one handler.
+        const handled =
+          (await handleAiStudioApi(req, res, url, store)) ||
+          (await handlePluginsApi(req, res, url)) ||
+          (await handleNexusApi(req, res, url, store));
         if (handled) return;
 
         if (pathname === "/" && method === "GET") {

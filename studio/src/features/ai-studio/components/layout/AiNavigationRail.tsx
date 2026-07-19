@@ -4,6 +4,7 @@ import type { TAiPage } from "../../state/ai-studio-store";
 const NAV_ITEMS: Array<{ page: TAiPage; label: string; icon: string }> = [
   { page: "overview", label: "Overview", icon: "home" },
   { page: "sessions", label: "Sessions", icon: "history" },
+  { page: "nexus", label: "Code Intelligence", icon: "map" },
   { page: "projects", label: "Projects", icon: "fld" },
   { page: "doctor", label: "Doctor", icon: "activity" },
   { page: "plugins", label: "Plugins", icon: "plug" },

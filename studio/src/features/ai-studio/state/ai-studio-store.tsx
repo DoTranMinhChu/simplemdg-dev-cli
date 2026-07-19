@@ -5,10 +5,10 @@ import type { TAiOverview, TAiSession } from "../../../api/ai-studio-api-types";
 export type TToastKind = "ok" | "err" | "warn";
 export type TToast = { id: string; message: string; kind: TToastKind };
 
-export type TAiWorkspaceTabKind = "overview" | "conversation" | "execution" | "timeline" | "graph" | "files" | "commands" | "errors" | "verification" | "raw";
+export type TAiWorkspaceTabKind = "overview" | "conversation" | "execution" | "timeline" | "graph" | "files" | "commands" | "errors" | "verification" | "raw" | "codeintel";
 export type TAiWorkspaceTab = { sessionId: string; kind: TAiWorkspaceTabKind };
 
-export type TAiPage = "overview" | "sessions" | "projects" | "doctor" | "plugins";
+export type TAiPage = "overview" | "sessions" | "projects" | "doctor" | "plugins" | "nexus";
 
 type TAiStudioStoreValue = {
   sessions: TAiSession[];

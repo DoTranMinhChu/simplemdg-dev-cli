@@ -297,3 +297,29 @@ smdg ai copy-command [sessionId] # print the resume command without running it
 `smdg ai resume`/`continue` options: `--new-terminal` (open a new terminal window instead of resuming in the current one), `--copy` (print the command instead of running it, `resume` only).
 
 Not yet built (tracked as follow-up — this is a first, Phase 1 milestone, not the full spec): the Graph view, loop/dead-end detection, context-quality and instruction-compliance analyzers, session comparison, project-level analytics, prompt-quality analysis, rule/skill recommendations, the global quick-launch picker (Ctrl+K) and command palette (Ctrl+Shift+P), session aliases, and renaming a Claude session from within Studio. The session list, turns, timeline, tool/error/file/verification analysis, redaction, incremental ingestion, exports, and the resume/launch actions above are all real and working today, including against real session history.
+
+## Code Intelligence (GitNexus)
+
+A **Code Intelligence** tab inside AI Studio — understand an unfamiliar project, find where a feature lives, and see what a change might break, without knowing what a knowledge graph, MCP, or a graph query is. Powered locally by [GitNexus](https://github.com/abhigyanpatwari/GitNexus); nothing about your code leaves your machine.
+
+- **Overview** — plain-English project stats (files, functions, dependencies traced, execution flows) and freshness, no jargon
+- **Graph** — GitNexus's own interactive graph explorer, embedded and already pointed at the repo you selected
+- **Change Impact** — uncommitted / staged / a commit / branch-vs-branch / a specific function or class → a Low/Medium/High/Unknown risk level *always paired with the reason* (e.g. "used by 6 direct callers and participates in 3 business flows"), never a bare score
+- **AI Agents** — one click to connect Claude Code or Codex directly to the same knowledge graph
+- **Workspaces** — group related repositories (a frontend, its backend, shared packages) and see GitNexus-detected (labeled **Suggested**, not confirmed) shared endpoints/packages and cross-repo impact
+- Every AI session in **Sessions** gets a **Code Intelligence** tab comparing what the agent actually touched against what GitNexus reports as related right now, with concrete findings (not a score) — and the continuation-prompt copy action folds these findings in automatically
+
+```powershell
+smdg ai nexus setup       # guided install check + agent config + analyze current repo
+smdg ai nexus analyze [path]
+smdg ai nexus discover [folder]
+smdg ai nexus changes [--staged|--commit <hash>|--branch <src:tgt>]
+smdg ai nexus impact <symbol>
+smdg ai nexus trace <symbol>
+smdg ai nexus configure --agent <claude|codex|cursor|opencode>
+smdg ai nexus workspace <list|create|add|remove|sync|status|contracts|impact|query>
+smdg ai nexus graph       # open GitNexus's own graph explorer in your browser
+smdg ai nexus doctor
+```
+
+Analysis is local-only (a `.gitnexus/` folder inside each analyzed repo, source files never touched) and GitNexus's own server binds to `localhost` only. Full-text keyword search exists at the CLI (`smdg ai nexus search`) but not in the Studio UI — GitNexus's own search index has proven unreliable on some machines (a native-extension limitation, not something this integration controls) — so the **Graph** tab is the primary way to explore code today. GitNexus doesn't understand SAP CAP/CDS files, only the surrounding TypeScript/JavaScript. See `USER_GUIDE.md` for the full walkthrough.

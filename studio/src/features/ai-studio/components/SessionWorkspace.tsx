@@ -13,6 +13,7 @@ import { VerificationView } from "./VerificationView";
 import { RawView } from "./RawView";
 import { SessionGraph } from "../graph/SessionGraph";
 import { ConversationView } from "../conversation/ConversationView";
+import { SessionCodeIntelTab } from "../nexus/session-integration/SessionCodeIntelTab";
 import type { TAiWorkspaceTabKind } from "../state/ai-studio-store";
 import type { TAiObservation, TAiSession, TAiTurn, TSessionAdvisor, TSessionAnalysis } from "../../../api/ai-studio-api-types";
 
@@ -27,6 +28,7 @@ const TABS: Array<{ kind: TAiWorkspaceTabKind; label: string }> = [
   { kind: "errors", label: "Errors" },
   { kind: "verification", label: "Verification" },
   { kind: "raw", label: "Raw" },
+  { kind: "codeintel", label: "Code Intelligence" },
 ];
 
 export function SessionWorkspace({ sessionId }: { sessionId: string }): React.ReactElement {
@@ -148,6 +150,8 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }): React.Re
           <VerificationView verification={analysis.verification} observations={observations} />
         ) : activeTabKind === "raw" ? (
           <RawView observations={observations} />
+        ) : activeTabKind === "codeintel" ? (
+          <SessionCodeIntelTab sessionId={sessionId} />
         ) : (
           <SessionTimeline observations={observations} />
         )}

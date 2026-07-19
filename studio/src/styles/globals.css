@@ -5830,4 +5830,180 @@ td.cell-active {
 .log-line.error { color: var(--red); }
 .log-line.warn { color: var(--amber); }
 .log-line.success { color: var(--green); }
+
+/* --- Code Intelligence (Nexus / GitNexus) — additive, mirrors .ai-sessions-layout --- */
+
+.ai-nexus-layout .sidebar { min-width: 260px; }
+.ai-nexus-layout .workspace { min-width: 360px; }
+
+.nexus-readiness-strip { border-bottom: 1px solid var(--border); }
+
+.nexus-readiness-banner {
+   display: flex;
+   flex-direction: column;
+   gap: 6px;
+   padding: var(--space-3);
+   background: rgba(251, 191, 36, .1);
+   border-bottom: 1px solid var(--border);
+   font-size: var(--font-size-sm);
+}
+
+.status-badge.needs-analysis { background: var(--chip); color: var(--faint); }
+.status-badge.out-of-date { background: rgba(251, 191, 36, .18); color: var(--amber); }
+.status-badge.analyzing { background: rgba(59, 130, 246, .18); color: var(--accent); }
+.status-badge.failed { background: rgba(239, 68, 68, .18); color: var(--red); }
+
+.nexus-repo-list { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
+.nexus-repo-list-head { display: flex; gap: 8px; padding: var(--space-2); border-bottom: 1px solid var(--border); }
+.nexus-repo-list-head .searchbox { flex: 1; }
+
+.nexus-add-repo-panel { margin: var(--space-2); }
+
+.nexus-discovery-list {
+   max-height: 220px;
+   overflow: auto;
+   margin: var(--space-2) 0;
+   border: 1px solid var(--border);
+   border-radius: var(--radius-sm);
+}
+
+.nexus-discovery-item {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   padding: 6px var(--space-2);
+   cursor: pointer;
+   border-bottom: 1px solid var(--border);
+}
+.nexus-discovery-item:last-child { border-bottom: none; }
+.nexus-discovery-item:hover { background: var(--bg-3); }
+.nexus-discovery-name { font-weight: 600; }
+
+.nexus-repo-rows { flex: 1; overflow: auto; }
+
+.nexus-repo-row {
+   padding: var(--space-2) var(--space-3);
+   border-bottom: 1px solid var(--border);
+   cursor: pointer;
+}
+.nexus-repo-row:hover { background: var(--bg-3); }
+.nexus-repo-row.active { background: var(--sel); }
+
+.nexus-repo-row-main { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nexus-repo-row-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nexus-repo-row-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+
+.nexus-risk-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.nexus-unavailable-banner {
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   gap: 10px;
+   background: rgba(251, 191, 36, .08);
+   border-color: rgba(251, 191, 36, .3);
+}
+
+.nexus-next-actions { background: transparent; border-style: dashed; }
+
+.nexus-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: var(--space-3); }
+.nexus-stat-tile { text-align: center; padding: var(--space-2); background: var(--bg-3); border-radius: var(--radius-md); }
+.nexus-stat-value { font-size: var(--font-size-xl); font-weight: 700; }
+.nexus-stat-label { font-size: var(--font-size-xs); color: var(--faint); margin-top: 2px; }
+
+.nexus-flow-card h3 { font-size: var(--font-size-sm); }
+.nexus-flow-steps { display: flex; flex-direction: column; gap: 4px; }
+
+.nexus-flow-step {
+   display: flex;
+   align-items: center;
+   gap: 10px;
+   padding: 6px 0;
+   border-bottom: 1px solid var(--border);
+}
+.nexus-flow-step:last-child { border-bottom: none; }
+
+.nexus-flow-step-index {
+   flex: 0 0 auto;
+   width: 22px;
+   height: 22px;
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   border-radius: var(--radius-full);
+   background: var(--chip);
+   font-size: var(--font-size-xs);
+   font-weight: 700;
+}
+
+.nexus-flow-step-body { flex: 1; min-width: 0; }
+.nexus-flow-step-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Plain block wrapper for tab content — .pane-body (the actual parent, see globals.css's .tabpane
+   comment) already owns flex+scroll, so this intentionally adds no layout of its own beyond normal
+   block flow; kept as a named class only so nexus tab components have a stable content-root hook. */
+.tabpane-scroll { display: block; }
+
+.nexus-graph-frame {
+   position: absolute;
+   inset: 0;
+   width: 100%;
+   height: 100%;
+   border: none;
+   background: #0a0e14;
+}
+
+/* Same as .nexus-graph-frame but for use INSIDE .pane-body (a plain flex column, not a
+   position:relative container like .ai-session-detail-area) — sized via flex instead of
+   position:absolute, since .pane-body has no positioning context of its own to anchor to. */
+.nexus-graph-frame-tab {
+   flex: 1;
+   min-height: 0;
+   width: 100%;
+   border: none;
+   background: #0a0e14;
+   border-radius: var(--radius-md);
+}
+
+.nexus-mode-tabs { display: flex; border-bottom: 1px solid var(--border); }
+.nexus-mode-tab {
+   flex: 1;
+   padding: var(--space-2);
+   background: transparent;
+   border: none;
+   border-bottom: 2px solid transparent;
+   color: var(--faint);
+   cursor: pointer;
+   font-size: var(--font-size-sm);
+}
+.nexus-mode-tab:hover { color: var(--text); background: var(--bg-3); }
+.nexus-mode-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.nexus-advanced-strip { border-top: 1px solid var(--border); padding: var(--space-2); }
+
+.nexus-workspace-members { display: flex; flex-direction: column; gap: 4px; }
+.nexus-workspace-member-row {
+   display: flex;
+   align-items: center;
+   gap: 10px;
+   padding: 6px 0;
+   border-bottom: 1px solid var(--border);
+   flex-wrap: wrap;
+}
+.nexus-workspace-member-row:last-child { border-bottom: none; }
+
+.nexus-contracts-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.nexus-contract-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.nexus-contract-row:last-child { border-bottom: none; }
+
+@media (max-width: 767px) {
+   .ai-nexus-layout .sidebar,
+   .ai-nexus-layout .workspace {
+      min-width: 0;
+   }
+   .ai-nexus-layout .sidebar { width: 100%; }
+   .ai-nexus-layout.has-selection .sidebar { display: none; }
+   .ai-nexus-layout:not(.has-selection) .workspace { display: none; }
+   .ai-nexus-layout.has-selection .ai-mobile-back { display: flex; }
+}
 .log-line.dim { color: var(--faint); }

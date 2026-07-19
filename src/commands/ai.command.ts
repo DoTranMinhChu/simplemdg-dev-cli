@@ -9,6 +9,7 @@ import { startAiStudioServer } from "../core/ai/studio/ai-studio-server";
 import { openProjectFolder, openProjectInVsCode } from "../core/ai/ai-session-command-service";
 import { getSessionLauncher } from "../core/ai/launchers/claude-session-launcher";
 import type { TAiSession } from "../core/ai/ai-types";
+import { registerAiNexusCommands } from "./ai-nexus.command";
 
 async function openStoreOrExit(): Promise<AiSessionStore> {
   const store = await AiSessionStore.open();
@@ -422,4 +423,6 @@ export function registerAiCommands(program: Command): void {
   ai.command("copy-command [sessionId]")
     .description("Print the resume command for a session without running it")
     .action(runCopyCommandCommand);
+
+  registerAiNexusCommands(ai);
 }
