@@ -298,26 +298,54 @@ export async function captureHeadersWithPlaywright(
         const cookies = await context.cookies();
         const cookieHeader = cookies.map((cookie: any) => `${cookie.name}=${cookie.value}`).join("; ");
 
+        // The reconstructed probe request has no CSRF token unless we fetch one explicitly —
+        // unlike a request the app's own JS fires, which already carries whatever token it
+        // holds. Without this, backends that enforce CSRF (e.g. SAP CAP services) accept the
+        // session cookie but reject every subsequent call routed through the proxy. Mirrors
+        // the HTTP strategy's CSRF fetch in `captureHeadersWithHttpRequests`.
+        let csrfToken = "";
+        try {
+          const csrfResponse = await context.request.get(`${serviceOrigin}/`, { headers: { "x-csrf-token": "Fetch" } });
+          csrfToken = csrfResponse.headers()["x-csrf-token"] ?? "";
+        } catch {
+          // Non-fatal: some backends do not issue CSRF on root path.
+        }
+
         for (const probeUrl of probeUrls) {
           try {
-            const probeResponse = await page.request.get(probeUrl, { headers: { accept: "application/json, text/plain, */*" } });
-            if (probeResponse.status() < 500) {
-              captured = {
-                method: "GET",
-                url: probeUrl,
-                capturedAt: new Date().toISOString(),
-                headers: {
-                  accept: "application/json, text/plain, */*",
-                  "accept-language": env.capture.acceptLanguage ?? "en-US",
-                  cookie: cookieHeader,
-                  referer: env.url,
-                },
-              };
-              break;
+            const probeResponse = await page.request.get(probeUrl, {
+              headers: {
+                accept: "application/json, text/plain, */*",
+                ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
+              },
+            });
+            // < 400 only: 401/403/404 must not count as a successful capture, or the
+            // session gets marked "ready" while every real request behind it will fail.
+            if (probeResponse.status() >= 400) {
+              onLog(`Probe ${probeUrl} returned ${probeResponse.status()} — not a valid authenticated session.`);
+              continue;
             }
+            captured = {
+              method: "GET",
+              url: probeUrl,
+              capturedAt: new Date().toISOString(),
+              headers: {
+                accept: "application/json, text/plain, */*",
+                "accept-language": env.capture.acceptLanguage ?? "en-US",
+                ...(env.capture.sapLanguage ? { "sap-language": env.capture.sapLanguage } : {}),
+                ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
+                cookie: cookieHeader,
+                referer: env.url,
+              },
+            };
+            break;
           } catch {
             // try next probe URL
           }
+        }
+
+        if (!captured) {
+          onLog("All candidate probes failed authentication — no usable session could be reconstructed.");
         }
       }
     }

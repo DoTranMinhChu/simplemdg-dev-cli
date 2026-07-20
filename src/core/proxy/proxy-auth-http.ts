@@ -235,11 +235,11 @@ export async function captureHeadersWithHttpRequests(
       const probeResponse = await client.get(probeUrl, {
         headers: { accept: "application/json, text/plain, */*", ...(csrfToken ? { "x-csrf-token": csrfToken } : {}) },
       });
-      if (probeResponse.status === 401) {
+      if (probeResponse.status === 401 || probeResponse.status === 403) {
         throw buildUnauthorizedError(`probe request (${probeUrl})`, probeResponse);
       }
       const finalUrl = String(probeResponse.request?.res?.responseUrl ?? probeUrl);
-      if (requestRegex.test(finalUrl) || probeResponse.status < 500) {
+      if (requestRegex.test(finalUrl) || probeResponse.status < 400) {
         matchedUrl = finalUrl;
         break;
       }
