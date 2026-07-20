@@ -579,3 +579,68 @@ describe("detectRenamedEntityLabels", () => {
     expect(detectRenamedEntityLabels(undefined, csn)).toEqual([]);
   });
 });
+
+describe("buildDbModelForNamespace — custom-model.cds preservation", () => {
+  it("re-injects a preserved custom-model.cds attachment into the regenerated entity + its import line", () => {
+    const csn = makeCsnFixture();
+    const customModelPreservation = {
+      final: {
+        byParentEntity: {
+          TestObject: {
+            importLines: ["using {tst.model.final.TestObjectCustom} from './custom-model.cds';"],
+            compositionLines: ["to_TestObjectCustom : Composition of one TestObjectCustom", "on to_TestObjectCustom.objectID = $self.objectID", "and to_TestObjectCustom.name = $self.name;"],
+          },
+        },
+      },
+      staging: {
+        byParentEntity: {
+          TestObject: {
+            importLines: ["using {tst.model.staging.TestObjectCustom} from './custom-model.cds';"],
+            compositionLines: [
+              "to_TestObjectCustom : Composition of one TestObjectCustom",
+              "on to_TestObjectCustom.objectID = $self.objectID",
+              "and to_TestObjectCustom.taskID = $self.taskID",
+              "and to_TestObjectCustom.name = $self.name;",
+            ],
+          },
+        },
+      },
+    };
+
+    const result = buildDbModelForNamespace("final", csn, "MDG_TST.TestObject", "TestObject", "TST", "eventmesh", customModelPreservation);
+
+    const finalContent = findAction(result.dbActions, "db/final/1st-model.cds");
+    expectNormalizedToContain(finalContent, "using {tst.model.final.TestObjectCustom} from './custom-model.cds';");
+    expectNormalizedToContain(finalContent, "to_TestObjectCustom : Composition of one TestObjectCustom");
+    expectNormalizedToContain(finalContent, "on to_TestObjectCustom.objectID = $self.objectID\n and to_TestObjectCustom.name = $self.name;");
+
+    const stagingContent = findAction(result.dbActions, "db/staging/1st-model.cds");
+    expectNormalizedToContain(stagingContent, "using {tst.model.staging.TestObjectCustom} from './custom-model.cds';");
+    expectNormalizedToContain(stagingContent, "and to_TestObjectCustom.taskID = $self.taskID");
+
+    expect(result.customModelWarnings).toEqual([]);
+  });
+
+  it("reports a warning instead of silently dropping an attachment whose parent entity no longer exists in this upload", () => {
+    const csn = makeCsnFixture();
+    const customModelPreservation = {
+      final: {
+        byParentEntity: {
+          SomeVanishedEntity: {
+            importLines: ["using {tst.model.final.VanishedCustom} from './custom-model.cds';"],
+            compositionLines: ["to_VanishedCustom : Composition of one VanishedCustom on to_VanishedCustom.objectID = $self.objectID;"],
+          },
+        },
+      },
+    };
+
+    const result = buildDbModelForNamespace("final", csn, "MDG_TST.TestObject", "TestObject", "TST", "eventmesh", customModelPreservation);
+
+    expect(result.customModelWarnings).toHaveLength(1);
+    expect(result.customModelWarnings[0].businessTable).toBe("SomeVanishedEntity");
+    expect(result.customModelWarnings[0].message).toMatch(/could not be re-applied/);
+
+    const finalContent = findAction(result.dbActions, "db/final/1st-model.cds");
+    expect(finalContent).not.toContain("VanishedCustom");
+  });
+});

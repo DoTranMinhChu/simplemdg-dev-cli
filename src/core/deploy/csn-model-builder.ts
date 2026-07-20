@@ -1,7 +1,7 @@
 import type { TGitLabCommitAction } from "../gitlab/gitlab-write-client";
 import type { TObjectTypeMode } from "./deploy-target-store";
 import { DB_NAMESPACE_CONFIG, STAGING_BASE_ASPECT, STAGING_MAPPING_ASPECT } from "./csn-model-types";
-import type { TCsnContent, TCsnElement, TCsnOnRef, TCsnOnToken, TDbNamespace, TEntityRenameRisk, TJoinFieldRisk } from "./csn-model-types";
+import type { TCsnContent, TCsnElement, TCsnOnRef, TCsnOnToken, TCustomModelPreservation, TCustomModelWarning, TDbNamespace, TEntityRenameRisk, TJoinFieldRisk } from "./csn-model-types";
 import { formatCdsText } from "./cds-pretty-print";
 
 const RELATION_PREFIX = "to_";
@@ -257,6 +257,9 @@ type TLevelBucket = {
   children: string[];
   businessTables: string[];
   i18n: string[];
+  /** `using ... from './custom-model.cds'` line(s) needed by any preserved custom-model.cds attachment injected at this level — see `TWalkContext.customModelPreservation`. Keyed by the CURRENT namespace being built (`ctx.namespaceKey` — `final`, `cons`, `clone_final`, ...), not hardcoded to `final`. */
+  primaryCustomImports: string[];
+  stagingCustomImports: string[];
 };
 
 type TWalkContext = {
@@ -273,10 +276,15 @@ type TWalkContext = {
   errorModel: Record<string, string[]>;
   joinRisks: TJoinFieldRisk[];
   objectType: string;
+  /** Customer-authored `custom-model.cds` attachments recovered from the currently-committed files (see `custom-model-preserver.ts`) — re-injected into whichever entity they belong to as the tree is walked, instead of being silently dropped by this regenerate. */
+  customModelPreservation?: TCustomModelPreservation;
+  /** Business tables whose preserved attachment was actually re-injected somewhere in this walk — anything in `customModelPreservation` NOT in here gets a `customModelWarnings` entry (its parent entity no longer exists in this upload). */
+  customModelConsumed: Set<string>;
+  customModelWarnings: TCustomModelWarning[];
 };
 
 function getOrCreateLevelBucket(ctx: TWalkContext, level: number): TLevelBucket {
-  return (ctx.csnWithLevel[level] ??= { final: [], staging: [], children: [], businessTables: [], i18n: [] });
+  return (ctx.csnWithLevel[level] ??= { final: [], staging: [], children: [], businessTables: [], i18n: [], primaryCustomImports: [], stagingCustomImports: [] });
 }
 
 /**
@@ -490,6 +498,26 @@ function buildCsnWithLevel(ctx: TWalkContext, modelName: string, currentLevel: n
     );
   }
 
+  // Keyed off `ctx.namespaceKey` (the namespace THIS pass is actually building — `final`, `cons`,
+  // `clone_final`, ...), not hardcoded to `final`: each of those tiers can independently carry its
+  // own `custom-model.cds` attachment (confirmed against real customer repos), and this walk is
+  // re-run once per namespace pass. `staging` is namespace-invariant and only ever rendered
+  // alongside a `final` pass (see `STAGING_BASE_ASPECT`'s doc comment), so it's checked separately.
+  const primaryCustomAttachment = ctx.customModelPreservation?.[ctx.namespaceKey]?.byParentEntity[businessTable];
+  if (primaryCustomAttachment) {
+    level.final.push(...primaryCustomAttachment.compositionLines);
+    level.primaryCustomImports.push(...primaryCustomAttachment.importLines);
+    ctx.customModelConsumed.add(businessTable);
+  }
+  if (ctx.namespaceKey === "final") {
+    const stagingCustomAttachment = ctx.customModelPreservation?.staging?.byParentEntity[businessTable];
+    if (stagingCustomAttachment) {
+      level.staging.push(...stagingCustomAttachment.compositionLines);
+      level.stagingCustomImports.push(...stagingCustomAttachment.importLines);
+      ctx.customModelConsumed.add(businessTable);
+    }
+  }
+
   level.final.push("}");
   level.staging.push("}");
 
@@ -530,6 +558,7 @@ export type TDbModelNamespaceResult = {
   srvActions: TGitLabCommitAction[];
   i18nFragments: string[];
   joinRisks: TJoinFieldRisk[];
+  customModelWarnings: TCustomModelWarning[];
 };
 
 /**
@@ -542,7 +571,15 @@ export type TDbModelNamespaceResult = {
  * conflicts) has been checked. Legacy instead threw only after rendering CDS text, so a rejected
  * upload could still leak partial output.
  */
-export function buildDbModelForNamespace(namespaceKey: TDbNamespace, csnContent: TCsnContent, rootModelName: string, objectType: string, shortName: string, mode: TObjectTypeMode): TDbModelNamespaceResult {
+export function buildDbModelForNamespace(
+  namespaceKey: TDbNamespace,
+  csnContent: TCsnContent,
+  rootModelName: string,
+  objectType: string,
+  shortName: string,
+  mode: TObjectTypeMode,
+  customModelPreservation?: TCustomModelPreservation,
+): TDbModelNamespaceResult {
   const namespace = DB_NAMESPACE_CONFIG[namespaceKey];
   const shortNameLowercase = shortName.toLowerCase();
   const finalPrefix = `${shortNameLowercase}${namespace.suffix}`;
@@ -572,9 +609,29 @@ export function buildDbModelForNamespace(namespaceKey: TDbNamespace, csnContent:
     errorModel: {},
     joinRisks: [],
     objectType,
+    customModelPreservation,
+    customModelConsumed: new Set(),
+    customModelWarnings: [],
   };
 
   buildCsnWithLevel(ctx, rootModelName, 1, null, [], []);
+
+  // `staging` is only ever rendered alongside a `final` pass (see the render loop's own
+  // `namespaceKey === "final"` gate below), so it's only relevant to check here for that pass —
+  // otherwise a hypothetical future `cons`/`clone_final` call would double-report the same staging
+  // gap every time (once per namespace pass) instead of once, from the `final` pass alone.
+  const tierKeysToCheck: Array<"staging" | TDbNamespace> = namespaceKey === "final" ? [namespaceKey, "staging"] : [namespaceKey];
+  for (const tierKey of tierKeysToCheck) {
+    const tierPreservation = customModelPreservation?.[tierKey];
+    if (!tierPreservation) continue;
+    for (const businessTable of Object.keys(tierPreservation.byParentEntity)) {
+      if (ctx.customModelConsumed.has(businessTable)) continue;
+      ctx.customModelWarnings.push({
+        businessTable,
+        message: `A custom-model.cds attachment on '${businessTable}' (${tierKey} tier) could not be re-applied — '${businessTable}' is no longer present in this upload's regenerated model. Its import/composition was NOT carried forward; verify manually before merging.`,
+      });
+    }
+  }
 
   for (const [businessTable, modelNames] of Object.entries(ctx.businessTableToModelName)) {
     if (modelNames.length <= 1) continue;
@@ -660,8 +717,10 @@ export function buildDbModelForNamespace(namespaceKey: TDbNamespace, csnContent:
 
     finalLines.push(`using core.common.${level === 1 ? namespace.firstLevelEntity : namespace.childLevelEntity} from '@simplemdg/db_common/db/common-model';`);
     if (MULTI_ERP_MODES.includes(mode)) finalLines.push(`using core.common.${namespace.mappingEntity} from '@simplemdg/db_common/db/common-model';`);
+    finalLines.push(...new Set(bucket.primaryCustomImports));
     stagingLines.push(`using core.common.${STAGING_BASE_ASPECT} from '@simplemdg/db_common/db/common-model';`);
     if (MULTI_ERP_MODES.includes(mode)) stagingLines.push(`using core.common.${STAGING_MAPPING_ASPECT} from '@simplemdg/db_common/db/common-model';`);
+    stagingLines.push(...new Set(bucket.stagingCustomImports));
 
     finalLines.push(...bucket.final);
     stagingLines.push(...bucket.staging);
@@ -685,7 +744,7 @@ export function buildDbModelForNamespace(namespaceKey: TDbNamespace, csnContent:
     srvActions.push({ action: "update", file_path: "srv/master-data-service.cds", content: formatCdsText(masterDataLines) });
   }
 
-  return { dbActions, srvActions, i18nFragments, joinRisks: ctx.joinRisks };
+  return { dbActions, srvActions, i18nFragments, joinRisks: ctx.joinRisks, customModelWarnings: ctx.customModelWarnings };
 }
 
 /**

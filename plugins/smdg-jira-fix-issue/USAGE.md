@@ -22,15 +22,17 @@ The reading-mode and browser choices are all independent — that's expected (e.
 3. If reproduction succeeded, tracing proceeds automatically. If it was blocked on a data/environment gap but a ticket-derived signature is available, you'll be asked whether to proceed with tracing anyway (result marked as not live-verified) or stop. If it was blocked with nothing to derive a signature from (login trouble, a genuinely ambiguous step), you're asked to resolve that instead.
 4. `smdg-root-cause-tracer` takes the Failure Signature and locates the exact `file:line` in source responsible — routing cheaply across the codebase's many nested repos (using a growing `.claude/knowledge/repo-map.md` index to skip rediscovery on familiar feature areas), rather than guessing from symptoms.
 5. You get a final, code-verified classification (UI bug / Backend bug / Contract-Schema Mismatch / Data-Environment Issue / Inconclusive) with an exact file:line citation, plus all evidence file paths. If the signature behind it was ticket-derived rather than live-observed, the summary says so explicitly.
+6. **If the classification is Data/Environment Issue and a specific config fix was identified**, you're asked whether to have it applied automatically. If you agree, `smdg-config-fixer` navigates the Admin UI, confirms the exact records with you before touching anything, captures before/after screenshots, applies the change, and re-verifies the original bug is actually gone. It never runs for the other three classifications — those need an actual code change through your normal dev/PR workflow.
 
 ## Evidence output
 
 Everything is written under `.claude/evidence/<TICKET-KEY>/` in your current project:
 - `ticket-summary.md` — extracted ticket fields (tagged `source: ticket` or `source: user-provided in chat`), plus any API examples QA already pasted into the ticket, preserved verbatim
-- `screenshots/` — ticket attachments + the reproduced error state
+- `screenshots/` — ticket attachments, the reproduced error state, and (if a fix was applied) `fix-before.png`/`fix-after.png`
 - `network/<NN>-<slug>.json` — one file per relevant API call, with the **full** request and response (not a truncated summary) so the bug can be fixed from these files alone; sensitive headers/tokens are redacted before writing
-- `analysis.md` — preliminary, symptom-based classification + justification + Failure Signature block
+- `reproduction-findings.md` — preliminary, symptom-based classification + justification + Failure Signature block
 - `root-cause.md` — the code-verified final classification, exact file:line citation(s), and a minimal offending snippet
+- `fix-summary.md` — only if a config fix was applied: what changed, whether live re-verification passed
 
 Consider adding `.claude/evidence/` to your project's `.gitignore` — it can contain credentials and screenshots.
 
@@ -42,17 +44,19 @@ Once this plugin is installed, open `smdg ai studio` → **Plugins** → this pl
 
 ## Dependencies installed alongside this skill
 
-- `smdg-jira-fetcher`, `smdg-jira-reproducer`, `smdg-root-cause-tracer` (the three subagents)
-- `smdg-playwright-browsers` (shared MCP browser bridge, pulled in transitively — needed regardless of reading mode, since reproduction always uses it)
+- `smdg-jira-fetcher`, `smdg-jira-reproducer`, `smdg-root-cause-tracer`, `smdg-config-fixer` (the four subagents)
+- `smdg-playwright-browsers` (shared MCP browser bridge, pulled in transitively — needed regardless of reading mode, since reproduction and any applied fix always use it)
 - `smdg-jira-mcp` (registers the Jira MCP server for the browser-free reading mode; see its own USAGE.md for the one-time `claude mcp login smdg-atlassian` setup)
 
 ## Upgrading from an older install
 
-`smdg plugin update` only re-syncs a plugin's own files — it does not automatically install dependencies newly added to an existing plugin's `dependsOn` (like `smdg-root-cause-tracer` being added here in 1.2.0, and `smdg-jira-mcp` in 1.4.0). If you already had this pipeline installed before this version, upgrade with both commands:
+`smdg plugin update` only re-syncs a plugin's own files — it does not automatically install dependencies newly added to an existing plugin's `dependsOn` (like `smdg-root-cause-tracer` being added here in 1.2.0, `smdg-jira-mcp` in 1.4.0, and `smdg-config-fixer` in 1.5.0). If you already had this pipeline installed before this version, upgrade with both commands:
 
 ```
 smdg plugin update smdg-jira-fetcher smdg-jira-reproducer smdg-jira-fix-issue
-smdg plugin add smdg-root-cause-tracer smdg-jira-mcp
+smdg plugin add smdg-root-cause-tracer smdg-jira-mcp smdg-config-fixer
 ```
 
 Running `smdg plugin doctor` afterward will flag a `missing-dependency` issue if this step gets skipped.
+
+Note: 1.5.0 also renames the reproducer's output file from `analysis.md` to `reproduction-findings.md` (a harness-level restriction was silently blocking every write to the old name) — if you have any external tooling or scripts reading `.claude/evidence/<TICKET-KEY>/analysis.md` directly, update it to the new filename.

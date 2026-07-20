@@ -1,10 +1,10 @@
 {
   "id": "smdg-jira-fix-issue",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "displayName": "Jira Bug Investigation Pipeline",
   "description": "Investigate a QA bug ticket end-to-end — read the Jira ticket (via browser or Jira MCP), reproduce the issue in the environment, trace the failure to its exact file:line root cause in source, and classify it as a UI bug, Backend bug, Contract/Schema Mismatch, or Data/Environment Issue. Use when the user provides a Jira ticket link and wants it investigated, or invoke directly with /smdg-jira-fix-issue <ticket-url>.",
   "kind": "skill",
-  "dependsOn": ["smdg-jira-fetcher", "smdg-jira-reproducer", "smdg-root-cause-tracer", "smdg-jira-mcp"],
+  "dependsOn": ["smdg-jira-fetcher", "smdg-jira-reproducer", "smdg-root-cause-tracer", "smdg-jira-mcp", "smdg-config-fixer"],
   "renamedFrom": ["investigate-bug"],
   "components": {
     "skillDir": "skill"
@@ -16,8 +16,9 @@
     "instanceLabel": "{basename}",
     "files": [
       { "match": "ticket-summary.md", "render": "markdown" },
-      { "match": "analysis.md", "render": "markdown" },
+      { "match": "reproduction-findings.md", "render": "markdown" },
       { "match": "root-cause.md", "render": "markdown" },
+      { "match": "fix-summary.md", "render": "markdown" },
       { "match": "screenshots/*.{png,jpg,jpeg}", "render": "image-gallery" },
       { "match": "network/*", "render": "text" }
     ]

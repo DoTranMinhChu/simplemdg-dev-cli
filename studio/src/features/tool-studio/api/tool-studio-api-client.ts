@@ -192,7 +192,11 @@ export type TDeployModelResult = {
   noChange: Array<{ role: string; pathWithNamespace: string; sourceBranch: string; targetBranch: string }>;
   skipped: Array<{ role: string; pathWithNamespace: string; reason: string }>;
   renamedEntities: TEntityRenameRisk[];
+  customModelWarnings: TCustomModelWarning[];
 };
+
+/** Mirrors `TCustomModelWarning` in `csn-model-types.ts` — a `custom-model.cds` attachment existed on the previously-committed file but couldn't be re-applied because its parent entity is no longer in this upload. */
+export type TCustomModelWarning = { businessTable: string; message: string };
 
 /** Mirrors `TMergeRequestStatus` in `merge-orchestrator.ts` — polled per-MR so the UI can show merge/pipeline state without the user opening GitLab. */
 export type TMrLiveStatus = { state: string; mergedAt?: string; pipeline?: { status: string; webUrl: string }; error?: string };
@@ -218,7 +222,38 @@ export type TJoinFieldRisk = {
 export type TDeployDiffLine = { type: "add" | "remove" | "context" | "collapsed"; text?: string; count?: number };
 export type TDeployFileDiff = { filePath: string; changeType: "create" | "update" | "no-change"; additions: number; deletions: number; lines: TDeployDiffLine[] };
 export type TDeployRepoPreview = { role: string; pathWithNamespace: string; files: TDeployFileDiff[] };
-export type TDeployPreviewResult = { entityName: string; cdsDkVersion?: string; repos: TDeployRepoPreview[]; renamedEntities?: TEntityRenameRisk[]; error?: string };
+export type TDeployPreviewResult = { entityName: string; cdsDkVersion?: string; repos: TDeployRepoPreview[]; renamedEntities?: TEntityRenameRisk[]; customModelWarnings?: TCustomModelWarning[]; error?: string };
+
+/** Mirrors `TCdsModelEntity` in `cds-model-reader.ts` — one entity currently in `db/final/*-model.cds`, the "attach to" picker's candidate list. */
+export type TCdsModelEntity = {
+  name: string;
+  sourceFile: string;
+  keyFields: string[];
+  fields: Array<{ name: string; type: string }>;
+  compositions: Array<{ field: string; target: string; cardinality: "one" | "many" }>;
+};
+
+/** Mirrors `TCustomModelField`/`TCustomModelEntityView`/`TCustomModelView` in `custom-model-editor.ts`. */
+export type TCustomModelField = { name: string; type: string; isKey: boolean; i18nLabel?: string };
+export type TCustomModelEntityView = { name: string; attachedTo?: string; fields: TCustomModelField[] };
+export type TCustomModelView = { generatedEntities: TCdsModelEntity[]; customEntities: TCustomModelEntityView[]; finalNamespace: string; stagingNamespace: string };
+
+export type TCustomModelFieldInput = { name: string; type: string; isKey?: boolean; i18nLabel?: string };
+/** Mirrors `TCustomModelEdit` in `custom-model-editor.ts`. */
+export type TCustomModelEdit =
+  | { op: "add-entity"; name: string; attachedTo: string; fields: TCustomModelFieldInput[] }
+  | { op: "update-entity"; name: string; attachedTo: string; fields: TCustomModelFieldInput[] }
+  | { op: "delete-entity"; name: string }
+  | { op: "add-field"; entityName: string; field: TCustomModelFieldInput }
+  | { op: "update-field"; entityName: string; field: TCustomModelFieldInput }
+  | { op: "delete-field"; entityName: string; fieldName: string };
+
+export type TCustomModelSaveResult = {
+  mergeRequest?: { pathWithNamespace: string; webUrl: string; iid: number; projectId: number; targetBranch: string };
+  noChange?: boolean;
+  warnings: string[];
+  error?: string;
+};
 
 export const toolStudioApi = {
   getGitlabAuthStatus: () => get<{ isLoggedIn: boolean; username?: string; name?: string; baseUrl?: string; expiresAt?: string | null }>("/api/tool/gitlab/auth-status"),
@@ -321,6 +356,11 @@ export const toolStudioApi = {
     post<{ ok?: boolean; error?: string }>("/api/tool/deploy-model/manual-object-type", input),
   removeManualObjectType: (deployTargetId: string, slug: string) =>
     post<{ ok?: boolean; error?: string }>("/api/tool/deploy-model/manual-object-type/remove", { deployTargetId, slug }),
+
+  getCustomModelView: (deployTargetId: string, objectTypeSlug: string) =>
+    get<TCustomModelView & { error?: string }>(`/api/tool/custom-model/view?deployTargetId=${encodeURIComponent(deployTargetId)}&objectTypeSlug=${encodeURIComponent(objectTypeSlug)}`),
+  previewCustomModelChanges: (input: { deployTargetId: string; objectTypeSlug: string; edits: TCustomModelEdit[] }) => post<TDeployPreviewResult>("/api/tool/custom-model/preview", input),
+  saveCustomModelChanges: (input: { deployTargetId: string; objectTypeSlug: string; edits: TCustomModelEdit[] }) => post<TCustomModelSaveResult>("/api/tool/custom-model/save", input),
 
   resolveNpmrcPackageId: (groupId: number, groupPath: string) =>
     get<{ packageId?: string; source?: string; candidateProjects?: Array<{ id: number; name: string; path_with_namespace: string }>; error?: string }>(

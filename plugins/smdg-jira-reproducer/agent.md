@@ -16,16 +16,16 @@ You receive: environment_url, credentials, steps_to_reproduce, and relevant tick
 
 1. Log in to environment_url using the provided credentials.
    - If login fails twice, or you detect a CAPTCHA / OTP / 2FA prompt:
-     Write `analysis.md` per step 5 with `reproduced: false`, classification `Inconclusive`, and a one-line note that you were blocked at login — then STOP and ask the user: "I'm blocked at login (CAPTCHA/OTP detected) — please log in manually in the open browser window, then tell me to continue."
+     Write `reproduction-findings.md` per step 5 with `reproduced: false`, classification `Inconclusive`, and a one-line note that you were blocked at login — then STOP and ask the user: "I'm blocked at login (CAPTCHA/OTP detected) — please log in manually in the open browser window, then tell me to continue."
      Do NOT attempt to guess, brute-force, or retry credentials repeatedly.
 
 2. Perform the reproduction steps as described, using browser_snapshot to understand the page and browser_click / browser_type / browser_fill_form to interact.
    - If a step is ambiguous, try the single most reasonable interpretation ONCE.
-   - If that attempt does not reproduce the issue, write `analysis.md` per step 5 with `reproduced: false`, classification `Inconclusive`, and a one-line note of what you tried — then STOP and ask exactly which action or detail is missing. Do not keep retrying blindly.
+   - If that attempt does not reproduce the issue, write `reproduction-findings.md` per step 5 with `reproduced: false`, classification `Inconclusive`, and a one-line note of what you tried — then STOP and ask exactly which action or detail is missing. Do not keep retrying blindly.
    - **If a step's precondition data doesn't exist** (e.g. the specific record/entity the steps say to select — an archived item, a particular status, a specific ID — isn't present in this environment, even though you followed the steps exactly), this is a distinct outcome from "ambiguous step": the instructions were clear, the data just isn't there. Do not treat it as your own error or retry blindly.
      - Run 1-2 cheap diagnostic queries (a broader search without the narrowing filter, or a check that the general feature/data-shape exists elsewhere) to confirm this is really a data gap and not a filter/navigation mistake on your part.
      - Do NOT silently substitute a different record/type to "make it work" — that would produce misleading evidence. You may suggest a specific substitute in your report, but only as a named suggestion for the user to approve, never as a silent swap.
-     - Skip to step 5 and write `analysis.md` with `reproduced: false` and classification `Data/Environment Issue` (see step 5) — do not stop without writing it.
+     - Skip to step 5 and write `reproduction-findings.md` with `reproduced: false` and classification `Data/Environment Issue` (see step 5) — do not stop without writing it.
    - When the error state is reached, save a screenshot to `.claude/evidence/<TICKET-KEY>/screenshots/` (e.g. `02-error-state.png`) using the tool's filename parameter.
 
 3. Capture full API evidence for every request tied to the actual reproducing action — not a fixed count like "2-3 requests." A single user action (e.g. one form submit) can fire several sequential calls; capture all of them if they're part of what's being reproduced.
@@ -43,8 +43,11 @@ You receive: environment_url, credentials, steps_to_reproduce, and relevant tick
 
 4. Compare the actual API request/response payloads against the expected behavior described in the ticket. This comparison is the core of your root-cause finding — be specific about which field, header, or status code diverges from what's expected, not just "the API returned an error."
 
-5. Write `.claude/evidence/<TICKET-KEY>/analysis.md` — **always, in every terminal state** (reproduced, blocked-on-data, blocked-on-login, or can't-reproduce). The orchestrating skill reads this file to decide its next step; never leave the outcome only in your chat reply. It must contain:
+5. Write `.claude/evidence/<TICKET-KEY>/reproduction-findings.md` — **always, in every terminal state** (reproduced, blocked-on-data, blocked-on-login, or can't-reproduce). The orchestrating skill reads this file to decide its next step; never leave the outcome only in your chat reply.
+   - **If this Write call is ever blocked or rejected for any reason** (e.g. a tool-level restriction on subagents writing report-shaped files), do not silently drop the content or treat it as optional — return the ENTIRE would-be file content verbatim in your final response instead, clearly labeled "BLOCKED FROM DISK — orchestrator must write this to `.claude/evidence/<TICKET-KEY>/reproduction-findings.md` verbatim before invoking smdg-root-cause-tracer." The content structure below still applies either way.
+   It must contain:
    - **Preliminary Classification (symptom-based — not yet code-verified)**: UI bug / Backend bug / Both / Data/Environment Issue / Inconclusive. This is a hypothesis from observed behavior only — you have not read the responsible source code, so do not overstate its confidence. Use **Data/Environment Issue** specifically for the "precondition data doesn't exist" outcome from step 2 — don't collapse it into Inconclusive. A later step (`smdg-root-cause-tracer`) reads the actual code and produces the code-verified final classification.
+     - **Ambiguity guard**: an over-constrained or empty-result query (e.g. a filter/lookup that returns zero rows) is structurally indistinguishable, from network evidence alone, between "the query-building code is buggy" and "the query-building code is correct but was fed bad config/reference data." Since you haven't read the query-generation code, do not commit to a confident "Backend bug" in this specific situation — label it "Backend bug or Data/Environment Issue (undetermined from network evidence alone)" instead, so `smdg-root-cause-tracer`'s code-verified answer isn't second-guessed by an overconfident fallback if the tracer later gets blocked.
    - The specific API endpoint(s) and field(s) involved, if you reached that far.
    - **Key evidence**, inline (not just a file reference): the single most relevant request/response, summarized as method, URL, status code, and the exact field/value that's wrong — e.g. "`POST /api/auth/login` returned `500`; response body: `{"error": "rememberMe is required"}`, but the request body the frontend sends never includes `rememberMe`." A reader must be able to see the root cause without opening another file. If you were blocked before any relevant request fired, say so plainly instead of omitting this section.
    - A short evidence-based justification, referencing the saved network file path(s) for anyone who needs the full untruncated payload.
@@ -61,7 +64,7 @@ You receive: environment_url, credentials, steps_to_reproduce, and relevant tick
    - The preliminary classification
    - Whether it was actually reproduced (`reproduced: true/false`) — never let this be ambiguous in your reply
    - The key finding, or the specific blocker, in 2-3 sentences
-   - The path to analysis.md
+   - The path to reproduction-findings.md (or the verbatim content, if step 5's Write was blocked)
    Do not repeat raw request/response bodies or full screenshots in your reply.
 
 Token discipline:

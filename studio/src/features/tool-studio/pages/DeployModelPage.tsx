@@ -12,6 +12,8 @@ import { GitLabLoginModal } from "../components/GitLabLoginModal";
 import { CreateDeployTargetForm } from "../components/CreateDeployTargetForm";
 import { DeployChangesPreview } from "../components/DeployChangesPreview";
 import { EntityRenameAlert } from "../components/EntityRenameAlert";
+import { CustomModelWarningAlert } from "../components/CustomModelWarningAlert";
+import { CustomModelStep } from "../components/CustomModelStep";
 import { MergeRequestsPanel } from "../components/MergeRequestsPanel";
 import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TDeployModelResult, TDeployTarget, TDiscoveredObjectType, TJoinFieldRisk } from "../api/tool-studio-api-client";
@@ -190,8 +192,17 @@ export function DeployModelPage(): React.ReactElement {
       )}
 
       {target && objectType && (
+        <div className="dm-step">
+          <StepHead n={3} title="Custom Model" sub="view the current model + custom-model.cds entities, add/edit/attach your own" />
+          <div className="ts-card" style={{ maxWidth: 900 }}>
+            <CustomModelStep deployTargetId={target.id} objectTypeSlug={objectType.slug} />
+          </div>
+        </div>
+      )}
+
+      {target && objectType && (
         <div className={`dm-step${preview.data?.entityName ? " done" : ""}`}>
-          <StepHead n={3} title="Upload EDMX" sub={preview.data?.entityName} done={Boolean(preview.data?.entityName)} />
+          <StepHead n={4} title="Upload EDMX" sub={preview.data?.entityName} done={Boolean(preview.data?.entityName)} />
           <div className="ts-card" style={{ maxWidth: 900 }}>
             <input
               ref={fileInputRef}
@@ -262,7 +273,7 @@ export function DeployModelPage(): React.ReactElement {
 
       {target && objectType && upload.data?.uploadId && (
         <div className="dm-step">
-          <StepHead n={4} title="Review changes" sub="what would actually be committed, before you deploy" />
+          <StepHead n={5} title="Review changes" sub="what would actually be committed, before you deploy" />
           <div className="ts-card" style={{ maxWidth: 900 }}>
             <div className="row">
               <Button variant="sec" onClick={() => void changesPreview.run()} disabled={changesPreview.loading}>
@@ -277,6 +288,11 @@ export function DeployModelPage(): React.ReactElement {
                 <EntityRenameAlert renames={changesPreview.data.renamedEntities} />
               </div>
             )}
+            {changesPreview.data?.customModelWarnings && changesPreview.data.customModelWarnings.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <CustomModelWarningAlert warnings={changesPreview.data.customModelWarnings} />
+              </div>
+            )}
             {changesPreview.data && !changesPreview.data.error && (
               <div style={{ marginTop: 12 }}>
                 <DeployChangesPreview result={changesPreview.data} />
@@ -288,7 +304,7 @@ export function DeployModelPage(): React.ReactElement {
 
       {target && objectType && upload.data?.uploadId && (
         <div className="dm-step">
-          <StepHead n={5} title="Deploy" />
+          <StepHead n={6} title="Deploy" />
           <div className="ts-card" style={{ maxWidth: 900 }}>
             <div className="ts-grid-2">
               <div className="field" style={{ gridColumn: "1 / -1" }}>
@@ -355,6 +371,11 @@ export function DeployModelPage(): React.ReactElement {
             {jobResult && jobResult.renamedEntities.length > 0 && (
               <div style={{ marginTop: 12 }}>
                 <EntityRenameAlert renames={jobResult.renamedEntities} />
+              </div>
+            )}
+            {jobResult && jobResult.customModelWarnings.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <CustomModelWarningAlert warnings={jobResult.customModelWarnings} />
               </div>
             )}
             {jobResult && jobResult.mergeRequests.length > 0 && <MergeRequestsPanel mergeRequests={jobResult.mergeRequests} />}

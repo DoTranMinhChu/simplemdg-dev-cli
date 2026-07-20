@@ -5,18 +5,20 @@ import fs from "fs-extra";
 import { execa } from "execa";
 import { diffLines } from "diff";
 import type { TGitLabAuth } from "../gitlab/gitlab-client";
-import { fetchRawFile } from "../gitlab/gitlab-client";
+import { fetchRawFile, fetchRepositoryTree } from "../gitlab/gitlab-client";
 import { compareBranches, createBranch, commitMultipleFiles, createMergeRequest, deleteBranch, listBranches } from "../gitlab/gitlab-write-client";
 import type { TGitLabCommitAction } from "../gitlab/gitlab-write-client";
 import { emitJobEvent } from "../tool/studio/job-events";
 import { deriveShortCodeFromRepos } from "./object-type-discovery";
 import type { TObjectTypeRepoRef } from "./object-type-discovery";
 import type { TObjectTypeMode } from "./deploy-target-store";
-import type { TCsnContent, TEntityRenameRisk, TJoinFieldRisk } from "./csn-model-types";
+import type { TCsnContent, TCustomModelPreservation, TCustomModelWarning, TEntityRenameRisk, TJoinFieldRisk } from "./csn-model-types";
 import { preprocessCsnForMode } from "./csn-preprocess";
 import { buildDbModelForNamespace, detectRenamedEntityLabels, findRootModel } from "./csn-model-builder";
 import { buildI18nActions } from "./csn-i18n";
 import { resolveCdsDkCli } from "./cds-dk-version-resolver";
+import { extractCustomModelAttachments, mergeCustomModelPreservation, parseCustomModelEntityNames } from "./custom-model-preserver";
+import type { TCustomModelPreservationForTier } from "./custom-model-preserver";
 
 const UPLOAD_ROOT = path.join(os.tmpdir(), "smdg-tool-studio", "deploy-model-uploads");
 
@@ -196,6 +198,7 @@ export type TDeployModelResult = {
   noChange: Array<{ role: string; pathWithNamespace: string; sourceBranch: string; targetBranch: string }>;
   skipped: Array<{ role: string; pathWithNamespace: string; reason: string }>;
   renamedEntities: TEntityRenameRisk[];
+  customModelWarnings: TCustomModelWarning[];
 };
 
 /**
@@ -203,7 +206,7 @@ export type TDeployModelResult = {
  * one atomic commit, one MR each — leaving the actual SAP-runtime deployment to whatever CI merges
  * the MR, same as the legacy tool.
  */
-type TDbModel = { dbActions: TGitLabCommitAction[]; srvActions: TGitLabCommitAction[]; shortName: string };
+type TDbModel = { dbActions: TGitLabCommitAction[]; srvActions: TGitLabCommitAction[]; shortName: string; customModelWarnings: TCustomModelWarning[] };
 
 export type TDeployDiffLine = { type: "add" | "remove" | "context" | "collapsed"; text?: string; count?: number };
 
@@ -217,7 +220,7 @@ export type TDeployFileDiff = {
 
 export type TDeployRepoPreview = { role: string; pathWithNamespace: string; files: TDeployFileDiff[] };
 
-export type TDeployPreviewResult = { entityName: string; cdsDkVersion?: string; repos: TDeployRepoPreview[]; renamedEntities: TEntityRenameRisk[] };
+export type TDeployPreviewResult = { entityName: string; cdsDkVersion?: string; repos: TDeployRepoPreview[]; renamedEntities: TEntityRenameRisk[]; customModelWarnings: TCustomModelWarning[] };
 
 const DIFF_CONTEXT_LINES = 3;
 const DIFF_MAX_UNCHANGED_RUN = DIFF_CONTEXT_LINES * 2;
@@ -228,7 +231,7 @@ const DIFF_MAX_UNCHANGED_RUN = DIFF_CONTEXT_LINES * 2;
  * each edge) — a full CSN file can be 30KB+ for a single real content change, so sending every
  * unchanged line to the browser would be both slow and unreadable.
  */
-function buildFileDiff(oldContent: string, newContent: string): { lines: TDeployDiffLine[]; additions: number; deletions: number } {
+export function buildFileDiff(oldContent: string, newContent: string): { lines: TDeployDiffLine[]; additions: number; deletions: number } {
   const changes = diffLines(oldContent, newContent);
   const rawLines: TDeployDiffLine[] = [];
   let additions = 0;
@@ -306,11 +309,46 @@ async function buildIndexCdsAction(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef
   return { action: "update", file_path: "db/index.cds", content: [existing.trimEnd(), ...missingLines].join("\n") };
 }
 
+/**
+ * Recovers a customer-authored `custom-model.cds` attachment (see `custom-model-preserver.ts`) for
+ * one tier, from whatever's currently committed — `undefined` in the overwhelming common case
+ * where the object type has no `custom-model.cds` at all, so this costs nothing beyond one extra
+ * `fetchRawFile` for objects that don't use the pattern.
+ */
+async function loadCustomModelPreservationForTier(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef, tierFolder: "final" | "staging"): Promise<TCustomModelPreservationForTier | undefined> {
+  const customModelRaw = await fetchRawFile(auth, dbRepo.projectId, `db/${tierFolder}/custom-model.cds`, dbRepo.defaultBranch).catch(() => undefined);
+  if (!customModelRaw) return undefined;
+
+  const customEntityNames = parseCustomModelEntityNames(customModelRaw);
+  if (!customEntityNames.size) return undefined;
+
+  const tree = await fetchRepositoryTree(auth, dbRepo.projectId, `db/${tierFolder}`, dbRepo.defaultBranch).catch(() => []);
+  // Ordinal model files only (`1st-model.cds`, `2nd-model.cds`, ...) — excludes `custom-model.cds`
+  // itself, `f4-model.cds`, and anything else a customer may have added to this same folder.
+  const ordinalFiles = tree.filter((entry) => entry.type === "blob" && /^\d+\w{2}-model\.cds$/i.test(entry.name));
+
+  const extracted = await Promise.all(
+    ordinalFiles.map(async (file) => {
+      const content = await fetchRawFile(auth, dbRepo.projectId, `db/${tierFolder}/${file.name}`, dbRepo.defaultBranch).catch(() => undefined);
+      return content ? extractCustomModelAttachments(content, customEntityNames) : { byParentEntity: {} };
+    }),
+  );
+
+  return mergeCustomModelPreservation(extracted);
+}
+
 async function buildDbModel(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef, csnContentRaw: string, objectType: string, objectTypeMode: TObjectTypeMode): Promise<TDbModel> {
   const csnContent = JSON.parse(csnContentRaw) as TCsnContent;
   const preprocessed = preprocessCsnForMode(objectTypeMode, csnContent);
   const { rootModelName, shortName } = findRootModel(preprocessed, objectType);
-  const built = buildDbModelForNamespace("final", preprocessed, rootModelName, objectType, shortName, objectTypeMode);
+
+  const [finalPreservation, stagingPreservation] = await Promise.all([
+    loadCustomModelPreservationForTier(auth, dbRepo, "final"),
+    loadCustomModelPreservationForTier(auth, dbRepo, "staging"),
+  ]);
+  const customModelPreservation: TCustomModelPreservation | undefined = finalPreservation || stagingPreservation ? { final: finalPreservation, staging: stagingPreservation } : undefined;
+
+  const built = buildDbModelForNamespace("final", preprocessed, rootModelName, objectType, shortName, objectTypeMode, customModelPreservation);
 
   const hasF4Model = Boolean(await fetchRawFile(auth, dbRepo.projectId, "db/f4-model.cds", dbRepo.defaultBranch).catch(() => undefined));
   const indexCdsAction = await buildIndexCdsAction(auth, dbRepo, hasF4Model);
@@ -319,6 +357,7 @@ async function buildDbModel(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef, csnCo
     dbActions: [...built.dbActions, ...buildI18nActions(built.i18nFragments), ...(indexCdsAction ? [indexCdsAction] : [])],
     srvActions: built.srvActions,
     shortName,
+    customModelWarnings: built.customModelWarnings,
   };
 }
 
@@ -496,7 +535,7 @@ export async function previewDeployModelChanges(options: Pick<TDeployModelOption
     repoPreviews.push({ role: repo.role, pathWithNamespace: repo.pathWithNamespace, files });
   }
 
-  return { entityName: imported.entityName, cdsDkVersion, repos: repoPreviews, renamedEntities };
+  return { entityName: imported.entityName, cdsDkVersion, repos: repoPreviews, renamedEntities, customModelWarnings: dbModel?.customModelWarnings ?? [] };
 }
 
 export async function runDeployModelJob(jobId: string, options: TDeployModelOptions): Promise<TDeployModelResult> {
@@ -603,6 +642,7 @@ export async function runDeployModelJob(jobId: string, options: TDeployModelOpti
     }
   }
 
-  emitJobEvent({ jobId, type: "job-completed", result: { entityName: imported.entityName, mergeRequests, noChange, skipped, renamedEntities } });
-  return { entityName: imported.entityName, mergeRequests, noChange, skipped, renamedEntities };
+  const customModelWarnings = dbModel?.customModelWarnings ?? [];
+  emitJobEvent({ jobId, type: "job-completed", result: { entityName: imported.entityName, mergeRequests, noChange, skipped, renamedEntities, customModelWarnings } });
+  return { entityName: imported.entityName, mergeRequests, noChange, skipped, renamedEntities, customModelWarnings };
 }

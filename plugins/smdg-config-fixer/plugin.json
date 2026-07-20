@@ -1,0 +1,12 @@
+{
+  "id": "smdg-config-fixer",
+  "version": "1.0.0",
+  "displayName": "Jira Config Fixer",
+  "description": "Applies an approved Data/Environment-Issue fix directly in a live Admin UI (editing/deleting broken config rows), with mandatory before/after screenshots and explicit per-change user confirmation. Only invoke once smdg-root-cause-tracer has classified the ticket as Data/Environment Issue and the user has approved applying the fix.",
+  "kind": "agent",
+  "dependsOn": ["smdg-playwright-browsers"],
+  "components": {
+    "agentFiles": ["agent.md"]
+  },
+  "usageFile": "USAGE.md"
+}

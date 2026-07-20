@@ -144,3 +144,32 @@ export type TEntityRenameRisk = {
   oldLabel: string;
   newLabel: string;
 };
+
+/**
+ * A customer-authored `custom-model.cds` attachment (see `custom-model-preserver.ts`) found on the
+ * currently-committed `db/<tier>/*-model.cds` files, keyed by tier — passed into
+ * `buildDbModelForNamespace` so its regenerate can re-inject each attachment into whichever entity
+ * it belongs to, instead of silently dropping it.
+ *
+ * Keyed generically over every `TDbNamespace` (not just `final`) — confirmed against real customer
+ * repos that `cons`/`clone_final` can each carry their own independent `custom-model.cds` too, same
+ * pattern as `final`. `staging` is its own separate key (not a `TDbNamespace` value) since it's
+ * namespace-invariant and only ever generated alongside `final` (see `STAGING_BASE_ASPECT`'s doc
+ * comment) — Phase 1 of this port only ever calls `buildDbModelForNamespace("final", ...)`, so only
+ * `final`/`staging` are populated today, but the shape is ready for `cons`/`clone_final` generation
+ * without another type change once that Phase 3 work lands.
+ */
+export type TCustomModelPreservation = Partial<Record<TDbNamespace, import("./custom-model-preserver").TCustomModelPreservationForTier>> & {
+  staging?: import("./custom-model-preserver").TCustomModelPreservationForTier;
+};
+
+/**
+ * Surfaced when a `custom-model.cds` attachment existed on the previously-committed file but its
+ * parent business table isn't present in this deploy's regenerated tree — the attachment can't be
+ * re-injected anywhere, so this is reported instead of the composition silently vanishing with no
+ * signal (same early-warning philosophy as `TJoinFieldRisk`/`TEntityRenameRisk` above).
+ */
+export type TCustomModelWarning = {
+  businessTable: string;
+  message: string;
+};
