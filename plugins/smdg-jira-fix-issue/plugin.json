@@ -1,6 +1,6 @@
 {
   "id": "smdg-jira-fix-issue",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "displayName": "Jira Bug Investigation Pipeline",
   "description": "Investigate a QA bug ticket end-to-end — read the Jira ticket (via browser or Jira MCP), reproduce the issue in the environment, trace the failure to its exact file:line root cause in source, and classify it as a UI bug, Backend bug, Contract/Schema Mismatch, or Data/Environment Issue. Use when the user provides a Jira ticket link and wants it investigated, or invoke directly with /smdg-jira-fix-issue <ticket-url>.",
   "kind": "skill",
