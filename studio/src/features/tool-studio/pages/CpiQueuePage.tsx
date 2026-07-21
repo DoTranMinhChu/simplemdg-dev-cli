@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../components/common/Button";
 import { Spinner } from "../../../components/common/Spinner";
 import { EmptyState } from "../../../components/common/EmptyState";
@@ -9,8 +9,11 @@ import { useAsync } from "../../../hooks/useAsync";
 import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TCpiMessageProcessingLogEntry, TCpiQueueHealthResult, TQueueHealthInfo, TQueueHealthStatus } from "../api/tool-studio-api-client";
 import type { TCfTargetSummary } from "../../../api/studio-api-types";
+import { EVENT_MESH_TOPIC_OPTIONS, getEventPayloadTemplate } from "../constants/event-mesh-topics";
 
-type TCpiQueueTab = "monitor" | "cpi-logs";
+type TCpiQueueTab = "monitor" | "cpi-logs" | "send";
+
+const CUSTOM_NAME_OPTION = { value: "__custom__", label: "Custom…" };
 
 const MPL_STATUS_BADGE_CLASS: Record<string, string> = {
   COMPLETED: "fresh",
@@ -137,10 +140,11 @@ function TargetAppPicker({
 }
 
 /**
- * Read-only monitoring surface for Event Mesh + CPI. There is deliberately no create/modify/delete
- * action anywhere on this page — every call is a GET-shaped lookup (queue counts, destination
- * listing, CPI run history), by explicit request after the queue-creation feature that used to
- * live here was removed.
+ * Monitoring + test-publish surface for Event Mesh + CPI. The Monitor and CPI Logs tabs stay
+ * strictly GET-shaped (queue counts, destination listing, CPI run history) — no create/modify/
+ * delete of anything in BTP, by explicit request after the queue-creation feature that used to
+ * live here was removed. The Send Event tab is the one deliberate exception: it publishes a real
+ * test message straight to the Event Mesh broker's own REST API.
  */
 export function CpiQueuePage(): React.ReactElement {
   const [tab, setTab] = useState<TCpiQueueTab>("monitor");
@@ -159,9 +163,9 @@ export function CpiQueuePage(): React.ReactElement {
   const [destinationName, setDestinationName] = useState("");
   const mpl = useAsync((targetKey: string, selectedAppName: string, selectedDestination: string) => toolStudioApi.getCpiMessageProcessingLogs({ targetKey, appName: selectedAppName, destinationName: selectedDestination }));
   useEffect(() => {
-    if (cfTarget && appName && tab === "cpi-logs") void destinations.run(cfTarget.key, appName);
+    if (cfTarget && appName) void destinations.run(cfTarget.key, appName);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cfTarget, appName, tab]);
+  }, [cfTarget, appName]);
   useEffect(() => {
     setDestinationName("");
     mpl.reset();
@@ -181,12 +185,92 @@ export function CpiQueuePage(): React.ReactElement {
     [destinations.data],
   );
 
+  // --- Send Event tab: pick an instance, then a topic (select from the real TOPIC_ENUM list,
+  // namespace-qualified automatically) or a queue (live-listed via the Management API when
+  // possible), with a "Custom…" escape hatch for either — then publish straight to the broker. ---
+  // Fetched as soon as an app is picked (same as `health` above), not gated on `tab === "send"` —
+  // otherwise switching tabs away and back re-fetches every time instead of reusing what's already
+  // loaded, since useAsync has no request-dedup of its own.
+  const instances = useAsync((targetKey: string, selectedAppName: string) => toolStudioApi.listEventMeshInstances({ targetKey, appName: selectedAppName }));
+  useEffect(() => {
+    if (cfTarget && appName) void instances.run(cfTarget.key, appName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfTarget, appName]);
+
+  const [instanceKey, setInstanceKey] = useState("");
+  useEffect(() => {
+    const list = instances.data?.instances ?? [];
+    setInstanceKey(list.length === 1 ? list[0].serviceKeyFileName : "");
+  }, [instances.data]);
+  const selectedInstance = instances.data?.instances.find((instance) => instance.serviceKeyFileName === instanceKey);
+
+  const [kind, setKind] = useState<"topic" | "queue">("topic");
+  const [nameValue, setNameValue] = useState("");
+  const [customName, setCustomName] = useState("");
+  const [qos, setQos] = useState("1");
+  const [payloadText, setPayloadText] = useState("");
+  const [payloadFormatError, setPayloadFormatError] = useState("");
+  const lastAutoFilledPayloadRef = useRef("");
+
+  function formatPayloadText(): void {
+    try {
+      setPayloadText(JSON.stringify(JSON.parse(payloadText), null, 2));
+      setPayloadFormatError("");
+    } catch {
+      setPayloadFormatError("Payload is not valid JSON — can't format.");
+    }
+  }
+
+  const queues = useAsync((targetKey: string, selectedAppName: string, serviceKeyFileName: string) => toolStudioApi.listEventMeshQueues({ targetKey, appName: selectedAppName, serviceKeyFileName }));
+  useEffect(() => {
+    if (cfTarget && appName && kind === "queue" && instanceKey) void queues.run(cfTarget.key, appName, instanceKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfTarget, appName, kind, instanceKey]);
+
+  useEffect(() => {
+    setNameValue("");
+    setCustomName("");
+    setPayloadText("");
+    setPayloadFormatError("");
+    lastAutoFilledPayloadRef.current = "";
+    queues.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instanceKey, kind]);
+
+  useEffect(() => {
+    if (kind !== "topic" || !nameValue || nameValue === "__custom__") return;
+    const template = JSON.stringify(getEventPayloadTemplate(nameValue), null, 2);
+    if (!payloadText.trim() || payloadText === lastAutoFilledPayloadRef.current) {
+      setPayloadText(template);
+      lastAutoFilledPayloadRef.current = template;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameValue]);
+
+  const resolvedName = nameValue === "__custom__" ? customName.trim() : kind === "topic" && nameValue && selectedInstance ? `${selectedInstance.namespace}/${nameValue}` : nameValue;
+
+  const publish = useAsync(() => {
+    let payload: unknown;
+    try {
+      payload = payloadText.trim() ? JSON.parse(payloadText) : {};
+    } catch {
+      throw new Error("Payload is not valid JSON.");
+    }
+    return toolStudioApi.publishEventMeshMessage({ targetKey: cfTarget!.key, appName: appName!, serviceKeyFileName: instanceKey, kind, name: resolvedName, qos, payload });
+  });
+
   const resetSelection = (): void => {
     setCfTarget(undefined);
     setAppName(undefined);
     health.reset();
     destinations.reset();
     setDestinationName("");
+    instances.reset();
+    queues.reset();
+    publish.reset();
+    setInstanceKey("");
+    setNameValue("");
+    setCustomName("");
   };
 
   return (
@@ -195,14 +279,15 @@ export function CpiQueuePage(): React.ReactElement {
         <h1>CPI Queue / Event Mesh</h1>
         <p className="note">
           Pick a CF org/space and any app already deployed there — credentials are read live from that app's own{" "}
-          <code>cf env</code>. Everything here is read-only: it lists live counts and history, it never creates,
-          changes, or deletes anything in BTP.
+          <code>cf env</code>. Monitor and CPI Logs are read-only (live counts and history, never creates/changes/
+          deletes anything in BTP); Send Event is the one exception — it publishes a real test message.
         </p>
       </div>
 
       <div className="ts-tabs">
         <button className={`ts-tab${tab === "monitor" ? " active" : ""}`} onClick={() => setTab("monitor")}>Monitor</button>
         <button className={`ts-tab${tab === "cpi-logs" ? " active" : ""}`} onClick={() => setTab("cpi-logs")}>CPI Logs</button>
+        <button className={`ts-tab${tab === "send" ? " active" : ""}`} onClick={() => setTab("send")}>Send Event</button>
       </div>
 
       <div className="ts-card">
@@ -287,6 +372,148 @@ export function CpiQueuePage(): React.ReactElement {
                     </div>
                   ) : null}
                 </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {cfTarget && appName && tab === "send" && (
+        <div style={{ marginTop: 16 }}>
+          <p className="note" style={{ marginTop: 0 }}>
+            Publishes a real message straight to the Event Mesh broker's own REST API (client-credentials token, then a{" "}
+            <code>POST .../messagingrest/v1/{"{"}topics|queues{"}"}/...</code>). Topics route to whoever's subscribed and
+            don't need to pre-exist; queues must already be provisioned in BTP.
+          </p>
+
+          {instances.loading && !instances.data ? (
+            <EmptyState><Spinner /> loading Event Mesh instances...</EmptyState>
+          ) : instances.error || instances.data?.error ? (
+            <div className="errbox">{instances.error || instances.data?.error}</div>
+          ) : !instances.data?.instances.length ? (
+            <EmptyState>No Event Mesh instance found bound to {appName}.</EmptyState>
+          ) : (
+            <>
+              <div className="field">
+                <label>Event Mesh instance</label>
+                <SearchableSelect
+                  value={instanceKey}
+                  onChange={setInstanceKey}
+                  placeholder="Select an instance..."
+                  searchPlaceholder="Search instances..."
+                  options={instances.data.instances.map((instance) => ({
+                    value: instance.serviceKeyFileName,
+                    label: `${instance.namespace} (${instance.serviceKeyFileName})`,
+                    meta: instance.canPublish ? undefined : "no httprest protocol — can't publish",
+                  }))}
+                />
+              </div>
+
+              {instanceKey && !selectedInstance?.canPublish && (
+                <div className="errbox">
+                  This instance's service key has no <code>httprest</code> protocol entry in its <code>messaging</code> block, so it can't be used to publish.
+                </div>
+              )}
+
+              {instanceKey && selectedInstance?.canPublish && (
+                <>
+                  <div className="ts-grid-2">
+                    <div className="field">
+                      <label>Kind</label>
+                      <SearchableSelect
+                        value={kind}
+                        onChange={(value) => setKind(value as "topic" | "queue")}
+                        options={[
+                          { value: "topic", label: "Topic" },
+                          { value: "queue", label: "Queue" },
+                        ]}
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Quality of Service</label>
+                      <SearchableSelect
+                        value={qos}
+                        onChange={setQos}
+                        options={[
+                          { value: "1", label: "1 — at-least-once" },
+                          { value: "0", label: "0 — at-most-once" },
+                        ]}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label>{kind === "topic" ? `Topic (under ${selectedInstance.namespace}/...)` : "Queue"}</label>
+                    {kind === "queue" && queues.loading ? (
+                      <EmptyState><Spinner /> loading live queues...</EmptyState>
+                    ) : (
+                      <SearchableSelect
+                        value={nameValue}
+                        onChange={setNameValue}
+                        placeholder={`Select a ${kind}...`}
+                        searchPlaceholder="Search..."
+                        options={
+                          kind === "topic"
+                            ? [...EVENT_MESH_TOPIC_OPTIONS, CUSTOM_NAME_OPTION]
+                            : [...(queues.data?.queues ?? []).map((queueName) => ({ value: queueName, label: queueName.split("/").pop() ?? queueName, meta: queueName })), CUSTOM_NAME_OPTION]
+                        }
+                      />
+                    )}
+                    {kind === "queue" && !queues.loading && !queues.data?.queues.length && (
+                      <div className="note" style={{ marginTop: 6 }}>
+                        {queues.data?.error || "Couldn't list live queues for this instance — use \"Custom…\" and type the name, e.g. copy it from the Monitor tab."}
+                      </div>
+                    )}
+                    {nameValue === "__custom__" && (
+                      <input
+                        className="input"
+                        style={{ marginTop: 6 }}
+                        placeholder={kind === "topic" ? `e.g. ${selectedInstance.namespace}/ValidateParallelChange` : "queue name"}
+                        value={customName}
+                        onChange={(event) => setCustomName(event.target.value)}
+                      />
+                    )}
+                  </div>
+
+                  <div className="field">
+                    <div className="row" style={{ alignItems: "baseline" }}>
+                      <label style={{ flex: 1, marginBottom: 0 }}>Payload (JSON)</label>
+                      <Button variant="ghost" size="sm" onClick={formatPayloadText}>Format</Button>
+                    </div>
+                    <textarea
+                      className="input"
+                      style={{ minHeight: 160, fontFamily: "monospace" }}
+                      value={payloadText}
+                      onChange={(event) => {
+                        setPayloadText(event.target.value);
+                        setPayloadFormatError("");
+                      }}
+                    />
+                    {payloadFormatError && <div className="note" style={{ marginTop: 4 }}>{payloadFormatError}</div>}
+                  </div>
+
+                  <div className="row" style={{ marginTop: 4 }}>
+                    <Button onClick={() => void publish.run()} disabled={publish.loading || !resolvedName}>
+                      {publish.loading ? <Spinner /> : "Send"}
+                    </Button>
+                  </div>
+
+                  {publish.error && <div className="errbox" style={{ marginTop: 12 }}>{publish.error}</div>}
+                  {publish.data && (
+                    <div style={{ marginTop: 12 }}>
+                      <div className={publish.data.error || (publish.data.status ?? 0) >= 400 ? "errbox" : "note"}>
+                        {publish.data.error
+                          ? publish.data.error
+                          : `${(publish.data.status ?? 0) < 400 ? "✓ Sent successfully" : "✗ Failed"} — HTTP ${publish.data.status} ${publish.data.statusText ?? ""}`}
+                      </div>
+                      {publish.data.body && (
+                        <pre className="cell-pre" style={{ marginTop: 8, maxHeight: 260, overflow: "auto" }}>
+                          {publish.data.body}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}

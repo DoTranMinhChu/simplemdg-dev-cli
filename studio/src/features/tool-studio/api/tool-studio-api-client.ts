@@ -95,6 +95,10 @@ export type TCpiQueueHealthResult = {
   error?: string;
 };
 
+export type TEventMeshInstanceSummary = { serviceKeyFileName: string; namespace: string; canPublish: boolean };
+
+export type TEventMeshPublishResult = { status?: number; statusText?: string; body?: string; error?: string };
+
 export type TDestinationSummary = { name: string; type?: string; url?: string; authentication?: string; proxyType?: string };
 
 export type TCpiMessageProcessingLogEntry = {
@@ -319,6 +323,12 @@ export const toolStudioApi = {
     post<{ destinations: TDestinationSummary[]; error?: string }>("/api/tool/cpi-queue/destinations", input),
   getCpiMessageProcessingLogs: (input: { targetKey: string; appName: string; destinationName: string }) =>
     post<{ entries: TCpiMessageProcessingLogEntry[]; error?: string }>("/api/tool/cpi-queue/mpl", input),
+  listEventMeshInstances: (input: { targetKey: string; appName: string }) =>
+    post<{ instances: TEventMeshInstanceSummary[]; error?: string }>("/api/tool/cpi-queue/instances", input),
+  listEventMeshQueues: (input: { targetKey: string; appName: string; serviceKeyFileName: string }) =>
+    post<{ queues: string[]; error?: string }>("/api/tool/cpi-queue/queues", input),
+  publishEventMeshMessage: (input: { targetKey: string; appName: string; serviceKeyFileName: string; kind: "topic" | "queue"; name: string; qos?: string; payload: unknown }) =>
+    post<TEventMeshPublishResult>("/api/tool/cpi-queue/publish", input),
 
   getJiraDeployInfo: (input: { baseUrl: string; email: string; apiToken: string; issueKey: string }) =>
     post<{ source?: TJiraIssueSummary; referenced?: TJiraIssueSummary[]; error?: string }>("/api/tool/jira/deploy-info", input),
