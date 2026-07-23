@@ -2012,6 +2012,55 @@ mark.hl {
    animation: sp .7s linear infinite;
 }
 
+/* Swagger-style method badges for Check API External's endpoint list (EndpointCard) — same
+   color convention Swagger UI itself uses, so GET/POST/etc. are recognizable at a glance. */
+.endpoint-kind-badge {
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   min-width: 52px;
+   font-size: 11px;
+   font-weight: 700;
+   padding: 2px 8px;
+   border-radius: 4px;
+   letter-spacing: .02em;
+   flex-shrink: 0;
+}
+
+.endpoint-kind-badge.get {
+   background: #1e3a5f;
+   color: #93c5fd;
+}
+
+.endpoint-kind-badge.post {
+   background: #064e3b;
+   color: #6ee7b7;
+}
+
+.endpoint-kind-badge.put,
+.endpoint-kind-badge.patch {
+   background: #78350f;
+   color: #fde68a;
+}
+
+.endpoint-kind-badge.delete {
+   background: #450a0a;
+   color: #fca5a5;
+}
+
+.endpoint-kind-badge.set {
+   background: #1e293b;
+   color: #94a3b8;
+}
+
+.endpoint-card {
+   border: 1px solid var(--border);
+}
+
+.endpoint-card-head:hover {
+   background: var(--bg-3);
+}
+
 .arow {
    display: flex;
    align-items: center;

@@ -24,7 +24,7 @@ import type { TSmartCacheEntry } from "../../../cache/smart-cache.types";
  * already-shipped router) `db-studio-server.ts`'s equivalent routes.
  */
 
-function detectEnvironment(org: string, space: string): string {
+export function detectEnvironment(org: string, space: string): string {
   const haystack = `${org} ${space}`.toLowerCase();
   if (/\bprod\b|production|prd|\blive\b/.test(haystack)) return "PROD";
   if (/\bqas\b|quality|staging|uat/.test(haystack)) return "QAS";
@@ -60,6 +60,38 @@ async function resolveCfScanCredentials(): Promise<TCfScanCredential[]> {
     username: profile.username,
     password: profile.password,
   }));
+}
+
+/**
+ * Every CF org/space this process knows about from any source — favorites, recents, the
+ * cross-region `cf orgs`/`cf spaces` scan, and any target merely implied by a cached `cf-apps`
+ * entry (visited before favorites/recents/scanning existed, or scanning is disabled/failed for
+ * that region). Shared by `/api/btp/targets` (this file) and Check API External's merged
+ * server picker (check-api-routes.ts), which needs the same target universe to cross-reference
+ * against cached apps without duplicating this dedup logic.
+ */
+export async function resolveAllKnownCfTargets(): Promise<{ targets: TCfTarget[]; favoriteKeys: Set<string> }> {
+  const favTargets = await listFavoriteTargets();
+  const recentTargets = await listRecentTargets(10);
+  const appsEntries = await readAllEntries<unknown[]>("cf-apps");
+  const favoriteKeys = new Set(favTargets.map((t) => cfTargetKey(t)));
+  const crossRegion = await listCrossRegionTargets();
+
+  const allFromApps: TCfTarget[] = [];
+  for (const key of Object.keys(appsEntries)) {
+    const parts = key.split("::");
+    if (parts.length === 3 && parts[0]?.trim() && parts[1]?.trim() && parts[2]?.trim()) {
+      allFromApps.push({ region: parts[0], apiEndpoint: "", org: parts[1], space: parts[2] });
+    }
+  }
+
+  const targetMap = new Map<string, TCfTarget>();
+  for (const t of [...crossRegion, ...favTargets, ...recentTargets, ...allFromApps]) {
+    if (!isValidCfTarget(t)) continue;
+    const k = cfTargetKey(t);
+    if (!targetMap.has(k)) targetMap.set(k, t);
+  }
+  return { targets: Array.from(targetMap.values()), favoriteKeys };
 }
 
 export async function handleBtpTargetApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL, method: string): Promise<boolean> {
@@ -102,26 +134,9 @@ export async function handleBtpTargetApi(req: http.IncomingMessage, res: http.Se
     const favTargets = await listFavoriteTargets();
     const recentTargets = await listRecentTargets(10);
     const appsEntries = await readAllEntries<unknown[]>("cf-apps");
-    const favKeys = new Set(favTargets.map((t) => cfTargetKey(t)));
 
-    const crossRegion = await listCrossRegionTargets();
+    const { targets: allTargets, favoriteKeys: favKeys } = await resolveAllKnownCfTargets();
     const orgSummaries = await listCrossRegionOrgSummaries();
-
-    const allFromApps: TCfTarget[] = [];
-    for (const key of Object.keys(appsEntries)) {
-      const parts = key.split("::");
-      if (parts.length === 3 && parts[0]?.trim() && parts[1]?.trim() && parts[2]?.trim()) {
-        allFromApps.push({ region: parts[0], apiEndpoint: "", org: parts[1], space: parts[2] });
-      }
-    }
-
-    const targetMap = new Map<string, TCfTarget>();
-    for (const t of [...crossRegion, ...favTargets, ...recentTargets, ...allFromApps]) {
-      if (!isValidCfTarget(t)) continue;
-      const k = cfTargetKey(t);
-      if (!targetMap.has(k)) targetMap.set(k, t);
-    }
-    const allTargets = Array.from(targetMap.values());
 
     const byRegion: Record<string, unknown[]> = {};
     for (const t of allTargets) {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { highlightMatch } from "../../lib/highlight-match";
 import { CodeBlock } from "./CodeBlock";
+import { Modal } from "./Modal";
 
 function CopyButton({ getText, title }: { getText: () => string; title: string }): React.ReactElement {
   const [copied, setCopied] = useState(false);
@@ -59,16 +60,42 @@ function JsonNode({ label, value, depth, filter }: { label?: string; value: unkn
   );
 }
 
-/** Hand-rolled collapsible JSON tree — pretty-print, per-node copy, and a filter that highlights matches. */
-export function JsonView({ value }: { value: unknown }): React.ReactElement {
+/** Hand-rolled collapsible JSON tree — pretty-print, per-node copy, a filter that highlights
+ * matches, and an optional expand-to-modal for comfortably reading large/deeply-nested payloads
+ * without fighting a small inline box. The filter stays in sync between inline and expanded views
+ * (same state), so a search started in one carries straight into the other. */
+export function JsonView({ value, title = "JSON" }: { value: unknown; title?: string }): React.ReactElement {
   const [filter, setFilter] = useState("");
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <div className="jsonview">
       <div className="jsonview-toolbar">
         <input className="jsonview-filter" placeholder="Filter keys/values…" value={filter} onChange={(event) => setFilter(event.target.value)} />
         <CopyButton title="Copy full JSON" getText={() => JSON.stringify(value, null, 2)} />
+        <button type="button" className="jsonview-copy" title="Open in a larger view" onClick={() => setExpanded(true)}>
+          ⛶ Expand
+        </button>
       </div>
       <JsonNode value={value} depth={0} filter={filter.trim()} />
+
+      {expanded && (
+        <Modal onClose={() => setExpanded(false)} width={1100}>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h3 style={{ margin: 0 }}>{title}</h3>
+            <button type="button" className="jsonview-copy" onClick={() => setExpanded(false)}>
+              ✕ Close
+            </button>
+          </div>
+          <div className="jsonview-toolbar">
+            <input className="jsonview-filter" placeholder="Filter keys/values…" value={filter} onChange={(event) => setFilter(event.target.value)} />
+            <CopyButton title="Copy full JSON" getText={() => JSON.stringify(value, null, 2)} />
+          </div>
+          <div style={{ maxHeight: "78vh", overflow: "auto" }}>
+            <JsonNode value={value} depth={0} filter={filter.trim()} />
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

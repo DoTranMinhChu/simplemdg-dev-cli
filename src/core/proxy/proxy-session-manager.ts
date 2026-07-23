@@ -1,5 +1,6 @@
 import type { TCapturedSession, TProxyUserCredential, TResolvedProxyEnvironment } from "./proxy-types";
 import { captureProxySession, type TProxyCaptureCallbacks } from "./proxy-capture";
+import { formatCapturedSessionForLog } from "./proxy-auth-shared";
 import { computeCacheStatus, readEntry, refreshCache } from "../cache/smart-cache";
 
 const PROXY_SESSIONS_NAMESPACE = "proxy-sessions";
@@ -89,6 +90,7 @@ export async function ensureInitialSession(
   let session: TCapturedSession;
   if (cached && status === "fresh") {
     callbacks.onLog?.(`Reusing recent session captured at ${cached.data.capturedAt}.`);
+    callbacks.onLog?.(`SESSION REUSED (still fresh):\n${formatCapturedSessionForLog(cached.data)}`);
     session = cached.data;
   } else {
     session = await captureFreshSession(env, user, callbacks);
@@ -115,10 +117,11 @@ export async function refreshSession(
     const freshSession = await captureFreshSession(entry.env, entry.user, callbacks);
     entry.session = freshSession;
     callbacks.onLog?.(`Session refresh completed at ${freshSession.capturedAt}`);
+    callbacks.onLog?.(`SESSION REFRESHED:\n${formatCapturedSessionForLog(freshSession)}`);
     return freshSession;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    callbacks.onLog?.(`Session refresh failed: ${message}`);
+    callbacks.onLog?.(`SESSION REFRESH FAILED: ${message}`);
     return null;
   }
 }

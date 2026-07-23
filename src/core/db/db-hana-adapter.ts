@@ -53,9 +53,19 @@ export class HanaAdapter implements IDatabaseAdapter {
     let hanaModule: IHanaModule;
 
     try {
-      hanaModule = (await import("@sap/hana-client")) as unknown as IHanaModule;
+      const imported = (await import("@sap/hana-client")) as unknown as IHanaModule & { default?: IHanaModule };
+      // @sap/hana-client's CJS entry assigns `module.exports` to a dynamically
+      // `require()`-d native addon, which cjs-module-lexer can't statically
+      // analyze for named exports. Under Node ESM interop that means
+      // `createConnection` only ever lands on `.default`, never on the
+      // namespace object itself — fall back to it here.
+      hanaModule = typeof imported.createConnection === "function" ? imported : (imported.default as IHanaModule);
     } catch {
       throw new Error("SAP HANA driver '@sap/hana-client' is not installed. Run: npm install @sap/hana-client");
+    }
+
+    if (!hanaModule || typeof hanaModule.createConnection !== "function") {
+      throw new Error("SAP HANA driver '@sap/hana-client' loaded but does not expose createConnection()");
     }
 
     const connection = hanaModule.createConnection();

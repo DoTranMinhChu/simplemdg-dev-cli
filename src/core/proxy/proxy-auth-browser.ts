@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { TCapturedSession, TProxyUserCredential, TResolvedProxyEnvironment } from "./proxy-types";
+import { isUnauthenticatedRouterShell } from "./proxy-auth-shared";
 
 type TPlaywrightModule = { chromium: any };
 
@@ -43,7 +44,12 @@ async function getSharedBrowser(playwrightModule: TPlaywrightModule, headless: b
 }
 
 const PLAYWRIGHT_DEBUG = String(process.env.SMDG_PROXY_PLAYWRIGHT_DEBUG ?? "false").toLowerCase() === "true";
-const CAPTURE_AUTO_REQUEST_GRACE_MS = Number(process.env.SMDG_PROXY_CAPTURE_GRACE_MS ?? 2500);
+// A real app-fired request is a far more reliable capture than a guessed probe URL (see
+// isUnauthenticatedRouterShell), but after login an SPA still has to finish its OAuth
+// redirect round-trip, bootstrap, and render before it fires its own dashboard/inbox calls —
+// 2.5s was too tight for that against real cloud latency and made the fragile probe fallback
+// the common case instead of the rare one. 10s gives the organic request a real chance.
+const CAPTURE_AUTO_REQUEST_GRACE_MS = Number(process.env.SMDG_PROXY_CAPTURE_GRACE_MS ?? 10000);
 const DEBUG_DIR = path.join(os.homedir(), ".simplemdg", "proxy", "debug");
 
 function ensureDebugDir(): void {
@@ -269,17 +275,33 @@ export async function captureHeadersWithPlaywright(
 
   let captured: TCapturedSession | null = null;
 
-  page.on("request", (request: any) => {
-    if (!requestRegex.test(request.url())) return;
-    captured = {
-      method: request.method(),
-      url: request.url(),
-      headers: request.headers(),
-      body: request.postData() ?? undefined,
-      capturedAt: new Date().toISOString(),
-    };
-    onLog(`Captured matching request: ${request.method()} ${request.url()}`);
-  });
+  // A request matching the pattern isn't proof by itself — the same Approuter "not
+  // authenticated/authorized for this destination" shell (see isUnauthenticatedRouterShell)
+  // can come back on a request the app fires all on its own, same as on a guessed probe.
+  // Waiting for and validating the RESPONSE (not just that the request went out) is what
+  // makes this capture trustworthy.
+  async function isGenuineAuthenticatedResponse(response: any): Promise<boolean> {
+    if (response.status() >= 400) return false;
+    const contentType = response.headers()["content-type"] ?? "";
+    const bodyText = await response.text().catch(() => "");
+    return !isUnauthenticatedRouterShell(contentType, bodyText);
+  }
+
+  // The configured pattern targets one specific destination, but any authenticated XHR/fetch
+  // the app fires on its own uses the right verb/payload/timing for whatever it's calling —
+  // that's inherently more trustworthy than a guessed GET probe (see the synthetic probe
+  // fallback below, which some destinations reject outright with 405, or which can return a
+  // token that's already gone stale by the time it's replayed). Accept either: whichever
+  // qualifying response comes first wins.
+  async function isCandidateApiRequest(request: any): Promise<boolean> {
+    const resourceType = request.resourceType();
+    if (resourceType !== "xhr" && resourceType !== "fetch") return false;
+    // `request.headers()` is a cached snapshot that can omit headers the browser attaches at
+    // the network layer rather than via JS (e.g. Cookie, which page script is forbidden from
+    // setting itself) — `allHeaders()` reflects what actually went over the wire.
+    const headers = await request.allHeaders();
+    return Boolean(headers["cookie"] || headers["authorization"]);
+  }
 
   try {
     await performLoginFormSubmit(page, env, selectedUser, onLog);
@@ -291,11 +313,33 @@ export async function captureHeadersWithPlaywright(
     if (!captured) {
       try {
         onLog(`Waiting up to ${CAPTURE_AUTO_REQUEST_GRACE_MS}ms for the app to fire the request on its own...`);
-        await page.waitForRequest((req: any) => requestRegex.test(req.url()), { timeout: CAPTURE_AUTO_REQUEST_GRACE_MS });
+        const response = await page.waitForResponse(
+          async (resp: any) => {
+            const isCandidate = requestRegex.test(resp.url()) || (await isCandidateApiRequest(resp.request()));
+            return isCandidate && (await isGenuineAuthenticatedResponse(resp));
+          },
+          { timeout: CAPTURE_AUTO_REQUEST_GRACE_MS },
+        );
+        const matchedRequest = response.request();
+        captured = {
+          method: matchedRequest.method(),
+          url: matchedRequest.url(),
+          // allHeaders() (not headers()) — see isCandidateApiRequest below for why.
+          headers: await matchedRequest.allHeaders(),
+          body: matchedRequest.postData() ?? undefined,
+          capturedAt: new Date().toISOString(),
+        };
+        onLog(`Captured matching request: ${matchedRequest.method()} ${matchedRequest.url()} (${response.status()})`);
       } catch {
         const probeUrls = buildProbeUrls();
         onLog(`No direct request yet. Probing ${probeUrls.length} candidate URLs.`);
-        const cookies = await context.cookies();
+        // Scoped to serviceOrigin, not context.cookies() with no argument — the login
+        // round-trip through XSUAA/IAS leaves a SEPARATE session cookie (often also named
+        // JSESSIONID) on the *authentication* domain. An unscoped cookies() call returns both,
+        // and flattening them into one header sends the wrong same-named cookie to the app
+        // domain — exactly the kind of "looks captured, isn't actually authenticated" failure
+        // isUnauthenticatedRouterShell exists to catch, just from the opposite direction.
+        const cookies = await context.cookies(serviceOrigin);
         const cookieHeader = cookies.map((cookie: any) => `${cookie.name}=${cookie.value}`).join("; ");
 
         // The reconstructed probe request has no CSRF token unless we fetch one explicitly —
@@ -325,6 +369,19 @@ export async function captureHeadersWithPlaywright(
               onLog(`Probe ${probeUrl} returned ${probeResponse.status()} — not a valid authenticated session.`);
               continue;
             }
+
+            // SAP Approuter answers a request it won't let through (session not good enough
+            // for that specific destination) with HTTP 200 and an HTML/JS shell that
+            // redirects into the login flow — not a 401/403. The status check above alone
+            // is fooled by this: it looks like a successful capture but every real request
+            // behind it will just get served this same login shell.
+            const probeContentType = probeResponse.headers()["content-type"] ?? "";
+            const probeBody = await probeResponse.text().catch(() => "");
+            if (isUnauthenticatedRouterShell(probeContentType, probeBody)) {
+              onLog(`Probe ${probeUrl} returned an unauthenticated login shell (HTTP ${probeResponse.status()}) — not a valid session.`);
+              continue;
+            }
+
             captured = {
               method: "GET",
               url: probeUrl,
@@ -387,11 +444,13 @@ export async function captureSessionFromLiveBrowser(url: string, options: TLiveC
   let settled = false;
   const pendingByKey = new Map<string, any>();
 
+  // Whether this is plausibly an authenticated call is decided later, in the response handler
+  // (see the allHeaders() comment there) — request.headers() is a cached snapshot that never
+  // includes the Cookie header, so checking it here would reject every cookie-authenticated
+  // app's requests outright, no matter how long the user waits.
   function isCandidateRequest(request: any): boolean {
     const resourceType = request.resourceType();
     if (resourceType !== "xhr" && resourceType !== "fetch") return false;
-    const headers = request.headers();
-    if (!headers["cookie"] && !headers["authorization"]) return false;
     if (requestRegex && !requestRegex.test(request.url())) return false;
     return true;
   }
@@ -415,15 +474,39 @@ export async function captureSessionFromLiveBrowser(url: string, options: TLiveC
         return;
       }
 
-      settled = true;
-      onLog(`Captured matching request: ${request.method()} ${request.url()} (${response.status()})`);
-      resolve({
-        method: request.method(),
-        url: request.url(),
-        headers: request.headers(),
-        body: request.postData() ?? undefined,
-        capturedAt: new Date().toISOString(),
-      });
+      // Same Approuter login-redirect shell as the credentialed capture path (HTTP 200 +
+      // HTML/JS redirect instead of 401/403) — a candidate request can still hit it, e.g. if
+      // the manually-logged-in session doesn't cover that specific destination.
+      void (async () => {
+        // allHeaders() (not headers()) — Playwright's request.headers() is a cached snapshot
+        // that never includes security-related headers the browser attaches at the network
+        // layer (Cookie chief among them, since page JS is forbidden from setting it itself).
+        // Using it here would both reject every cookie-authenticated request as a "candidate"
+        // and, worse, hand back a captured session with no cookie header at all.
+        const requestHeaders = await request.allHeaders();
+        if (!requestHeaders["cookie"] && !requestHeaders["authorization"]) {
+          pendingByKey.delete(key);
+          return;
+        }
+
+        const contentType = response.headers()["content-type"] ?? "";
+        const bodyText = await response.text().catch(() => "");
+        if (isUnauthenticatedRouterShell(contentType, bodyText)) {
+          pendingByKey.delete(key);
+          onLog(`Candidate request ${request.method()} ${request.url()} came back as an unauthenticated login shell — ignoring.`);
+          return;
+        }
+        if (settled) return;
+        settled = true;
+        onLog(`Captured matching request: ${request.method()} ${request.url()} (${response.status()})`);
+        resolve({
+          method: request.method(),
+          url: request.url(),
+          headers: requestHeaders,
+          body: request.postData() ?? undefined,
+          capturedAt: new Date().toISOString(),
+        });
+      })();
     });
   });
 

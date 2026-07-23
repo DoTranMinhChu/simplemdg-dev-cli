@@ -169,8 +169,8 @@ export type TResolvedAppServices = {
   defaultBranch?: string;
   services: TCdsServiceInfo[];
   scanError?: string;
-  /** `"live-index"` when discovered directly from the app's own root index (no GitLab involved); `"gitlab"` when that wasn't available and the fallback source-scan was used instead. */
-  source?: "live-index" | "gitlab";
+  /** `"live-index"` when discovered directly from the app's own root index; `"known-pattern"` when that failed but the app's "-srv-<abbrev>" suffix matched a known object type's CommonService path (verified live before being trusted — see object-type-service-map.ts); `"gitlab"` when neither worked and the fallback source-scan was used instead. */
+  source?: "live-index" | "known-pattern" | "gitlab";
   fromCache?: boolean;
   updatedAt?: string;
   error?: string;
@@ -291,6 +291,11 @@ export const toolStudioApi = {
     post<{ results?: Record<string, TCfAppOpResult>; error?: string }>("/api/tool/cf-log-restart/logs", { targetKey, appNames }),
   restartApps: (targetKey: string, appNames: string[]) =>
     post<{ results?: Record<string, TCfAppOpResult>; error?: string }>("/api/tool/cf-log-restart/restart", { targetKey, appNames }),
+
+  getCredentialForApp: (targetKey: string, appName: string) =>
+    get<{ credential?: TBtpServiceCredential; autoImported?: boolean; candidates?: TXsuaaCandidate[]; error?: string }>(
+      `/api/tool/check-api/credential-for-app?targetKey=${encodeURIComponent(targetKey)}&appName=${encodeURIComponent(appName)}`,
+    ),
 
   getXsuaaCandidates: (targetKey: string, appName: string) =>
     get<{ candidates: TXsuaaCandidate[]; error?: string }>(`/api/btp/xsuaa-candidates?targetKey=${encodeURIComponent(targetKey)}&appName=${encodeURIComponent(appName)}`),

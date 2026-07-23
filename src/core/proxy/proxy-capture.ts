@@ -6,7 +6,7 @@ import type {
 } from "./proxy-types";
 import { captureHeadersWithHttpRequests } from "./proxy-auth-http";
 import { captureHeadersWithPlaywright } from "./proxy-auth-browser";
-import { describeAuthError } from "./proxy-auth-shared";
+import { describeAuthError, formatCapturedSessionForLog } from "./proxy-auth-shared";
 
 export type TProxyCaptureCallbacks = {
   onLog?: (message: string) => void;
@@ -28,23 +28,35 @@ export async function captureProxySession(
   const onStage = callbacks.onStage ?? ((): void => undefined);
   const log = (strategy: "HTTP" | "PLAYWRIGHT", message: string): void => onLog(`[${env.displayName}][STRATEGY: ${strategy}] ${message}`);
 
+  // Single funnel point for every capture (initial or refresh, any strategy) — logging the
+  // outcome here once means "did we get a session, and what's in it" is always answerable
+  // from the log, without having to reason about which strategy/branch handled this call.
+  const logCaptured = (strategy: "HTTP" | "PLAYWRIGHT", session: TCapturedSession): void => {
+    log(strategy, "Success: headers retrieved.");
+    log(strategy, `SESSION CAPTURED for ${selectedUser.userID}:\n${formatCapturedSessionForLog(session)}`);
+  };
+  const logCaptureFailed = (reason: string): void => {
+    onLog(`[${env.displayName}] SESSION CAPTURE FAILED for ${selectedUser.userID}: ${reason}`);
+  };
+
   if (env.captureMode === "browser") {
     onStage("playwright-fallback", "Browser authentication in progress.");
     log("PLAYWRIGHT", `Falling back to browser for ${env.displayName} (${env.url}) as ${selectedUser.userID}.`);
     const session = await captureHeadersWithPlaywright(env, selectedUser, (message) => log("PLAYWRIGHT", message));
-    log("PLAYWRIGHT", "Success: headers retrieved.");
+    logCaptured("PLAYWRIGHT", session);
     return session;
   }
 
   if (env.captureMode === "http") {
     onStage("api-attempt", "HTTP authentication in progress.");
-    log("HTTP", `Attempting login for ${env.displayName} (${env.url}) as ${selectedUser.userID}.`);
     try {
       const session = await captureHeadersWithHttpRequests(env, selectedUser, (message) => log("HTTP", message));
-      log("HTTP", "Success: headers retrieved.");
+      logCaptured("HTTP", session);
       return session;
     } catch (error) {
-      log("HTTP", `Login failed: ${describeAuthError(error)}`);
+      const message = describeAuthError(error);
+      log("HTTP", `Login failed: ${message}`);
+      logCaptureFailed(message);
       throw error;
     }
   }
@@ -52,9 +64,8 @@ export async function captureProxySession(
   // auto: HTTP first, browser fallback.
   try {
     onStage("api-attempt", "HTTP authentication in progress.");
-    log("HTTP", `Attempting login for ${env.displayName} (${env.url}) as ${selectedUser.userID}.`);
     const session = await captureHeadersWithHttpRequests(env, selectedUser, (message) => log("HTTP", message));
-    log("HTTP", "Success: headers retrieved.");
+    logCaptured("HTTP", session);
     return session;
   } catch (httpFailure) {
     const httpError = describeAuthError(httpFailure);
@@ -64,11 +75,12 @@ export async function captureProxySession(
       onStage("playwright-fallback", "Browser authentication in progress.");
       log("PLAYWRIGHT", `Falling back to browser for ${env.displayName} (${env.url}) as ${selectedUser.userID}.`);
       const session = await captureHeadersWithPlaywright(env, selectedUser, (message) => log("PLAYWRIGHT", message));
-      log("PLAYWRIGHT", "Success: headers retrieved.");
+      logCaptured("PLAYWRIGHT", session);
       return session;
     } catch (browserFailure) {
       const browserError = describeAuthError(browserFailure);
       log("PLAYWRIGHT", `Fallback failed: ${browserError}`);
+      logCaptureFailed(`HTTP: ${httpError}. Playwright: ${browserError}`);
       throw new Error(`Authentication failed. HTTP: ${httpError}. Playwright: ${browserError}`);
     }
   }

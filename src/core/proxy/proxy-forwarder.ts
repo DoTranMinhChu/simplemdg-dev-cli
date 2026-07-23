@@ -1,12 +1,27 @@
 import http from "node:http";
 import axios from "axios";
 import type { TCapturedSession } from "./proxy-types";
+import { isUnauthenticatedRouterShell } from "./proxy-auth-shared";
 
 function isLoginRedirect(responseUrl: string, serviceOrigin: string): boolean {
   if (!responseUrl || !serviceOrigin) return false;
   const isExternal = !responseUrl.startsWith(serviceOrigin);
   const hasLoginPath = /login|signin|logon|sap\/bc\/bsp\/sap\/public\//i.test(responseUrl);
   return isExternal || hasLoginPath;
+}
+
+/**
+ * A session that captured fine can still go stale mid-flight (SAP session/token expiry). This
+ * backend answers that with HTTP 200 and an HTML/JS login-redirect shell instead of a 401/403,
+ * so without this check the proxy would just keep serving that shell forever instead of
+ * refreshing — see isUnauthenticatedRouterShell for why the shell alone doesn't already trip
+ * the 401/403 branch above.
+ */
+function isUnauthenticatedShellResponse(response: { headers?: Record<string, unknown>; data?: unknown }): boolean {
+  const contentType = String(response.headers?.["content-type"] ?? "");
+  if (!/^text\/html/i.test(contentType)) return false;
+  const body = Buffer.isBuffer(response.data) || response.data instanceof ArrayBuffer ? Buffer.from(response.data as ArrayBuffer).toString("utf8") : "";
+  return isUnauthenticatedRouterShell(contentType, body);
 }
 
 function getServiceOrigin(headers: Record<string, string>): string {
@@ -147,7 +162,8 @@ async function handleProxyRequest(
   const isExpired =
     response.status === 401 ||
     response.status === 403 ||
-    ((response.status === 301 || response.status === 302) && isLoginRedirect(redirectUrl, serviceOrigin));
+    ((response.status === 301 || response.status === 302) && isLoginRedirect(redirectUrl, serviceOrigin)) ||
+    isUnauthenticatedShellResponse(response);
 
   if (isExpired) {
     onLog(`Session expired (status ${response.status}). Refreshing...`);

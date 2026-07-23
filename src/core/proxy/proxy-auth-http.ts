@@ -3,7 +3,7 @@ import { wrapper } from "axios-cookiejar-support";
 import { CookieJar } from "tough-cookie";
 import * as cheerio from "cheerio";
 import type { TCapturedSession, TProxyUserCredential, TResolvedProxyEnvironment } from "./proxy-types";
-import { buildUnauthorizedError, describeAuthError } from "./proxy-auth-shared";
+import { buildUnauthorizedError, describeAuthError, isUnauthenticatedRouterShell } from "./proxy-auth-shared";
 
 type TParsedAuthForm = {
   action: string;
@@ -227,7 +227,7 @@ export async function captureHeadersWithHttpRequests(
   }
 
   const probeUrls = buildCaptureProbeUrls(serviceOrigin, requestPattern);
-  let matchedUrl = probeUrls[0] ?? `${serviceOrigin}/`;
+  let matchedUrl: string | null = null;
 
   for (const probeUrl of probeUrls) {
     try {
@@ -238,6 +238,17 @@ export async function captureHeadersWithHttpRequests(
       if (probeResponse.status === 401 || probeResponse.status === 403) {
         throw buildUnauthorizedError(`probe request (${probeUrl})`, probeResponse);
       }
+
+      // SAP Approuter answers a request it won't let through with HTTP 200 and an HTML/JS
+      // shell that redirects into the login flow — not a 401/403. A bare `status < 400`
+      // check below would treat that shell as a valid capture, so screen it out first.
+      const contentType = String(probeResponse.headers?.["content-type"] ?? "");
+      const bodyText = typeof probeResponse.data === "string" ? probeResponse.data : "";
+      if (isUnauthenticatedRouterShell(contentType, bodyText)) {
+        onLog(`Probe ${probeUrl} returned an unauthenticated login shell (HTTP ${probeResponse.status}) — not a valid session.`);
+        continue;
+      }
+
       const finalUrl = String(probeResponse.request?.res?.responseUrl ?? probeUrl);
       if (requestRegex.test(finalUrl) || probeResponse.status < 400) {
         matchedUrl = finalUrl;
@@ -247,6 +258,10 @@ export async function captureHeadersWithHttpRequests(
       onLog(`Probe request failed: ${describeAuthError(error)}`);
       // Continue to next probe URL.
     }
+  }
+
+  if (!matchedUrl) {
+    throw new Error(`HTTP auth flow for ${env.displayName} completed login but no probe request came back as a genuinely authenticated response.`);
   }
 
   onLog("Header retrieval completed through HTTP flow.");

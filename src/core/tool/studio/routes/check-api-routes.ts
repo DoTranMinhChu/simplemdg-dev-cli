@@ -16,6 +16,7 @@ import { getDefaultGitLabAuth } from "../../../gitlab/gitlab-client";
 import type { TGitLabGroup } from "../../../gitlab/gitlab-client";
 import { resolveServicesForLiveApp } from "../../../deploy/cds-service-discovery";
 import { listDeployTargets } from "../../../deploy/deploy-target-store";
+import { lookupKnownCommonServicePath } from "../../../deploy/object-type-service-map";
 
 function groupFromTarget(target: { gitlabGroupId: number; gitlabGroupPath: string }): TGitLabGroup {
   return { id: target.gitlabGroupId, full_path: target.gitlabGroupPath, name: target.gitlabGroupPath.split("/").pop() ?? target.gitlabGroupPath };
@@ -35,7 +36,93 @@ async function findGitlabGroupForCfTarget(cfTargetKey: string): Promise<TGitLabG
   return match ? groupFromTarget(match) : undefined;
 }
 
+/**
+ * Best-effort signal for "this app is a message-queue worker, not a browsable API" — checked
+ * only once discovery has already come up empty (an extra `cf env` round trip, so it's not worth
+ * paying on the common/successful path). Confirmed against a real app: zero discoverable
+ * OData/$metadata at any guessed path, `/health` returning 200 (genuinely running, not stopped),
+ * and a `cf env` bound to 19 separate `enterprise-messaging` (Event Mesh) instances — that
+ * combination is a queue consumer by design, not a misconfigured or hard-to-find API.
+ */
+async function countMessagingBindings(cfTargetKey: string, appName: string): Promise<number> {
+  try {
+    return await withCfTarget(cfTargetKey, async (context) => {
+      const vcapServices = await readAppVcapServicesInContext(context, appName);
+      if (!vcapServices || typeof vcapServices !== "object") return 0;
+      const entries = (vcapServices as Record<string, unknown>)["enterprise-messaging"];
+      return Array.isArray(entries) ? entries.length : 0;
+    });
+  } catch {
+    return 0;
+  }
+}
+
 export async function handleCheckApiApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL, method: string): Promise<boolean> {
+  if (url.pathname === "/api/tool/check-api/credential-for-app" && method === "GET") {
+    // One-step credential resolution: the old flow made picking WHICH app to detect xsuaa from a
+    // separate step, even though the server picker above already commits to one app. This reuses
+    // that same app — auto-saving outright when there's exactly one xsuaa-shaped candidate, and
+    // only asking the user to choose when it's genuinely ambiguous (more than one candidate).
+    const targetKey = url.searchParams.get("targetKey") ?? "";
+    const appName = url.searchParams.get("appName") ?? "";
+    if (!targetKey || !appName) {
+      sendJson(res, { error: "targetKey and appName are required" }, 400);
+      return true;
+    }
+
+    let parts: { region: string; org: string; space: string };
+    try {
+      parts = parseCfTargetKey(targetKey);
+    } catch (error) {
+      sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 400);
+      return true;
+    }
+
+    // Space-wide reuse first (see /api/tool/btp/credentials/suggestion's doc for why one xsuaa
+    // instance covers every app in a space) — skips detecting xsuaa from THIS app entirely when a
+    // credential from any other app in the same space was already imported.
+    const existingCredentials = await listBtpServiceCredentials();
+    const existingMatch = existingCredentials.find((item) => item.region === parts.region && item.org === parts.org && item.space === parts.space);
+    if (existingMatch) {
+      sendJson(res, { credential: existingMatch, autoImported: false });
+      return true;
+    }
+
+    try {
+      const candidates = await withCfTarget(targetKey, async (context) => {
+        const vcapServices = await readAppVcapServicesInContext(context, appName);
+        return detectOAuthCredentialCandidates(vcapServices);
+      });
+
+      if (candidates.length === 0) {
+        sendJson(res, { error: `No xsuaa/uaa-shaped service is bound to ${appName}. Pick a different server, or import a credential manually below.` });
+        return true;
+      }
+
+      if (candidates.length === 1) {
+        const saved = await saveBtpServiceCredential(candidates[0], {
+          name: `${appName} / ${candidates[0].serviceName}`,
+          region: parts.region,
+          org: parts.org,
+          space: parts.space,
+          app: appName,
+        });
+        sendJson(res, { credential: saved, autoImported: true });
+        return true;
+      }
+
+      // Never expose secrets to the browser — same guard as /api/btp/xsuaa-candidates below.
+      const safeCandidates = candidates.map(({ clientSecret: _secret, ...rest }) => {
+        void _secret;
+        return rest;
+      });
+      sendJson(res, { candidates: safeCandidates });
+    } catch (error) {
+      sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+    return true;
+  }
+
   if (url.pathname === "/api/btp/xsuaa-candidates" && method === "GET") {
     const targetKey = url.searchParams.get("targetKey") ?? "";
     const appName = url.searchParams.get("appName") ?? "";
@@ -147,18 +234,40 @@ export async function handleCheckApiApi(req: http.IncomingMessage, res: http.Ser
     }
 
     // Try the app's own live index FIRST — no GitLab dependency at all when this works. Only a
-    // best-effort probe (see discoverServicesViaLiveIndex's doc: some CAP configs disable this),
-    // so any failure here just falls through to the GitLab-based resolution below, silently.
+    // best-effort probe (see discoverServicesViaLiveIndex's doc: some CAP configs disable this
+    // index, e.g. production profiles, or the app just isn't an OData/CDS service at all — a
+    // background worker or queue processor, say), so any failure here just falls through to the
+    // GitLab-based resolution below, silently.
+    let liveIndexAttempted = false;
     if (credentialId && baseUrl && !refresh) {
+      liveIndexAttempted = true;
+      let resolvedCredential: { clientId: string; clientSecret: string; url: string } | undefined;
       try {
         const credential = await getResolvedBtpServiceCredential(credentialId);
-        const liveServices = await discoverServicesViaLiveIndex({ clientId: credential.clientId, clientSecret: credential.clientSecret, url: credential.url }, baseUrl);
+        resolvedCredential = { clientId: credential.clientId, clientSecret: credential.clientSecret, url: credential.url };
+        const liveServices = await discoverServicesViaLiveIndex(resolvedCredential, baseUrl);
         if (liveServices?.length) {
           sendJson(res, { matched: true, services: liveServices.map((service) => ({ ...service, sourceFile: "live" })), source: "live-index" });
           return true;
         }
       } catch {
-        // Fall through to GitLab.
+        // Fall through to the known-path probe / GitLab.
+      }
+
+      // Known-pattern shortcut: most "-srv-<abbrev>" object-type apps disable their live index
+      // (see discoverServicesViaLiveIndex's doc) but still serve their real OData service at a
+      // predictable `/<ObjectType>CommonService` path — see object-type-service-map.ts's doc for
+      // where this list came from. One `$metadata` call confirms it's actually live on THIS
+      // deployment before trusting it (a customer could have renamed/removed it).
+      const knownPath = lookupKnownCommonServicePath(appName);
+      if (knownPath && resolvedCredential) {
+        try {
+          await fetchODataMetadataXml({ credential: resolvedCredential, baseUrl, path: knownPath });
+          sendJson(res, { matched: true, services: [{ name: knownPath.replace(/^\//, ""), path: knownPath, sourceFile: "known-pattern" }], source: "known-pattern" });
+          return true;
+        } catch {
+          // Doesn't hold for this deployment — fall through to GitLab/manual entry.
+        }
       }
     }
 
@@ -167,7 +276,23 @@ export async function handleCheckApiApi(req: http.IncomingMessage, res: http.Ser
     // outcome (this CF target may never have been used with Deploy Model), not an error condition.
     const group = await findGitlabGroupForCfTarget(cfTargetKey);
     if (!group) {
-      sendJson(res, { matched: false, services: [], error: "No GitLab group is linked to this CF target yet (only used as a fallback here) — enter the service path manually below, or link one via a Deploy Target." });
+      // Distinguish "we genuinely tried and found nothing" from "we never even got to try" — the
+      // former (liveIndexAttempted) is the confusing "everything's just blank" case reported
+      // against a real app whose live index 404s outright: worth naming the likely causes instead
+      // of leaving the manual-path hint as the only information on screen, and confirming the
+      // "not actually an API" one outright when the app's own bindings back it up.
+      let error: string;
+      if (liveIndexAttempted) {
+        const messagingCount = await countMessagingBindings(cfTargetKey, appName);
+        const messagingNote =
+          messagingCount > 0
+            ? ` This app is bound to ${messagingCount} Enterprise Messaging queue(s) — that combination (no discoverable OData index + heavy queue binding) means it's very likely a message-queue worker, not a REST/OData API, so there may genuinely be no service here to test.`
+            : " It may be a CAP app with its live index disabled (common in production) or simply not an OData/CDS service at all.";
+        error = `Could not auto-discover an OData service for ${appName} — no matching service was found and no GitLab group is linked to this CF target for the source-scan fallback.${messagingNote} Enter the service path manually below if you know it, or pick a different service.`;
+      } else {
+        error = "No GitLab group is linked to this CF target yet (only used as a fallback here) — enter the service path manually below, or link one via a Deploy Target.";
+      }
+      sendJson(res, { matched: false, services: [], error });
       return true;
     }
 
