@@ -4584,6 +4584,188 @@ td.cell-active {
    border-color: var(--border-2);
 }
 
+/* ---- CF Log viewer (color-coded, searchable `cf logs --recent` output) ---- */
+.cflog-viewer {
+   display: flex;
+   flex-direction: column;
+   gap: 8px;
+}
+
+.cflog-toolbar {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   flex-wrap: wrap;
+}
+
+.cflog-level-chips {
+   display: flex;
+   gap: 6px;
+   flex-wrap: wrap;
+}
+
+.cflog-chip {
+   padding: 3px 10px;
+   border-radius: var(--radius-full);
+   border: 1px solid var(--border);
+   background: var(--chip);
+   color: var(--muted);
+   font-size: var(--font-size-xs);
+   cursor: pointer;
+}
+
+.cflog-chip:hover {
+   border-color: var(--border-2);
+   color: var(--text);
+}
+
+.cflog-chip.active {
+   border-color: var(--accent);
+   color: var(--accent);
+   background: rgba(59, 130, 246, .14);
+}
+
+.cflog-chip.level-error.active {
+   border-color: var(--red);
+   color: var(--red);
+   background: rgba(239, 68, 68, .14);
+}
+
+.cflog-chip.level-warn.active {
+   border-color: var(--amber);
+   color: var(--amber);
+   background: rgba(251, 191, 36, .14);
+}
+
+.cflog-chip.level-debug.active {
+   border-color: var(--faint);
+   color: var(--faint);
+}
+
+.cflog-scroll {
+   max-height: 460px;
+   overflow: auto;
+   background: var(--bg-2);
+   border: 1px solid var(--border);
+   border-radius: var(--radius-md);
+   padding: 6px 0;
+}
+
+.cflog-body {
+   font-family: ui-monospace, "SF Mono", Consolas, monospace;
+   font-size: var(--font-size-sm);
+}
+
+.cflog-line {
+   padding: 1px 10px;
+   border-left: 3px solid transparent;
+}
+
+.cflog-line.level-error {
+   border-left-color: var(--red);
+}
+
+.cflog-line.level-warn {
+   border-left-color: var(--amber);
+}
+
+.cflog-line.level-info {
+   border-left-color: var(--accent-2);
+}
+
+/* Each line collapses to one row: chevron, timestamp, source, stream, then a single-line
+   ellipsis-truncated summary — never a multi-line wrap, so columns never run together
+   regardless of how long the underlying raw message/JSON payload is. */
+.cflog-line-head {
+   display: flex;
+   gap: 8px;
+   align-items: baseline;
+   padding: 1px 0;
+}
+
+.cflog-line-head.expandable {
+   cursor: pointer;
+}
+
+.cflog-line-head.expandable:hover {
+   background: var(--bg-3);
+}
+
+.cflog-chev {
+   color: var(--faint);
+   flex-shrink: 0;
+   width: 10px;
+   display: inline-block;
+   transition: transform .12s ease;
+}
+
+.cflog-chev.open {
+   transform: rotate(90deg);
+}
+
+.cflog-chev.none {
+   visibility: hidden;
+}
+
+.cflog-ts {
+   color: var(--faint);
+   white-space: nowrap;
+   flex-shrink: 0;
+}
+
+.cflog-source {
+   color: var(--muted);
+   white-space: nowrap;
+   flex-shrink: 0;
+}
+
+.cflog-stream {
+   flex-shrink: 0;
+   font-weight: 600;
+   color: var(--faint);
+}
+
+.cflog-stream.stream-err {
+   color: var(--red);
+}
+
+.cflog-msg {
+   white-space: nowrap;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   flex: 1;
+   min-width: 0;
+   color: var(--text);
+}
+
+.cflog-line.level-error .cflog-msg {
+   color: var(--red);
+}
+
+.cflog-line.level-warn .cflog-msg {
+   color: var(--amber);
+}
+
+.cflog-line.level-debug .cflog-msg {
+   color: var(--faint);
+}
+
+.cflog-line-detail {
+   margin: 2px 0 8px 18px;
+   padding: 8px;
+   background: var(--bg-3);
+   border: 1px solid var(--border);
+   border-radius: var(--radius-md);
+}
+
+.cflog-raw {
+   white-space: pre-wrap;
+   word-break: break-word;
+   margin: 0;
+   font-family: inherit;
+   color: inherit;
+}
+
 /* ---- AI Activity card ---- */
 .activity-card {
    border: 1px dashed var(--border-2);

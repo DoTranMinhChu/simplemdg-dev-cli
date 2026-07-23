@@ -1,0 +1,12 @@
+{
+  "id": "smdg-overlay-diff-scout",
+  "version": "1.0.0",
+  "displayName": "Customer/Core Overlay Diff Scout",
+  "description": "Given a core baseline repo path and a customer clone repo path (separate directory trees, no shared git history), compares matching domain folders and records whether each is identical-to-core, overridden, customer-only, or core-only-not-cloned in .claude/knowledge/customers/<customer-slug>.md. Uses sampled anchor-grep comparison (no Bash/exact-diff access), with explicit confidence labels. Invoked by smdg-knowledge-bootstrap, or directly with a core path and a customer path.",
+  "kind": "agent",
+  "dependsOn": [],
+  "components": {
+    "agentFiles": ["agent.md"]
+  },
+  "usageFile": "USAGE.md"
+}

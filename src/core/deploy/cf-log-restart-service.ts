@@ -1,5 +1,6 @@
 import { cfExecutionService } from "../cf/cf-execution-service";
 import type { TCfExecutionContext } from "../cf/cf-execution-service";
+import { readAppVcapServicesInContext } from "../db/db-btp";
 
 export type TCfLogLine = { raw: string };
 
@@ -34,4 +35,25 @@ export async function getRecentLogsForApps(context: TCfExecutionContext, appName
 export async function restartApps(context: TCfExecutionContext, appNames: string[]): Promise<Record<string, { ok: boolean; output: string; error?: string }>> {
   const results = await Promise.all(appNames.map(async (appName) => [appName, await restartApp(context, appName)] as const));
   return Object.fromEntries(results);
+}
+
+/**
+ * Find the SAP Cloud Logging Dashboards (OpenSearch/Kibana-equivalent) URL for an app, if it's
+ * bound to one — this is the SAME backing store as BTP Cockpit's "Logs and Traces" / "Request &
+ * Log" view, which retains far more history than `cf logs --recent`'s short Loggregator buffer.
+ * There is no way to query that history from here directly: the app's own service-key credentials
+ * are ingest-only (confirmed — non-ingestion paths 404 at the reverse proxy before ever reaching
+ * OpenSearch) and the dashboards endpoint itself requires interactive SAML SSO, so the best this
+ * can do is hand back a one-click link into that login flow instead of a raw hostname to copy.
+ */
+export async function getCloudLoggingDashboardLink(context: TCfExecutionContext, appName: string): Promise<{ url?: string; serviceName?: string }> {
+  const vcapServices = await readAppVcapServicesInContext(context, appName).catch(() => undefined);
+  if (!vcapServices || typeof vcapServices !== "object") return {};
+  const entries = (vcapServices as Record<string, unknown>)["cloud-logging"];
+  if (!Array.isArray(entries) || !entries.length) return {};
+  const credentials = (entries[0] as { credentials?: Record<string, unknown> }).credentials;
+  const dashboardsEndpoint = credentials && typeof credentials["dashboards-endpoint"] === "string" ? (credentials["dashboards-endpoint"] as string) : undefined;
+  if (!dashboardsEndpoint) return {};
+  const serviceName = (entries[0] as { name?: string }).name;
+  return { url: `https://${dashboardsEndpoint}`, serviceName };
 }

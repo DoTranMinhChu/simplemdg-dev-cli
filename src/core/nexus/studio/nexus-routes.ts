@@ -5,6 +5,7 @@ import { buildContinuationPrompt, deriveTurns } from "../../ai/ai-session-analys
 import { openFileInVsCode, openProjectInVsCode } from "../../ai/ai-session-command-service";
 import type { AiSessionStore } from "../../ai/ai-session-store";
 import { getString, readJsonBody, sendJson, type TJsonBody } from "../../studio-shared/studio-server-kit";
+import { pickFolderNative } from "../../studio-shared/native-folder-picker";
 import { getUncommittedDiffFiles, getStagedDiffFiles, getCommitDiffFiles, getBranchDiffFiles } from "../../git/git-diff-service";
 import type { TGitChangeScope } from "../../git/git-diff-service";
 import { analyzeChangeImpact, analyzeSymbolChangeImpact } from "../nexus-change-impact-service";
@@ -108,6 +109,14 @@ export async function handleNexusApi(req: http.IncomingMessage, res: http.Server
     if (segments.length === 1 && segments[0] === "open-vscode" && method === "POST") {
       const body = await readJsonBody(req);
       const result = await openProjectInVsCode(getString(body, "repoPath"));
+      sendJson(res, result);
+      return true;
+    }
+
+    if (segments.length === 1 && segments[0] === "pick-folder" && method === "POST") {
+      const body = await readJsonBody(req);
+      const initialPath = getString(body, "initialPath") || undefined;
+      const result = await pickFolderNative(initialPath);
       sendJson(res, result);
       return true;
     }

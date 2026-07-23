@@ -71,6 +71,11 @@ export const nexusApi = {
 
   discoverRepos: (folder: string): Promise<{ repos: TDiscoveredRepo[] }> => post("/api/nexus/discover", { folder }),
 
+  /** Opens a native OS folder-picker dialog on the machine this server is running on (always the
+   * user's own machine — see native-folder-picker.ts's doc). Resolves once the user picks a
+   * folder or cancels; there's no timeout. */
+  pickFolder: (initialPath?: string): Promise<{ path?: string; canceled: boolean; error?: string }> => post("/api/nexus/pick-folder", { initialPath }),
+
   analyzeRepo: (repoPath: string, options?: { name?: string; force?: boolean; fullContext?: boolean }): Promise<TNexusStatusPayload & { output?: string }> =>
     post("/api/nexus/analyze", { repoPath, ...options }),
 

@@ -1,0 +1,12 @@
+{
+  "id": "smdg-knowledge-bootstrap",
+  "version": "1.0.0",
+  "displayName": "Customer/Core Knowledge Bootstrap",
+  "description": "Deliberately invoked (not per-bug-ticket) orchestrator that compares a designated core baseline against 1-3 customer clones, recording which domain folders are identical/overridden/customer-only in .claude/knowledge/customers/<customer>.md, and — for a named feature — traces UI entry point -> API/handler -> DB entity/table -> emitted event into a Feature Card. Invoke with /smdg-knowledge-bootstrap <core-path> <customer-path...>.",
+  "kind": "skill",
+  "dependsOn": ["smdg-overlay-diff-scout", "smdg-feature-cartographer"],
+  "components": {
+    "skillDir": "skill"
+  },
+  "usageFile": "USAGE.md"
+}

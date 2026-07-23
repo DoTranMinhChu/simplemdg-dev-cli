@@ -291,6 +291,8 @@ export const toolStudioApi = {
     post<{ results?: Record<string, TCfAppOpResult>; error?: string }>("/api/tool/cf-log-restart/logs", { targetKey, appNames }),
   restartApps: (targetKey: string, appNames: string[]) =>
     post<{ results?: Record<string, TCfAppOpResult>; error?: string }>("/api/tool/cf-log-restart/restart", { targetKey, appNames }),
+  getCloudLoggingDashboardLink: (targetKey: string, appName: string) =>
+    post<{ url?: string; serviceName?: string; error?: string }>("/api/tool/cf-log-restart/cloud-logging-link", { targetKey, appName }),
 
   getCredentialForApp: (targetKey: string, appName: string) =>
     get<{ credential?: TBtpServiceCredential; autoImported?: boolean; candidates?: TXsuaaCandidate[]; error?: string }>(

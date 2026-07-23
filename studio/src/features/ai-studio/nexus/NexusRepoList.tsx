@@ -24,6 +24,7 @@ export function NexusRepoList({ repos, selectedPath, onSelect, onChanged, toast 
   const [filter, setFilter] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [folder, setFolder] = useState("");
+  const [browsing, setBrowsing] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [discovered, setDiscovered] = useState<TDiscoveredRepo[]>([]);
   const [selectedForAnalyze, setSelectedForAnalyze] = useState<Set<string>>(new Set());
@@ -31,10 +32,10 @@ export function NexusRepoList({ repos, selectedPath, onSelect, onChanged, toast 
 
   const filtered = repos.filter((repo) => !filter.trim() || repo.name.toLowerCase().includes(filter.toLowerCase()) || repo.path.toLowerCase().includes(filter.toLowerCase()));
 
-  const runDiscover = async (): Promise<void> => {
+  const runDiscover = async (folderOverride?: string): Promise<void> => {
     setDiscovering(true);
     try {
-      const response = await nexusApi.discoverRepos(folder || ".");
+      const response = await nexusApi.discoverRepos(folderOverride ?? folder ?? ".");
       setDiscovered(response.repos);
       setSelectedForAnalyze(new Set(response.repos.map((repo) => repo.path)));
       if (!response.repos.length) toast("No git repositories found under that folder.", "warn");
@@ -42,6 +43,24 @@ export function NexusRepoList({ repos, selectedPath, onSelect, onChanged, toast 
       toast(error instanceof Error ? error.message : String(error), "err");
     } finally {
       setDiscovering(false);
+    }
+  };
+
+  const runBrowse = async (): Promise<void> => {
+    setBrowsing(true);
+    try {
+      const result = await nexusApi.pickFolder(folder || undefined);
+      if (result.error) {
+        toast(result.error, "err");
+        return;
+      }
+      if (result.canceled || !result.path) return;
+      setFolder(result.path);
+      void runDiscover(result.path);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "err");
+    } finally {
+      setBrowsing(false);
     }
   };
 
@@ -84,7 +103,10 @@ export function NexusRepoList({ repos, selectedPath, onSelect, onChanged, toast 
           <h3>Add repositories</h3>
           <div className="row" style={{ gap: 6 }}>
             <input className="input" style={{ flex: 1 }} placeholder="Parent folder (defaults to current directory)" value={folder} onChange={(event) => setFolder(event.target.value)} />
-            <Button size="sm" onClick={runDiscover} disabled={discovering}>
+            <Button size="sm" variant="sec" onClick={() => void runBrowse()} disabled={browsing}>
+              {browsing ? "Waiting..." : "📁 Browse..."}
+            </Button>
+            <Button size="sm" onClick={() => void runDiscover()} disabled={discovering}>
               {discovering ? "Searching..." : "Discover"}
             </Button>
           </div>

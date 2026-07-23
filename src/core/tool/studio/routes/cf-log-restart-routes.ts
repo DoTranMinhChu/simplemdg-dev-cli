@@ -1,7 +1,7 @@
 import http from "node:http";
 import { getString, readJsonBody, sendJson } from "../../../studio-shared/studio-server-kit";
 import { withCfTarget } from "../../../cf/cf-target-switcher";
-import { getRecentLogsForApps, restartApps } from "../../../deploy/cf-log-restart-service";
+import { getRecentLogsForApps, restartApps, getCloudLoggingDashboardLink } from "../../../deploy/cf-log-restart-service";
 
 /** Historical default app-name list from the legacy tool's UI multiselect — an overridable starting point, not a hardcoded requirement (free-text app names always work too, since app names come live from /api/btp/apps). */
 export const DEFAULT_CF_LOG_RESTART_APPS = [
@@ -38,6 +38,23 @@ export async function handleCfLogRestartApi(req: http.IncomingMessage, res: http
     try {
       const results = await withCfTarget(targetKey, (context) => getRecentLogsForApps(context, appNames));
       sendJson(res, { results });
+    } catch (error) {
+      sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/tool/cf-log-restart/cloud-logging-link" && method === "POST") {
+    const body = await readJsonBody(req);
+    const targetKey = getString(body, "targetKey");
+    const appName = getString(body, "appName");
+    if (!targetKey || !appName) {
+      sendJson(res, { error: "targetKey and appName are required" }, 400);
+      return true;
+    }
+    try {
+      const link = await withCfTarget(targetKey, (context) => getCloudLoggingDashboardLink(context, appName));
+      sendJson(res, link);
     } catch (error) {
       sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
     }

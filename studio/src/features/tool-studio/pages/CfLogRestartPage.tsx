@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../../../components/common/Button";
 import { Spinner } from "../../../components/common/Spinner";
 import { BtpTargetSelector } from "../../../components/btp/BtpTargetSelector";
 import { BtpAppSelector } from "../../../components/btp/BtpAppSelector";
+import { CfLogViewer } from "../../../components/common/CfLogViewer";
 import { useAsync } from "../../../hooks/useAsync";
 import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TCfTargetSummary } from "../../../api/studio-api-types";
@@ -16,8 +17,27 @@ export function CfLogRestartPage(): React.ReactElement {
 
   const logsCall = useAsync((key: string, app: string) => toolStudioApi.getRecentLogs(key, [app]));
   const restartCall = useAsync((key: string, app: string) => toolStudioApi.restartApps(key, [app]));
+  const [cloudLoggingUrl, setCloudLoggingUrl] = useState<string | undefined>();
 
   const targetLabel = target ? `${target.org} / ${target.space} (${target.region})` : "";
+
+  // `cf logs --recent` only holds a short Loggregator buffer — if this app is bound to SAP Cloud
+  // Logging (the same backing store as BTP Cockpit's "Logs and Traces"), offer a one-click link
+  // into its dashboard for anything further back. Best-effort: silently absent if not bound.
+  useEffect(() => {
+    setCloudLoggingUrl(undefined);
+    if (!target || !appName) return;
+    let cancelled = false;
+    toolStudioApi
+      .getCloudLoggingDashboardLink(target.key, appName)
+      .then((response) => {
+        if (!cancelled) setCloudLoggingUrl(response.url);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [target, appName]);
 
   return (
     <div>
@@ -66,12 +86,28 @@ export function CfLogRestartPage(): React.ReactElement {
             <Button variant="danger" onClick={() => void restartCall.run(target.key, appName)} disabled={restartCall.loading}>
               {restartCall.loading ? <Spinner /> : "Restart app"}
             </Button>
+            {cloudLoggingUrl && (
+              <a
+                className="btn sec"
+                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                href={cloudLoggingUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="Opens SAP Cloud Logging's dashboard (BTP SSO login required) for log history beyond cf logs --recent's short buffer"
+              >
+                ↗ Open in SAP Cloud Logging
+              </a>
+            )}
           </div>
 
           {logsCall.error && <div className="errbox" style={{ marginBottom: 12 }}>{logsCall.error}</div>}
           {logsCall.data?.results?.[appName] && (
             logsCall.data.results[appName].ok ? (
-              <pre className="cell-pre" style={{ maxHeight: 420, overflow: "auto" }}>{logsCall.data.results[appName].logs || "(no recent log lines)"}</pre>
+              logsCall.data.results[appName].logs ? (
+                <CfLogViewer logs={logsCall.data.results[appName].logs} title={`${appName} — recent logs`} />
+              ) : (
+                <div className="note faint">(no recent log lines)</div>
+              )
             ) : (
               <div className="errbox">{logsCall.data.results[appName].error}</div>
             )
