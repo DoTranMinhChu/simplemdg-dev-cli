@@ -8,6 +8,40 @@ import type { TDeployModelResult, TMrLiveStatus } from "../api/tool-studio-api-c
 
 const POLL_INTERVAL_MS = 6000;
 
+// GitLab pipeline statuses mapped onto the shared `.status-badge` color set (see globals.css) —
+// reusing it rather than inventing new colors keeps this visually consistent with every other
+// "badge" in the app (AI Studio's repo/agent status pills use the same classes).
+const PIPELINE_STATUS_CLASS: Record<string, string> = {
+  success: "ready",
+  running: "analyzing",
+  pending: "starting",
+  created: "starting",
+  preparing: "starting",
+  scheduled: "starting",
+  waiting_for_resource: "starting",
+  manual: "browser-auth",
+  failed: "failed",
+  canceled: "stopped",
+  skipped: "stopped",
+};
+
+const PIPELINE_STATUS_ICON: Record<string, string> = {
+  success: "✓",
+  failed: "✗",
+};
+
+/** GitLab-style pipeline status pill, linking straight to the pipeline on GitLab — the whole point
+ * being the user doesn't have to open GitLab just to see whether the build passed. */
+function PipelineBadge({ pipeline }: { pipeline: { id: number; status: string; webUrl: string } }): React.ReactElement {
+  const badgeClass = PIPELINE_STATUS_CLASS[pipeline.status] ?? "stopped";
+  const icon = PIPELINE_STATUS_ICON[pipeline.status];
+  return (
+    <a href={pipeline.webUrl} target="_blank" rel="noreferrer" className={`status-badge ${badgeClass}`} style={{ textDecoration: "none" }} title="Open pipeline in GitLab">
+      {icon ? icon : <Spinner />} Pipeline #{pipeline.id} · {pipeline.status}
+    </a>
+  );
+}
+
 function MergeRequestRow({ mr }: { mr: TDeployModelResult["mergeRequests"][number] }): React.ReactElement {
   const [status, setStatus] = useState<TMrLiveStatus | undefined>();
   const [merging, setMerging] = useState(false);
@@ -36,9 +70,14 @@ function MergeRequestRow({ mr }: { mr: TDeployModelResult["mergeRequests"][numbe
         <div>
           <a href={mr.webUrl} target="_blank" rel="noreferrer">{mr.pathWithNamespace} — MR</a>
         </div>
-        <div className="ts-step-detail">
-          {status ? status.state : "checking status..."}
-          {status?.pipeline && ` · pipeline on ${mr.targetBranch}: ${status.pipeline.status}`}
+        <div className="ts-step-detail row" style={{ gap: 6, alignItems: "center" }}>
+          <span>{status ? status.state : "checking status..."}</span>
+          {status?.pipeline && (
+            <>
+              <span>· on {mr.targetBranch}:</span>
+              <PipelineBadge pipeline={status.pipeline} />
+            </>
+          )}
         </div>
         {mergeError && <div className="ts-step-detail" style={{ color: "var(--red)" }}>{mergeError}</div>}
       </div>

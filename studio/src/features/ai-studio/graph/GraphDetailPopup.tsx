@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "../../../components/common/Button";
 import { Modal } from "../../../components/common/Modal";
+import { JsonOrText } from "../../../components/common/JsonView";
 import { observationTypeIcon } from "../observation-icon";
 import type { TGraphNode } from "./graph-model";
 
@@ -138,10 +139,10 @@ export function GraphDetailPopup({
           <div className="ai-graph-detail-section-head">
             <span>Input</span>
             <Button size="sm" variant="ghost" onClick={() => onCopy(observation.input, "input")}>
-              Copy
+              Copy all
             </Button>
           </div>
-          <pre className="cell-pre wrap">{observation.input}</pre>
+          <JsonOrText text={observation.input} language="json" />
         </div>
       ) : null}
 
@@ -150,10 +151,10 @@ export function GraphDetailPopup({
           <div className="ai-graph-detail-section-head">
             <span>Output</span>
             <Button size="sm" variant="ghost" onClick={() => onCopy(observation.output, "output")}>
-              Copy
+              Copy all
             </Button>
           </div>
-          <pre className="cell-pre wrap">{observation.output}</pre>
+          <JsonOrText text={observation.output} language="json" />
         </div>
       ) : null}
 

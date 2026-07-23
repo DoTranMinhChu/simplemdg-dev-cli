@@ -54,7 +54,7 @@ export function ObjectTypesPage(): React.ReactElement {
         </p>
       </div>
 
-      <div className="ts-card" style={{ maxWidth: 900 }}>
+      <div className="ts-card">
         <SearchableSelect
           value={target?.id ?? ""}
           onChange={(value) => setTarget(targets.data?.targets.find((item) => item.id === value))}
@@ -65,7 +65,7 @@ export function ObjectTypesPage(): React.ReactElement {
       </div>
 
       {target && (
-        <div className="ts-card" style={{ maxWidth: 1100, marginTop: 16 }}>
+        <div className="ts-card" style={{ marginTop: 16 }}>
           <div className="row" style={{ marginBottom: 8 }}>
             <Button variant="sec" size="sm" onClick={() => void objectTypes.run(target.id, true)} disabled={objectTypes.loading}>
               {objectTypes.loading ? <Spinner /> : "⟳ Rescan"}

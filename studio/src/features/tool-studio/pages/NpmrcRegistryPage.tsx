@@ -48,7 +48,7 @@ export function NpmrcRegistryPage(): React.ReactElement {
         </p>
       </div>
 
-      <div className="ts-card" style={{ maxWidth: 900 }}>
+      <div className="ts-card">
         {groups.loading ? (
           <Spinner />
         ) : groups.error || groups.data?.error ? (
@@ -70,7 +70,7 @@ export function NpmrcRegistryPage(): React.ReactElement {
       </div>
 
       {group && (
-        <div className="ts-card" style={{ maxWidth: 1000, marginTop: 16 }}>
+        <div className="ts-card" style={{ marginTop: 16 }}>
           {resolved.loading ? (
             <Spinner />
           ) : resolved.error || resolved.data?.error ? (

@@ -23,7 +23,7 @@ export function IncidentSearchPage(): React.ReactElement {
         </p>
       </div>
 
-      <div className="ts-card" style={{ maxWidth: 900 }}>
+      <div className="ts-card">
         <div className="ts-grid-2">
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <label>Supabase URL</label>

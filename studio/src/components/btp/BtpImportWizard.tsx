@@ -21,6 +21,7 @@ const STEP_LABELS: Array<[TStep, string]> = [
 ];
 
 function SaveStep({
+  org,
   appName,
   candidate,
   onBack,
@@ -28,6 +29,7 @@ function SaveStep({
   saving,
   error,
 }: {
+  org: string;
   appName: string;
   candidate: TDatabaseServiceCandidate;
   onBack: () => void;
@@ -35,7 +37,11 @@ function SaveStep({
   saving: boolean;
   error: string;
 }): React.ReactElement {
-  const [name, setName] = useState(`${appName} / ${candidate.serviceName}`);
+  // Prefixed with the org (global account) — app/service names repeat across different customers'
+  // BTP accounts (e.g. every tenant has its own "simplemdg-srv-process-system"), so without this
+  // prefix the connection list becomes a wall of identical-looking entries once you've imported
+  // more than one account.
+  const [name, setName] = useState(`${org} / ${appName} / ${candidate.serviceName}`);
   const [environment, setEnvironment] = useState("");
   const [color, setColor] = useState("");
   const [favorite, setFavorite] = useState(false);
@@ -197,8 +203,8 @@ export function BtpImportWizard({ onClose, onImported }: { onClose: () => void; 
             }}
             onBack={() => setStep("app")}
           />
-        ) : step === "save" && candidate ? (
-          <SaveStep appName={appName} candidate={candidate} onBack={() => setStep("database")} onSave={finalizeImport} saving={saving} error={saveError} />
+        ) : step === "save" && candidate && target ? (
+          <SaveStep org={target.org} appName={appName} candidate={candidate} onBack={() => setStep("database")} onSave={finalizeImport} saving={saving} error={saveError} />
         ) : null}
       </div>
     </Modal>

@@ -127,7 +127,7 @@ export function DeployModelPage(): React.ReactElement {
 
       <div className={`dm-step${target ? " done" : ""}`}>
         <StepHead n={1} title="Deploy target" sub={target?.gitlabGroupPath} done={Boolean(target)} />
-        <div className="ts-card" style={{ maxWidth: 900 }}>
+        <div className="ts-card">
           <div className="row">
             <div style={{ flex: 1 }}>
               <SearchableSelect
@@ -166,7 +166,7 @@ export function DeployModelPage(): React.ReactElement {
       {target && (
         <div className={`dm-step${objectType ? " done" : ""}`}>
           <StepHead n={2} title="Object type" sub={objectType ? `${objectType.envObjectName} (${objectType.slug})` : undefined} done={Boolean(objectType)} />
-          <div className="ts-card" style={{ maxWidth: 900 }}>
+          <div className="ts-card">
             {objectTypes.loading ? (
               <EmptyState><Spinner /> scanning repos for _laidonBuild.yaml...</EmptyState>
             ) : objectTypes.error || objectTypes.data?.error ? (
@@ -194,7 +194,7 @@ export function DeployModelPage(): React.ReactElement {
       {target && objectType && (
         <div className="dm-step">
           <StepHead n={3} title="Custom Model" sub="view the current model + custom-model.cds entities, add/edit/attach your own" />
-          <div className="ts-card" style={{ maxWidth: 900 }}>
+          <div className="ts-card">
             <CustomModelStep deployTargetId={target.id} objectTypeSlug={objectType.slug} />
           </div>
         </div>
@@ -203,7 +203,7 @@ export function DeployModelPage(): React.ReactElement {
       {target && objectType && (
         <div className={`dm-step${preview.data?.entityName ? " done" : ""}`}>
           <StepHead n={4} title="Upload EDMX" sub={preview.data?.entityName} done={Boolean(preview.data?.entityName)} />
-          <div className="ts-card" style={{ maxWidth: 900 }}>
+          <div className="ts-card">
             <input
               ref={fileInputRef}
               type="file"
@@ -274,7 +274,7 @@ export function DeployModelPage(): React.ReactElement {
       {target && objectType && upload.data?.uploadId && (
         <div className="dm-step">
           <StepHead n={5} title="Review changes" sub="what would actually be committed, before you deploy" />
-          <div className="ts-card" style={{ maxWidth: 900 }}>
+          <div className="ts-card">
             <div className="row">
               <Button variant="sec" onClick={() => void changesPreview.run()} disabled={changesPreview.loading}>
                 {changesPreview.loading ? <Spinner /> : "Preview file changes"}
@@ -305,7 +305,7 @@ export function DeployModelPage(): React.ReactElement {
       {target && objectType && upload.data?.uploadId && (
         <div className="dm-step">
           <StepHead n={6} title="Deploy" />
-          <div className="ts-card" style={{ maxWidth: 900 }}>
+          <div className="ts-card">
             <div className="ts-grid-2">
               <div className="field" style={{ gridColumn: "1 / -1" }}>
                 <label>Ticket code (optional — used verbatim as the MR title; left blank, a title is generated from the repo/branch/date)</label>

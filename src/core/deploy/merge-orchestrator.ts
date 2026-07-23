@@ -8,7 +8,7 @@ export type TMergeTarget = { role: string; pathWithNamespace: string; projectId:
 export type TMergeRequestStatus = {
   state: string;
   mergedAt: string | undefined;
-  pipeline: { status: string; webUrl: string } | undefined;
+  pipeline: { id: number; status: string; webUrl: string } | undefined;
 };
 
 export async function getMergeRequestStatus(auth: TGitLabAuth, projectId: number, mrIid: number): Promise<TMergeRequestStatus> {
@@ -16,7 +16,7 @@ export async function getMergeRequestStatus(auth: TGitLabAuth, projectId: number
   return {
     state: detail.state,
     mergedAt: detail.state === "merged" ? new Date().toISOString() : undefined,
-    pipeline: detail.head_pipeline ? { status: detail.head_pipeline.status, webUrl: detail.head_pipeline.web_url } : undefined,
+    pipeline: detail.head_pipeline ? { id: detail.head_pipeline.id, status: detail.head_pipeline.status, webUrl: detail.head_pipeline.web_url } : undefined,
   };
 }
 

@@ -5485,13 +5485,16 @@ td.cell-active {
    border: 1px solid var(--border);
    border-radius: var(--radius-lg);
    padding: var(--space-5);
-   max-width: 900px;
+   /* Generous cap (not full-bleed) so wide monitors stop wasting ~half the screen on every Tool
+      Studio page, while still bounding line length on ultrawide displays. Individual pages used to
+      override this down to 900-1100px each; that's been removed in favor of one shared value. */
+   max-width: 1400px;
 }
 
 .ts-grid-2 {
    display: grid;
-   grid-template-columns: 1fr 1fr;
-   gap: 0 var(--space-3);
+   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+   gap: var(--space-3);
 }
 
 .ts-result {
@@ -5529,10 +5532,34 @@ td.cell-active {
    word-break: break-word;
 }
 
+/* ---- Tool Studio responsive breakpoints (mirrors the AI Studio system above) ----
+   Desktop >=1024 (default) · Tablet 768-1023 (tighter padding) · Mobile <768 (nav becomes a
+   horizontally-scrollable top bar instead of a 220px-wide sidebar eating a narrow screen). ---- */
+@media (max-width: 1023px) {
+   .ts-content { padding: var(--space-4); }
+}
+
+@media (max-width: 767px) {
+   .ts-shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
+   .ts-nav {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      padding: var(--space-2);
+   }
+   .ts-nav-brand, .ts-nav-group { display: none; }
+   .ts-nav-item { width: auto; flex: none; white-space: nowrap; }
+   .ts-content { padding: var(--space-3); }
+   .ts-grid-2 { grid-template-columns: 1fr; }
+}
+
 /* --- Deploy Model: numbered steps, join-risk list, change-diff preview --- */
 
 .dm-step {
-   max-width: 900px;
+   max-width: 1400px;
    margin-top: var(--space-5);
 }
 
@@ -5777,10 +5804,17 @@ td.cell-active {
 }
 
 .ssel-trigger-label {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   min-width: 0;
+   flex: 1;
+}
+
+.ssel-trigger-label-text {
    overflow: hidden;
    text-overflow: ellipsis;
    white-space: nowrap;
-   flex: 1;
 }
 
 .ssel-trigger-label.placeholder {
@@ -5791,6 +5825,12 @@ td.cell-active {
    flex: none;
    color: var(--faint);
    font-size: 10px;
+}
+
+.ssel-item-main {
+   display: flex;
+   align-items: center;
+   gap: 8px;
 }
 
 .ssel-popover {

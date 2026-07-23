@@ -203,7 +203,7 @@ export type TDeployModelResult = {
 export type TCustomModelWarning = { businessTable: string; message: string };
 
 /** Mirrors `TMergeRequestStatus` in `merge-orchestrator.ts` — polled per-MR so the UI can show merge/pipeline state without the user opening GitLab. */
-export type TMrLiveStatus = { state: string; mergedAt?: string; pipeline?: { status: string; webUrl: string }; error?: string };
+export type TMrLiveStatus = { state: string; mergedAt?: string; pipeline?: { id: number; status: string; webUrl: string }; error?: string };
 
 /** Mirrors `TMergeTarget` in `merge-orchestrator.ts`. */
 export type TMergeTargetInput = { role: string; pathWithNamespace: string; projectId: number; mrIid: number; targetBranch: string };

@@ -8,6 +8,9 @@ export type TSearchableSelectOption = {
   label: string;
   /** Optional secondary line shown faint below the label (e.g. a repo count, an id). */
   meta?: string;
+  /** Optional small colored pill shown before the label — e.g. an HTTP method. `kind` picks the
+   * color via the shared `.endpoint-kind-badge` classes (get/post/put/patch/delete/set). */
+  badge?: { text: string; kind: string };
 };
 
 export type TSearchableSelectProps = {
@@ -101,7 +104,10 @@ export function SearchableSelect({
           setOpen((prev) => !prev);
         }}
       >
-        <span className={`ssel-trigger-label${selected ? "" : " placeholder"}`}>{selected ? selected.label : placeholder}</span>
+        <span className={`ssel-trigger-label${selected ? "" : " placeholder"}`}>
+          {selected?.badge && <span className={`endpoint-kind-badge ${selected.badge.kind}`}>{selected.badge.text}</span>}
+          <span className="ssel-trigger-label-text">{selected ? selected.label : placeholder}</span>
+        </span>
         <span className="ssel-chevron" aria-hidden="true">▾</span>
       </button>
 
@@ -126,7 +132,10 @@ export function SearchableSelect({
                       setOpen(false);
                     }}
                   >
-                    <span>{highlightMatch(option.label, search)}</span>
+                    <div className="ssel-item-main">
+                      {option.badge && <span className={`endpoint-kind-badge ${option.badge.kind}`}>{option.badge.text}</span>}
+                      <span>{highlightMatch(option.label, search)}</span>
+                    </div>
                     {option.meta ? <span className="ssel-item-meta">{option.meta}</span> : null}
                   </div>
                 ))}

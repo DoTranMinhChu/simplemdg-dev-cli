@@ -12,12 +12,12 @@ Modeled on the manual process that produced this project's own deep Request-flow
 
 ## What it does
 
-1. **Discovers flows itself** — it does not require you to name one. It reads any existing `.claude/knowledge/repo-map.md`/`event-map.md`/`flows/*`, looks for the project's cross-cutting core flows (a central case/workflow entity, distinctly-named process/config/background folders, anything already listed in an existing architecture doc), and enumerates per-domain flows (each business-object folder gets at least a lighter, cross-referencing pass).
-2. **Always proposes the full plan before running anything expensive** — the candidate flow list, which already have documents, a rough cost estimate, and asks: does the list look right, and for flows that already have a document, update in place or write a new version alongside it (a global default, overridable per flow)?
-3. Runs the same deep multi-agent tracing pipeline per confirmed flow (fanning out `smdg-flow-tracer`, then synthesizing the results itself), scaling depth to the flow's tier — full depth for cross-cutting flows, a lighter cross-referencing pass for per-domain ones.
+1. **Discovers flows itself** — it does not require you to name one. It reads any existing `.claude/knowledge/repo-map.md`/`event-map.md`/`flows.md`, looks for the project's cross-cutting core flows (a central case/workflow entity, distinctly-named process/config/background folders, anything already listed in an existing architecture doc), and enumerates per-domain flows (every business-object folder is its own flow candidate).
+2. **Always proposes the full plan before running anything expensive** — the candidate flow list, which already have documented sections, a rough cost estimate, and asks: does the list look right, and for flows that already have a section, update it in place or add a new version alongside it (a global default, overridable per flow)?
+3. Runs the same deep multi-agent tracing pipeline for **every** confirmed flow at the **same full depth** — cross-cutting and per-domain flows get identical treatment (fanning out `smdg-flow-tracer`, then synthesizing the results itself); there is no lighter/summarized tier for either group.
 4. Maintains `.claude/knowledge/glossary.md` — an append-only shared glossary of project-specific terms, grown as new terms are encountered, so every document can explain jargon without repeating the same paragraph everywhere.
-5. Writes each flow's document to `.claude/knowledge/flows/<flow-slug>/<flow-slug>.md` (a fresh flow), overwrites it in place (an update), or writes `<flow-slug>-v<N>.md` alongside the untouched original (a new version) — per the choice made in step 2.
-6. Reports a final summary: every flow processed, its document path(s), and every known gap pulled inline.
+5. Writes every flow as its own section inside one consolidated file, `.claude/knowledge/flows.md` — a fresh flow gets a new `##` section, an update replaces that section's contents in place, and "keep the old version" appends a new dated section alongside the original rather than overwriting it. Nothing is ever written as a separate per-flow file.
+6. Reports a final summary: every flow processed, its section heading in `flows.md`, and every known gap pulled inline.
 
 ## When to use this vs. the lighter plugins
 
@@ -27,12 +27,12 @@ Modeled on the manual process that produced this project's own deep Request-flow
 
 ## Knowledge output
 
-- `.claude/knowledge/flows/<flow-slug>/<flow-slug>[-v<N>].md` — one directory per flow, one or more versions inside.
-- `.claude/knowledge/glossary.md` — shared, append-only term glossary referenced by every flow document.
+- `.claude/knowledge/flows.md` — a single consolidated file; every flow is its own `##` section (with any kept-alongside versions as their own dated sections), indexed by a `## Contents` list at the top. Deliberately one file, not a directory tree, so the whole knowledge base stays easy to read, grep, and carry around outside any particular tool.
+- `.claude/knowledge/glossary.md` — shared, append-only term glossary referenced by every flow section.
 
 ## AI Studio
 
-Once installed, open `smdg ai studio` → **Plugins** → this plugin's detail page → **Open Flow Knowledge Explorer** to browse every generated flow document (and every version of each, if you chose to keep old ones) without leaving the UI — the same generic Evidence-Explorer renderer `smdg-jira-fix-issue` uses for its bug-investigation evidence, pointed at `.claude/knowledge/flows/*` instead. Generating or refreshing documents still happens from a normal Claude Code terminal session (`/smdg-build-knowledge`) — Studio browses results already on disk, it does not launch the run itself.
+This plugin does not integrate with AI Studio — its output is a plain single Markdown file, read directly (in an editor, in a terminal, or pasted elsewhere) rather than browsed through a generated-artifact viewer. Generating or refreshing `flows.md` happens from a normal Claude Code terminal session (`/smdg-build-knowledge`).
 
 ## Dependencies installed alongside this skill
 

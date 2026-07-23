@@ -133,7 +133,8 @@ export function CheckApiExternalPage(): React.ReactElement {
       entityRows.map((row) => ({
         value: row.key,
         label: row.name,
-        meta: row.kind === "set" ? `SET · ${row.entityType?.properties.length ?? 0} field(s)` : `${row.functionImport.httpMethod} · ${row.functionImport.parameters.length} param(s)`,
+        meta: row.kind === "set" ? `${row.entityType?.properties.length ?? 0} field(s)` : `${row.functionImport.parameters.length} param(s)`,
+        badge: row.kind === "set" ? { text: "SET", kind: "set" } : { text: row.functionImport.httpMethod, kind: row.functionImport.httpMethod.toLowerCase() },
       })),
     [entityRows],
   );
@@ -152,14 +153,14 @@ export function CheckApiExternalPage(): React.ReactElement {
       </div>
 
       {!cfTarget ? (
-        <div className="ts-card" style={{ maxWidth: 1100 }}>
+        <div className="ts-card">
           <div className="note" style={{ marginBottom: 8 }}>
             Select the CF org/space whose deployed services you want to test:
           </div>
           <BtpTargetSelector onSelect={setCfTarget} />
         </div>
       ) : !selectedAppName ? (
-        <div className="ts-card" style={{ maxWidth: 1100 }}>
+        <div className="ts-card">
           <BtpAppSelector
             targetKey={cfTarget.key}
             targetLabel={`${cfTarget.org} / ${cfTarget.space} (${cfTarget.region})`}
@@ -170,7 +171,7 @@ export function CheckApiExternalPage(): React.ReactElement {
           />
         </div>
       ) : (
-        <div className="ts-card" style={{ maxWidth: 1100 }}>
+        <div className="ts-card">
           <div className="field">
             <div className="row" style={{ alignItems: "baseline" }}>
               <label style={{ flex: 1, marginBottom: 0 }}>Server</label>

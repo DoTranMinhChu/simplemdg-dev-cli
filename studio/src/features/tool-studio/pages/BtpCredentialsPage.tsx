@@ -24,7 +24,7 @@ export function BtpCredentialsPage(): React.ReactElement {
         </p>
       </div>
 
-      <div className="ts-card" style={{ maxWidth: 960 }}>
+      <div className="ts-card">
         {credentials.loading ? (
           <EmptyState><Spinner /> loading...</EmptyState>
         ) : !credentials.data?.credentials.length ? (

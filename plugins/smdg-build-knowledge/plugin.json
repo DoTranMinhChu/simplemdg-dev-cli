@@ -1,21 +1,12 @@
 {
   "id": "smdg-build-knowledge",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "displayName": "Whole-Project Knowledge Builder",
-  "description": "Deliberately invoked (never automatic) orchestrator that builds deep, code-verified knowledge documents for every distinct business flow across the whole project, in plain, simple English with jargon explained inline or via a shared glossary. Discovers flows automatically (repo-map.md/event-map.md, domain folders, named processes) rather than requiring one flow name per run. Checks .claude/knowledge/flows/ for docs that already exist and asks, per flow, whether to update in place or write a new version alongside the existing one. Each flow gets: entity/data model, status vocabulary, phase-by-phase narrative with if/else decision trees, a full Event Ledger, retry/failure semantics, a background-job catalog, Mermaid diagrams, and a diagnostic guide. Invoke with /smdg-build-knowledge (optionally naming specific flows to limit scope for a follow-up run).",
+  "description": "Deliberately invoked (never automatic) orchestrator that builds deep, code-verified knowledge documents for every distinct business flow across the whole project, in plain, simple English with jargon explained inline or via a shared glossary. Discovers flows automatically (repo-map.md/event-map.md, domain folders, named processes) rather than requiring one flow name per run. All flows are written as sections inside a single consolidated file, .claude/knowledge/flows.md, so the whole knowledge base stays readable and portable as one document rather than a directory tree. Checks that file for a flow's existing section and asks whether to update it in place or add a new version alongside it. Each flow gets: entity/data model, status vocabulary, phase-by-phase narrative with if/else decision trees, a full Event Ledger, retry/failure semantics, a background-job catalog, Mermaid diagrams, and a diagnostic guide. Invoke with /smdg-build-knowledge (optionally naming specific flows to limit scope for a follow-up run).",
   "kind": "skill",
   "dependsOn": ["smdg-flow-tracer"],
   "components": {
     "skillDir": "skill"
-  },
-  "studioExtension": {
-    "id": "build-knowledge",
-    "label": "Flow Knowledge",
-    "instanceGlob": ".claude/knowledge/flows/*",
-    "instanceLabel": "{basename}",
-    "files": [
-      { "match": "*.md", "render": "markdown" }
-    ]
   },
   "usageFile": "USAGE.md"
 }

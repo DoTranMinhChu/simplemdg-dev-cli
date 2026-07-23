@@ -47,7 +47,7 @@ export function CfLogRestartPage(): React.ReactElement {
       </div>
 
       {step === "target" && (
-        <div className="ts-card" style={{ maxWidth: 900 }}>
+        <div className="ts-card">
           <BtpTargetSelector
             onSelect={(selected) => {
               setTarget(selected);
@@ -59,7 +59,7 @@ export function CfLogRestartPage(): React.ReactElement {
       )}
 
       {step === "app" && target && !appName && (
-        <div className="ts-card" style={{ maxWidth: 900 }}>
+        <div className="ts-card">
           <BtpAppSelector
             targetKey={target.key}
             targetLabel={targetLabel}
@@ -70,7 +70,7 @@ export function CfLogRestartPage(): React.ReactElement {
       )}
 
       {step === "app" && target && appName && (
-        <div className="ts-card" style={{ maxWidth: 1050 }}>
+        <div className="ts-card">
           <div className="wiz-breadcrumb" style={{ marginBottom: 12 }}>
             <span className="crumb" onClick={() => setStep("target")}>Targets</span>
             <span className="sep"> › </span>

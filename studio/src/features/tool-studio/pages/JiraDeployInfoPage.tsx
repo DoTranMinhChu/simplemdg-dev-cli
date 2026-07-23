@@ -33,7 +33,7 @@ export function JiraDeployInfoPage(): React.ReactElement {
         <p className="note">Look up a deploy ticket's referenced tickets/subtasks, and log work — credentials are used per-call only, never stored server-side.</p>
       </div>
 
-      <div className="ts-card" style={{ maxWidth: 900 }}>
+      <div className="ts-card">
         <div className="ts-grid-2">
           <div className="field" style={{ gridColumn: "1 / -1" }}>
             <label>Jira base URL</label>
@@ -96,7 +96,7 @@ export function JiraDeployInfoPage(): React.ReactElement {
         )}
       </div>
 
-      <div className="ts-card" style={{ maxWidth: 900, marginTop: 16 }}>
+      <div className="ts-card" style={{ marginTop: 16 }}>
         <div className="ts-header">
           <h1 style={{ fontSize: "var(--font-size-lg)" }}>Log work</h1>
         </div>

@@ -70,7 +70,7 @@ export function CreateDeployTargetForm({ existingTarget, onCreated }: { existing
   );
 
   return (
-    <div className="ts-card" style={{ maxWidth: 900 }}>
+    <div className="ts-card">
       {showLogin && (
         <GitLabLoginModal
           onClose={() => setShowLogin(false)}
