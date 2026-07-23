@@ -1,0 +1,12 @@
+{
+  "id": "smdg-flow-tracer",
+  "version": "1.1.0",
+  "displayName": "Flow Deep-Read Tracer",
+  "description": "Given one repo/path and a specific investigative focus (schema/entities, event topics+payloads, role-service business logic, config/routing engine, background/scheduled jobs, retry/failure handling, or UI flow), performs a deep, file-cited (not line-cited) read of the relevant source and reports structured findings in full, never a shortened summary. The single reusable 'deep reader' smdg-build-knowledge fans out N parallel calls to, one per repo+focus. Not token-capped like smdg-root-cause-tracer — this agent is for building durable knowledge, not cheap bug triage, so thoroughness over brevity.",
+  "kind": "agent",
+  "dependsOn": [],
+  "components": {
+    "agentFiles": ["agent.md"]
+  },
+  "usageFile": "USAGE.md"
+}

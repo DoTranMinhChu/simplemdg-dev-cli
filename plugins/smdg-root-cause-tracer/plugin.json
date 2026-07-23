@@ -1,6 +1,6 @@
 {
   "id": "smdg-root-cause-tracer",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "displayName": "Root Cause Code Tracer",
   "description": "Given a reproduced bug's failure signature (endpoint, request/response payload, exact error text) and its feature-area description, locates the exact source file(s):line(s) actually responsible across the target codebase's many independent nested repos — cheap directory-name/keyword routing first, then a targeted grep for a distinctive anchor string, reading only matched files. Classifies as UI bug / Backend bug / Contract-Schema Mismatch / Data-Environment Issue / Inconclusive, citing file:line. Use after smdg-jira-reproducer has produced a Failure Signature, to replace a symptom-based guess with a code-verified root cause.",
   "kind": "agent",

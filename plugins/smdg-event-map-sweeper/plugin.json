@@ -1,8 +1,8 @@
 {
   "id": "smdg-event-map-sweeper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "displayName": "Event/Queue Map Sweeper",
-  "description": "On-demand sweep across a given set of target repo paths for SAP CAP messaging patterns (srv.emit/srv.on, cds.connect.to('messaging'), Event Mesh binding config in mta.yaml/.cdsrc.json) and drafts/appends producer-consumer topic cross-references to .claude/knowledge/event-map.md. Invoke deliberately with an explicit repo-path/domain-folder list, or 'all' to sweep every checked-out repo already known via .claude/knowledge/repo-map.md — never runs automatically as part of the bug pipeline.",
+  "description": "On-demand sweep across a given set of target repo paths that maps event/queue topics to .claude/knowledge/event-map.md — computing topics from OBJECT_SHORTNAME + the shared workflow-engine's fixed action catalog for object-type '_process' repos (which have no messaging code of their own), and grepping real messaging.on/emit calls (srv.emit/srv.on, cds.connect.to('messaging'), Event Mesh binding config in mta.yaml/.cdsrc.json) for hub/role-service repos that do. Invoke deliberately with an explicit repo-path/domain-folder list, or 'all' to sweep every checked-out repo already known via .claude/knowledge/repo-map.md — never runs automatically as part of the bug pipeline.",
   "kind": "agent",
   "dependsOn": [],
   "components": {

@@ -10,15 +10,16 @@ Give it either:
 - A specific list of repo paths or domain-folder names to sweep, or
 - "All" — in which case it reads `.claude/knowledge/repo-map.md` and sweeps every repo already marked `status: checked-out` there. If that map doesn't exist yet, it will ask you which folders to sweep instead of guessing.
 
-It:
+It classifies each swept repo before deciding how to sweep it:
+- **Shared-engine consumers** (an object-type's own `_process` repo, e.g. `simplemdg_srv_prd_process`): these have no messaging code of their own — they import a shared workflow-engine package parameterized by `OBJECT_TYPE`/`OBJECT_SHORTNAME`. The sweeper reads the shared package's event-registration file **once per sweep** to build a fixed action catalog (`StartActivate`, `InsertFinal`, `StartTestrun`, etc. — identical across every domain), resolves each repo's `OBJECT_SHORTNAME` from its own env/deployment config, and **computes** its topic set as `${shortname}${Action}` instead of grepping for it (grepping would find nothing, since the string is built at runtime).
+- **Hub/role-service repos** (e.g. `..._process_event`, `..._process_approver`, `..._config_system`, `..._background`): these DO have real, repo-local `messaging.on`/`messaging.emit` calls — the sweeper greps these directly (filtered to topic-shaped first arguments), plus `cds.connect.to('messaging')` and messaging/destination keys in `mta.yaml`/`.cdsrc.json`/`package.json`.
 - Skips any target repo that isn't actually checked out (a bare `.git` folder), noting it rather than failing the whole sweep.
-- Greps only for messaging touchpoints (`srv.emit`/`srv.on` filtered to topic-shaped first arguments, `cds.connect.to('messaging')`, and messaging/destination keys in `mta.yaml`/`.cdsrc.json`) — never a general-purpose code scan.
-- Cross-references matches by normalized topic string across every repo it swept, so one topic's producer and all its known consumers land in a single `event-map.md` entry.
+- Cross-references matches (both computed and grepped) by normalized topic string across every repo it swept, so one topic's producer and all its known consumers land in a single `event-map.md` entry.
 - Appends to `event-map.md` (creating it if needed) using the same append-only discipline as `repo-map.md` — existing entries are never edited or deleted, only superseded by a newer entry appended after them.
 
-It stops and asks — rather than guessing — when it's told "all" but no `repo-map.md` exists yet to seed the scope from.
+It stops and asks — rather than guessing — when it's told "all" but no `repo-map.md` exists yet to seed the scope from, or when a shared-engine consumer's `OBJECT_SHORTNAME` can't be resolved from its config (marked `shortname-unresolved` rather than guessed).
 
-Known gotcha it deliberately guards against: `srv.on('CREATE', 'SomeEntity', ...)` is an ordinary CAP request hook, not a queue-event subscription — the sweeper only treats an `srv.on(` call as a consumer registration when its first argument actually looks like a topic string (contains `/` or `.`), not a bare CRUD verb/entity name.
+Known gotcha it deliberately guards against: `srv.on('CREATE', 'SomeEntity', ...)` is an ordinary CAP request hook, not a queue-event subscription — the sweeper only treats a grepped `srv.on(` call as a consumer registration when its first argument actually looks like a topic string (contains `/` or `.`), not a bare CRUD verb/entity name.
 
 ## Knowledge output
 

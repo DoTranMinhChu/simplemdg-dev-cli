@@ -8,7 +8,7 @@ Depends on: nothing (no MCP servers, no Bash — it works entirely off files alr
 
 If invoked directly, give it a core repo path and a customer repo path (and optionally a domain scope to limit the comparison). It:
 - Glob-compares each matching domain folder's file set first — a differing file set (files added/removed) is already conclusive evidence of customization, no content read needed.
-- Only when file sets match exactly does it sample 3-5 high-signal files per domain and grep their structural anchors (function signatures, `srv.on(` registrations, entity names) against the customer's corresponding file.
+- Only when file sets match exactly does it sample high-signal content — but what counts as "high-signal" depends on the repo's role, not a one-size-fits-all folder diff: for a shared-engine `_process` repo (no handler code of its own) it samples env/deployment config (`OBJECT_TYPE`/`OBJECT_SHORTNAME`, override config) instead of handler signatures; for UI, since there is normally **no per-domain folder** (it's one generic, metadata-driven module), it checks whether the shared module itself was modified, plus the domain's specific enum-branch/i18n/config artifacts inside it.
 - Always tags its confidence as `sampled` (never `full-diff` — it has no exact-diff tool access) and explicitly notes when sampling was partial, so a reader knows exactly how much to trust an "identical-to-core" verdict.
 - Appends to `.claude/knowledge/customers/<customer-slug>.md`, one file per customer (not a single merged file across all customers), using the same append-only discipline as `repo-map.md`.
 
