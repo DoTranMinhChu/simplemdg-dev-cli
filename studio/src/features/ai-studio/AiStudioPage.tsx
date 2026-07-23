@@ -6,6 +6,7 @@ import { AiOverviewPage } from "./pages/AiOverviewPage";
 import { AiSessionsPage } from "./pages/AiSessionsPage";
 import { AiProjectsPage } from "./pages/AiProjectsPage";
 import { AiDoctorPage } from "./pages/AiDoctorPage";
+import { StudioMark } from "../../components/common/StudioMark";
 import { PluginsCatalogPage } from "../plugins/pages/PluginsCatalogPage";
 import { AiNexusPage } from "./nexus/AiNexusPage";
 import { isNavRailCollapsed, setNavRailCollapsed } from "./nav-rail-collapsed";
@@ -39,6 +40,7 @@ export function AiStudioPage(): React.ReactElement {
     <div className="app-shell ai-studio-shell">
       <header className="topbar">
         <span className="brand">
+          <StudioMark studio="ai" />
           SimpleMDG <span className="b2">AI Studio</span>
         </span>
         <span className="grow" />

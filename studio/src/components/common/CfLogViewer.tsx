@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { highlightMatch } from "../../lib/highlight-match";
 import { Modal } from "./Modal";
 import { JsonView } from "./JsonView";
-import { parseCfLogs, matchesLogQuery, summarizeLogLine } from "../../lib/cf-log-parser";
+import { parseCfLogs, matchesLogQuery, summarizeLogLine, withinTimeRange } from "../../lib/cf-log-parser";
 import type { TCfLogLevel, TCfLogLine } from "../../lib/cf-log-parser";
 
 const LEVEL_ORDER: TCfLogLevel[] = ["error", "warn", "info", "debug", "unknown"];
@@ -83,14 +83,35 @@ function CopyButton({ getText }: { getText: () => string }): React.ReactElement 
 /** Color-coded, searchable viewer for `cf logs --recent` output. Each line collapses to a single
  * scannable summary (level/logger/message, or a truncated preview for non-JSON lines) so the
  * timestamp/source columns stay readable instead of being buried under a wall of wrapped raw JSON
- * — click a line to expand its full structured payload (via JsonView) or full raw text. */
-export function CfLogViewer({ logs, title = "Logs" }: { logs: string; title?: string }): React.ReactElement {
+ * — click a line to expand its full structured payload (via JsonView) or full raw text.
+ *
+ * `initialLevel` seeds the level filter (used by a "bulk apply to all tabs" control one level up —
+ * that control changes this component's `key`, forcing a clean remount with the new starting
+ * level, rather than fighting over who owns `level` state). `timeFrom`/`timeTo` (epoch ms) are
+ * fully controlled from the parent since a time window is a cross-tab concern, unlike level/search
+ * which stay useful as a per-tab override after a bulk level is applied. */
+export function CfLogViewer({
+  logs,
+  title = "Logs",
+  initialLevel = "all",
+  timeFrom,
+  timeTo,
+}: {
+  logs: string;
+  title?: string;
+  initialLevel?: TCfLogLevel | "all";
+  timeFrom?: number;
+  timeTo?: number;
+}): React.ReactElement {
   const [filter, setFilter] = useState("");
-  const [level, setLevel] = useState<TCfLogLevel | "all">("all");
+  const [level, setLevel] = useState<TCfLogLevel | "all">(initialLevel);
   const [expanded, setExpanded] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
-  const allLines = useMemo(() => parseCfLogs(logs), [logs]);
+  // `cf logs` emits oldest-first; reversed here so the newest line is always the first thing seen
+  // without scrolling — the one place display order is decided, everything downstream (filtering,
+  // counts, search) stays order-independent.
+  const allLines = useMemo(() => [...parseCfLogs(logs)].reverse(), [logs]);
 
   const counts = useMemo(() => {
     const result: Record<TCfLogLevel, number> = { error: 0, warn: 0, info: 0, debug: 0, unknown: 0 };
@@ -99,8 +120,8 @@ export function CfLogViewer({ logs, title = "Logs" }: { logs: string; title?: st
   }, [allLines]);
 
   const visibleLines = useMemo(
-    () => allLines.filter((line) => (level === "all" || line.level === level) && matchesLogQuery(line, filter)),
-    [allLines, level, filter],
+    () => allLines.filter((line) => (level === "all" || line.level === level) && matchesLogQuery(line, filter) && withinTimeRange(line, timeFrom, timeTo)),
+    [allLines, level, filter, timeFrom, timeTo],
   );
 
   const trimmedFilter = filter.trim();

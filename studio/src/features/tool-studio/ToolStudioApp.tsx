@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { EmptyState } from "../../components/common/EmptyState";
+import { StudioMark } from "../../components/common/StudioMark";
 import { TestConfigPage } from "./pages/TestConfigPage";
 import { CfLogRestartPage } from "./pages/CfLogRestartPage";
 import { CheckApiExternalPage } from "./pages/CheckApiExternalPage";
@@ -44,7 +45,10 @@ export function ToolStudioApp(): React.ReactElement {
   return (
     <div className="ts-shell">
       <nav className="ts-nav">
-        <div className="ts-nav-brand">SimpleMDG Tool Studio</div>
+        <div className="ts-nav-brand">
+          <StudioMark studio="tool" />
+          SimpleMDG Tool Studio
+        </div>
         <div className="ts-nav-group">MDG Deploy</div>
         {NAV_ITEMS.slice(0, 2).map((item) => (
           <NavButton key={item.id} item={item} active={section === item.id} onSelect={setSection} />

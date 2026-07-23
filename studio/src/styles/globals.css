@@ -100,10 +100,18 @@ svg.ic {
 }
 
 .brand {
+   display: flex;
+   align-items: center;
+   gap: 8px;
    font-weight: 700;
    color: #cfe0ff;
    letter-spacing: .2px;
    white-space: nowrap;
+}
+
+.studio-mark {
+   flex: none;
+   border-radius: 6px;
 }
 
 .brand .b2 {
@@ -4591,6 +4599,79 @@ td.cell-active {
    gap: 8px;
 }
 
+.cflog-tabs {
+   display: flex;
+   flex-wrap: wrap;
+   gap: 4px;
+   border-bottom: 1px solid var(--border);
+   margin-bottom: 10px;
+   padding-bottom: 8px;
+}
+
+.cflog-tab {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+   padding: 5px 10px;
+   border-radius: var(--radius-md);
+   border: 1px solid var(--border);
+   background: var(--bg-3);
+   color: var(--muted);
+   font-size: var(--font-size-sm);
+   cursor: pointer;
+}
+
+.cflog-tab:hover {
+   border-color: var(--border-2);
+   color: var(--text);
+}
+
+.cflog-tab.active {
+   background: var(--sel);
+   border-color: var(--accent);
+   color: var(--text);
+}
+
+.cflog-tab-badge {
+   min-width: 18px;
+   padding: 0 5px;
+   border-radius: var(--radius-full);
+   background: var(--chip);
+   color: var(--faint);
+   font-size: var(--font-size-xs);
+   font-weight: 600;
+   text-align: center;
+}
+
+.cflog-tab-badge.error {
+   background: rgba(239, 68, 68, .18);
+   color: var(--red);
+}
+
+.cflog-live-dot {
+   display: inline-block;
+   width: 8px;
+   height: 8px;
+   border-radius: 50%;
+   background: var(--red);
+   animation: cflog-live-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cflog-live-pulse {
+   0%, 100% { opacity: 1; }
+   50% { opacity: .35; }
+}
+
+.cflog-bulk-toolbar {
+   display: flex;
+   align-items: center;
+   flex-wrap: wrap;
+   gap: 8px;
+   margin-bottom: 10px;
+   padding-bottom: 10px;
+   border-bottom: 1px solid var(--border);
+}
+
 .cflog-toolbar {
    display: flex;
    align-items: center;
@@ -4643,8 +4724,10 @@ td.cell-active {
 }
 
 .cflog-scroll {
-   max-height: 460px;
+   height: 460px;
+   min-height: 160px;
    overflow: auto;
+   resize: vertical;
    background: var(--bg-2);
    border: 1px solid var(--border);
    border-radius: var(--radius-md);
@@ -4673,9 +4756,9 @@ td.cell-active {
    border-left-color: var(--accent-2);
 }
 
-/* Each line collapses to one row: chevron, timestamp, source, stream, then a single-line
-   ellipsis-truncated summary — never a multi-line wrap, so columns never run together
-   regardless of how long the underlying raw message/JSON payload is. */
+/* Each line is a flex row — chevron, timestamp, source, stream, then the summary — with the
+   summary as the only flex:1 (min-width:0) item, so it wraps fully within its own column no
+   matter how long, instead of spilling into (or being clipped ahead of) the columns beside it. */
 .cflog-line-head {
    display: flex;
    gap: 8px;
@@ -4730,9 +4813,8 @@ td.cell-active {
 }
 
 .cflog-msg {
-   white-space: nowrap;
-   overflow: hidden;
-   text-overflow: ellipsis;
+   white-space: pre-wrap;
+   word-break: break-word;
    flex: 1;
    min-width: 0;
    color: var(--text);
@@ -5387,6 +5469,9 @@ td.cell-active {
 }
 
 .ts-nav-brand {
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
    font-weight: 600;
    font-size: var(--font-size-md);
    padding: 0 var(--space-3) var(--space-4);

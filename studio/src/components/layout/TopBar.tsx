@@ -1,5 +1,6 @@
 import { IconButton } from "../common/IconButton";
 import { SearchInput } from "../common/SearchInput";
+import { StudioMark } from "../common/StudioMark";
 import { useStudioStore } from "../../state/studio-store";
 import { useWorkspaceStore } from "../../state/workspace-store";
 
@@ -34,6 +35,7 @@ export function TopBar({
   return (
     <header className="topbar">
       <span className="brand">
+        <StudioMark studio="db" />
         SimpleMDG <span className="b2">DB Studio</span>
       </span>
       <span className={`badge${activeConnection ? " on" : ""}`}>{activeConnection ? `Conn: ${activeConnection.name}` : "No connection"}</span>

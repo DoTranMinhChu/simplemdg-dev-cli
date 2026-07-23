@@ -172,7 +172,13 @@ export async function handleCpiQueueApi(req: http.IncomingMessage, res: http.Ser
     try {
       const candidate = await resolveEventMeshCandidate(targetKey, appName, serviceKeyFileName);
       const result = await publishEventMeshMessage(candidate, { kind, name, qos: getString(body, "qos") || undefined, payload: body.payload ?? {} });
-      sendJson(res, result);
+      // Mirror the real Event Mesh broker status as the outer HTTP status too — but only on
+      // failure (>=400): those codes permit a response body, so testing this route directly
+      // (curl/Postman) sees the true failure instead of a misleading 200. A broker SUCCESS status
+      // (204 from a real publish) forbids a body by HTTP spec — fetch() silently strips ours if we
+      // reuse it outer-side, losing status/statusText/body — so successes always answer 200 here,
+      // with the real broker status still readable inside the JSON body.
+      sendJson(res, result, result.status >= 400 ? result.status : 200);
     } catch (error) {
       sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
     }

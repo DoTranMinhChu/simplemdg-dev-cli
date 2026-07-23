@@ -61,6 +61,7 @@ export const EVENT_MESH_TOPIC_OPTIONS: TSearchableSelectOption[] = Object.entrie
 export const EVENT_PAYLOAD_TEMPLATES: Record<string, Record<string, unknown>> = {
   ValidateParallelChange: { reqID: "", itemID: "", mdgLogID: "", stepID: "", type: "Submit", isMass: false, messageCore: "", messageObjectType: "" },
   StartTestrun: { reqID: "", type: "Submit", mdgLogID: "", itemID: "", stepID: "", messageCore: "", messageObjectType: "", skipWarning: false },
+  CancelMassSubmit: { messageCore: "", messageObjectType: "", reqID: "" },
 };
 
 export const DEFAULT_EVENT_PAYLOAD_TEMPLATE: Record<string, unknown> = { reqID: "", mdgLogID: "", stepID: "", type: "Submit", isMass: false, messageCore: "", messageObjectType: "" };

@@ -13,7 +13,7 @@ export type TConnectivityTestResult = {
 
 class ApiError extends Error {}
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiFetch<T>(path: string, init?: RequestInit, opts?: { allowAnyStatus?: boolean }): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: init?.body ? { "content-type": "application/json", ...init.headers } : init?.headers,
@@ -27,7 +27,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     json = { error: text };
   }
 
-  if (!response.ok) {
+  if (!response.ok && !opts?.allowAnyStatus) {
     const message = (json as { error?: string })?.error ?? `HTTP ${response.status}`;
     throw new ApiError(message);
   }
@@ -41,6 +41,16 @@ function get<T>(path: string): Promise<T> {
 
 function post<T>(path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined });
+}
+
+/**
+ * Like `post`, but never throws on a non-2xx response — used for `/cpi-queue/publish`, whose outer
+ * HTTP status mirrors the real Event Mesh broker response (see cpi-queue-routes.ts). A 404/401/etc.
+ * there is a legitimate publish outcome to render inline (`TEventMeshPublishResult.status`), not a
+ * tool-call failure that should throw.
+ */
+function postAllowAnyStatus<T>(path: string, body?: unknown): Promise<T> {
+  return apiFetch<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }, { allowAnyStatus: true });
 }
 
 export type TCfAppOpResult = { ok: boolean; logs?: string; output?: string; error?: string };
@@ -293,6 +303,10 @@ export const toolStudioApi = {
     post<{ results?: Record<string, TCfAppOpResult>; error?: string }>("/api/tool/cf-log-restart/restart", { targetKey, appNames }),
   getCloudLoggingDashboardLink: (targetKey: string, appName: string) =>
     post<{ url?: string; serviceName?: string; error?: string }>("/api/tool/cf-log-restart/cloud-logging-link", { targetKey, appName }),
+  startLogTail: (targetKey: string, appName: string) => post<{ jobId?: string; error?: string }>("/api/tool/cf-log-restart/tail/start", { targetKey, appName }),
+  stopLogTail: (jobId: string) => post<{ ok: boolean }>("/api/tool/cf-log-restart/tail/stop", { jobId }),
+  openSshTerminal: (targetKey: string, appName: string, instanceIndex = "0") =>
+    post<{ ok: boolean; error?: string }>("/api/tool/cf-log-restart/ssh", { targetKey, appName, instanceIndex }),
 
   getCredentialForApp: (targetKey: string, appName: string) =>
     get<{ credential?: TBtpServiceCredential; autoImported?: boolean; candidates?: TXsuaaCandidate[]; error?: string }>(
@@ -335,7 +349,7 @@ export const toolStudioApi = {
   listEventMeshQueues: (input: { targetKey: string; appName: string; serviceKeyFileName: string }) =>
     post<{ queues: string[]; error?: string }>("/api/tool/cpi-queue/queues", input),
   publishEventMeshMessage: (input: { targetKey: string; appName: string; serviceKeyFileName: string; kind: "topic" | "queue"; name: string; qos?: string; payload: unknown }) =>
-    post<TEventMeshPublishResult>("/api/tool/cpi-queue/publish", input),
+    postAllowAnyStatus<TEventMeshPublishResult>("/api/tool/cpi-queue/publish", input),
 
   getJiraDeployInfo: (input: { baseUrl: string; email: string; apiToken: string; issueKey: string }) =>
     post<{ source?: TJiraIssueSummary; referenced?: TJiraIssueSummary[]; error?: string }>("/api/tool/jira/deploy-info", input),

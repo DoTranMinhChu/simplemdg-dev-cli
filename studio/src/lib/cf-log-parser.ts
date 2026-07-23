@@ -62,15 +62,32 @@ export function matchesLogQuery(line: TCfLogLine, query: string): boolean {
   return terms.every((term) => haystack.includes(term));
 }
 
-const SUMMARY_MAX_LENGTH = 220;
+/** epoch ms, or undefined if the line has no timestamp or it doesn't parse (never filtered out by
+ * a time range in that case — an unparseable timestamp shouldn't silently hide a line). */
+export function parseLineTimestampMs(line: TCfLogLine): number | undefined {
+  if (!line.timestamp) return undefined;
+  const parsed = Date.parse(line.timestamp);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function withinTimeRange(line: TCfLogLine, fromMs: number | undefined, toMs: number | undefined): boolean {
+  if (fromMs === undefined && toMs === undefined) return true;
+  const ts = parseLineTimestampMs(line);
+  if (ts === undefined) return true;
+  if (fromMs !== undefined && ts < fromMs) return false;
+  if (toMs !== undefined && ts > toMs) return false;
+  return true;
+}
 
 /**
  * A structured JSON payload (this app logs one per HTTP request/background job — commonly 20-50+
  * fields: correlation IDs, every request header, CF routing metadata, etc.) is unreadable dumped
- * inline: it reads as one dense, unbroken wall of text that wraps across a dozen visual lines and
- * makes the timestamp/source columns above/below it impossible to scan. Reduce it to the one line
- * a human actually wants at a glance — level + logger + the human message — and let the full
- * payload live behind a per-line expand (see CfLogViewer) instead of always being on screen.
+ * inline as raw JSON: it reads as one dense wall of key:value pairs with no visual hierarchy.
+ * Reduce it to the line a human actually wants at a glance — level + logger + the human message —
+ * with the full payload available as a proper collapsible tree behind a click (see CfLogViewer)
+ * instead of a JSON blob always on screen. This is a content transform, not truncation: the summary
+ * itself is never character-clipped, and CfLogViewer wraps it in full rather than ellipsis-cutting
+ * it, so nothing is ever hidden without the user explicitly asking for the tree view.
  */
 export function summarizeLogLine(line: TCfLogLine): { summary: string; expandable: boolean } {
   if (line.json) {
@@ -78,10 +95,7 @@ export function summarizeLogLine(line: TCfLogLine): { summary: string; expandabl
     const logger = typeof line.json.logger === "string" ? line.json.logger : undefined;
     const msg = typeof line.json.msg === "string" ? line.json.msg : undefined;
     const summary = msg ? [level, logger, msg].filter(Boolean).join(" ") : JSON.stringify(line.json);
-    return { summary: summary.length > SUMMARY_MAX_LENGTH ? `${summary.slice(0, SUMMARY_MAX_LENGTH)}…` : summary, expandable: true };
-  }
-  if (line.message.length > SUMMARY_MAX_LENGTH) {
-    return { summary: `${line.message.slice(0, SUMMARY_MAX_LENGTH)}…`, expandable: true };
+    return { summary, expandable: true };
   }
   return { summary: line.message, expandable: false };
 }

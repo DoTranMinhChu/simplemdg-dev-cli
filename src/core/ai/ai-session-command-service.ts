@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "fs-extra";
 import { execa } from "execa";
 import { isCommandAvailable } from "../tooling";
+import { openTerminalWithCommand as openTerminalWithCommandGeneric } from "../../terminal/services/open-terminal";
 import type { TAiSession } from "./ai-types";
 
 export type TShellKind = "powershell" | "cmd" | "bash" | "zsh" | "unknown";
@@ -135,54 +136,11 @@ export async function isClaudeCliAvailable(): Promise<boolean> {
 /**
  * Opens a new, interactive terminal window running the resume/continue command, then returns
  * immediately — Claude Code must stay interactive in that window, so this never waits for it or
- * pipes its stdio into our own process. Windows only for now (Windows Terminal > PowerShell >
- * cmd); macOS/Linux use a best-effort `open`/`x-terminal-emulator` fallback.
+ * pipes its stdio into our own process. Thin AI-Studio-specific wrapper around the shared
+ * cross-platform terminal launcher (see terminal/services/open-terminal.ts).
  */
 export async function openTerminalWithCommand(launch: TAiSessionLaunchCommand): Promise<{ ok: boolean; error?: string }> {
-  const cwd = launch.workingDirectory;
-
-  try {
-    if (process.platform === "win32") {
-      if (await isCommandAvailable("wt")) {
-        await execa("wt.exe", ["-d", cwd, "powershell.exe", "-NoExit", "-Command", buildPowerShellInlineCommand(launch)], { detached: true, stdio: "ignore" });
-        return { ok: true };
-      }
-      await execa("powershell.exe", ["-NoExit", "-Command", buildPowerShellInlineCommand(launch)], { cwd, detached: true, stdio: "ignore" });
-      return { ok: true };
-    }
-
-    if (process.platform === "darwin") {
-      const script = `tell application "Terminal" to do script "cd ${appleScriptQuote(cwd)} && ${launch.executable} ${launch.args.map((arg) => shellQuotePosix(arg)).join(" ")}"`;
-      await execa("osascript", ["-e", script], { detached: true, stdio: "ignore" });
-      return { ok: true };
-    }
-
-    // Linux: no universal terminal launcher; try the most common one and report clearly if absent.
-    if (await isCommandAvailable("x-terminal-emulator")) {
-      await execa("x-terminal-emulator", ["-e", `bash -lc "cd ${shellQuotePosix(cwd)} && ${launch.executable} ${launch.args.map(shellQuotePosix).join(" ")}; exec bash"`], {
-        detached: true,
-        stdio: "ignore",
-      });
-      return { ok: true };
-    }
-
-    return { ok: false, error: "No supported terminal launcher found on this Linux desktop (tried x-terminal-emulator)." };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-function buildPowerShellInlineCommand(launch: TAiSessionLaunchCommand): string {
-  const quotedArgs = launch.args.map((arg) => `'${arg.replace(/'/g, "''")}'`);
-  return [launch.executable, ...quotedArgs].join(" ");
-}
-
-function shellQuotePosix(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function appleScriptQuote(value: string): string {
-  return `\\"${value.replace(/"/g, '\\\\"')}\\"`;
+  return openTerminalWithCommandGeneric({ workingDirectory: launch.workingDirectory, executable: launch.executable, args: launch.args });
 }
 
 export async function openProjectFolder(workingDirectory: string): Promise<{ ok: boolean; error?: string }> {

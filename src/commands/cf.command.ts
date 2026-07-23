@@ -114,6 +114,13 @@ type TCloudFoundryLogsOptions = {
   target?: boolean;
 };
 
+type TCloudFoundrySshOptions = {
+  app?: string;
+  refresh?: boolean;
+  instance?: string;
+  target?: boolean;
+};
+
 type TCloudFoundryHttpWatchOptions = {
   app?: string;
   refresh?: boolean;
@@ -1923,6 +1930,20 @@ async function runLogsCommand(options: TCloudFoundryLogsOptions): Promise<void> 
   });
 }
 
+
+async function runSshCommand(options: TCloudFoundrySshOptions): Promise<void> {
+  const appName = await resolveTargetAndApp({ app: options.app, refresh: options.refresh, target: options.target, message: "Select app to SSH into" });
+  const instanceIndex = await selectDebugInstance({ instance: options.instance });
+
+  await ensureSshEnabledForDebug(appName);
+  await rememberSelectedApp(appName);
+
+  console.log(chalk.gray(`Connecting: cf ssh ${appName} -i ${instanceIndex}`));
+  console.log(chalk.gray("Press Ctrl+C or type 'exit' to close the session."));
+
+  const exitCode = await runCommandInherit("cf", ["ssh", appName, "-i", instanceIndex]);
+  process.exitCode = exitCode;
+}
 
 
 type TInspectorProtocolMessage = {
@@ -3833,6 +3854,15 @@ export function registerCloudFoundryCommands(program: Command): void {
     .option("--target", "Pick a target across regions first (favorites/recent/all)")
     .action(runLogsCommand);
 
+
+  cfCommand
+    .command("ssh")
+    .description("Open an interactive SSH session into a BTP Cloud Foundry app instance (cf ssh)")
+    .option("--app <appName>", "BTP app name")
+    .option("--refresh", "Refresh app list before selecting")
+    .option("--instance <index>", "App instance index", "0")
+    .option("--target", "Pick a target across regions first (favorites/recent/all)")
+    .action(runSshCommand);
 
   cfCommand
     .command("debug")

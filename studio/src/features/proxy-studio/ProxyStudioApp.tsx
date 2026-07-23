@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { StudioMark } from "../../components/common/StudioMark";
 import { EnvironmentsPage } from "./pages/EnvironmentsPage";
 import { QuickProxyPage } from "./pages/QuickProxyPage";
 
@@ -17,7 +18,10 @@ export function ProxyStudioApp(): React.ReactElement {
   return (
     <div className="ts-shell">
       <nav className="ts-nav">
-        <div className="ts-nav-brand">SimpleMDG Proxy Studio</div>
+        <div className="ts-nav-brand">
+          <StudioMark studio="proxy" />
+          SimpleMDG Proxy Studio
+        </div>
         {NAV_ITEMS.map((item) => (
           <button key={item.id} className={`ts-nav-item${section === item.id ? " active" : ""}`} onClick={() => setSection(item.id)}>
             {item.label}
