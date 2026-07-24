@@ -1,8 +1,8 @@
 {
   "id": "smdg-feature-cartographer",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "displayName": "Feature Cartographer",
-  "description": "Given a feature or domain name, traces its UI entry point, API/handler, database entity/table, and any emitted event, drafting/refreshing a Feature Card at .claude/knowledge/features/<feature-slug>.md. Reuses .claude/knowledge/repo-map.md and .claude/knowledge/event-map.md rather than re-deriving known facts, and optionally GitNexus for the UI-to-API call-graph hop when the repo is already indexed. Invoked by smdg-knowledge-bootstrap, or directly with a feature name.",
+  "description": "Given a feature or domain name, traces its UI entry point, API/handler, database entity/table, any emitted event, and evidence sources (Monitor/Audit screens, export routes, OData entities exposing persisted evidence), drafting/refreshing a Feature Card at .claude/knowledge/features/<feature-slug>.md. Reuses .claude/knowledge/repo-map.md and .claude/knowledge/event-map.md rather than re-deriving known facts, and optionally GitNexus for the UI-to-API call-graph hop when the repo is already indexed. Invoked by smdg-knowledge-bootstrap, or directly with a feature name.",
   "kind": "agent",
   "dependsOn": [],
   "components": {

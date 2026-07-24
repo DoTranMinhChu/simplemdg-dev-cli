@@ -322,7 +322,7 @@ export async function ensureCfOrgAndSpaceTargetedInteractively(ctx: TInteraction
   await targetCloudFoundrySpace(space);
 }
 
-async function ensureCloudFoundrySessionFromCache(ctx: TInteractionContext = getDefaultInteractionContext()): Promise<TCloudFoundryTarget> {
+export async function ensureCloudFoundrySessionFromCache(ctx: TInteractionContext = getDefaultInteractionContext()): Promise<TCloudFoundryTarget> {
   await ensureExternalTool("cf");
   const target = await readCloudFoundryTarget();
 
@@ -507,7 +507,7 @@ async function ensureCloudFoundryAuthenticatedForApiEndpoint(options: {
   throw new Error(`CF automatic login failed for ${options.apiEndpoint}. ${lastError}`);
 }
 
-function buildCloudFoundryLogsArgs(options: { appName: string; recent?: boolean }): string[] {
+export function buildCloudFoundryLogsArgs(options: { appName: string; recent?: boolean }): string[] {
   const args = ["logs", options.appName];
 
   if (options.recent) {
@@ -1025,7 +1025,7 @@ function shouldIncludeLogLine(line: string, options: { instance?: string; proces
   return true;
 }
 
-function filterCloudFoundryLogsOutput(output: string, options: { instance?: string; process?: string }): string {
+export function filterCloudFoundryLogsOutput(output: string, options: { instance?: string; process?: string }): string {
   return output
     .split(/\r?\n/)
     .filter((line) => shouldIncludeLogLine(line, options))
@@ -1083,7 +1083,7 @@ function refreshAppsCacheInDetachedProcess(): void {
   childProcess.unref();
 }
 
-async function getAppsWithCache(options: { refresh?: boolean; startBackgroundRefresh?: boolean }): Promise<TCloudFoundryApp[]> {
+export async function getAppsWithCache(options: { refresh?: boolean; startBackgroundRefresh?: boolean }): Promise<TCloudFoundryApp[]> {
   await ensureCloudFoundrySessionFromCache();
 
   if (options.refresh) {
@@ -1136,7 +1136,7 @@ async function resolveAppSelection(options: { app?: string; refresh?: boolean; m
   return appName;
 }
 
-function printTarget(target: TCloudFoundryTarget, ctx: TInteractionContext = getDefaultInteractionContext()): void {
+export function printTarget(target: TCloudFoundryTarget, ctx: TInteractionContext = getDefaultInteractionContext()): void {
   ctx.interaction.notify({
     level: "info",
     message: [
@@ -2288,11 +2288,11 @@ function parseHttpWatchRouterLine(line: string): TParsedHttpWatchEvent | undefin
   };
 }
 
-function parseHttpWatchLine(line: string): TParsedHttpWatchEvent | undefined {
+export function parseHttpWatchLine(line: string): TParsedHttpWatchEvent | undefined {
   return parseHttpWatchAppLine(line) ?? parseHttpWatchRouterLine(line);
 }
 
-function formatHttpWatchEvent(appName: string, event: TParsedHttpWatchEvent): string {
+export function formatHttpWatchEvent(appName: string, event: TParsedHttpWatchEvent): string {
   const status = event.status ? chalk.green(String(event.status)) : chalk.gray("APP");
   const duration = event.durationMs !== undefined ? chalk.gray(`${event.durationMs}ms`) : "";
   const source = event.source === "RTR" ? chalk.magenta("RTR") : chalk.blue("APP");
@@ -3610,11 +3610,11 @@ function printRegionList(regions: TCfRegionEndpoint[], ctx: TInteractionContext 
   ctx.interaction.notify({ level: "info", message: lines.join("\n") });
 }
 
-async function runRegionListCommand(): Promise<void> {
-  printRegionList(await listRegions());
+export async function runRegionListCommand(ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
+  printRegionList(await listRegions(), ctx);
 }
 
-async function runRegionAddCommand(options: { api?: string; region?: string; label?: string }, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
+export async function runRegionAddCommand(options: { api?: string; region?: string; label?: string }, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   let apiEndpoint = options.api?.trim();
 
   if (!apiEndpoint) {
@@ -3633,7 +3633,7 @@ async function runRegionAddCommand(options: { api?: string; region?: string; lab
   ctx.interaction.notify({ level: "success", message: `Added custom region ${added.region} (${added.apiEndpoint}).` });
 }
 
-async function runRegionTestCommand(options: { region?: string }, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
+export async function runRegionTestCommand(options: { region?: string }, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   const regions = await listRegions();
   const targets = options.region
     ? regions.filter((region) => region.region === options.region!.toLowerCase())
@@ -3663,7 +3663,7 @@ async function runRegionTestCommand(options: { region?: string }, ctx: TInteract
   });
 }
 
-async function runRegionRefreshCommand(options: { region?: string }, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
+export async function runRegionRefreshCommand(options: { region?: string }, ctx: TInteractionContext = getDefaultInteractionContext()): Promise<void> {
   await ensureExternalTool("cf");
   ctx.interaction.notify({ level: "muted", message: "Refreshing CF targets across enabled regions..." });
   const cache = await readCache();
@@ -3782,7 +3782,10 @@ export function registerCloudFoundryCommands(program: Command): void {
     // parameter correctly falls back to its default instead of receiving the
     // Command instance in place of a TInteractionContext.
     .action(() => runRegionInteractiveCommand());
-  regionCommand.command("list").description("List configured CF regions").action(runRegionListCommand);
+  // Same Commander quirk as the other region subcommands below: `.action(runRegionListCommand)`
+  // directly would let Commander pass its options object into `runRegionListCommand`'s own
+  // optional `ctx` parameter instead of leaving it `undefined` to fall back to its default.
+  regionCommand.command("list").description("List configured CF regions").action(() => runRegionListCommand());
   regionCommand
     .command("add")
     .description("Add a custom CF region endpoint")

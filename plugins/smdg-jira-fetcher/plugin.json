@@ -1,8 +1,8 @@
 {
   "id": "smdg-jira-fetcher",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "displayName": "Jira Ticket Fetcher",
-  "description": "Reads a Jira ticket via browser or Jira MCP, extracts environment/credentials/repro-steps/attachments, and saves evidence to disk. Use when the user provides a Jira ticket link.",
+  "description": "Reads a Jira ticket via browser or Jira MCP, extracts environment/credentials/repro-steps/attachments, catalogs a user-mentioned local evidence folder, and saves evidence to disk. Use when the user provides a Jira ticket link.",
   "kind": "agent",
   "dependsOn": ["smdg-playwright-browsers", "smdg-jira-mcp"],
   "renamedFrom": ["ticket-investigator"],

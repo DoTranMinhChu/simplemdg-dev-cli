@@ -11,8 +11,17 @@ If invoked directly (e.g. via the Task tool), tell it which reading mode to use 
 - **`mcp`** — reads via `mcp__smdg-atlassian__*` tools instead (no browser, no per-run login — see `smdg-jira-mcp`'s USAGE.md for the one-time OAuth setup). Cannot visually inspect attachment images (no download tool exists on that server) — it'll note this as a limitation in `ticket-summary.md` rather than silently skipping it. If MCP isn't authenticated yet, it stops and tells you to run `claude mcp login smdg-atlassian`.
 
 It writes:
-- `.claude/evidence/<TICKET-KEY>/ticket-summary.md` — including a verbatim "Provided API examples" section whenever QA already pasted a curl command, JSON payload, or HAR/DevTools excerpt into the ticket (redacted of any real credential/token first)
+- `.claude/evidence/<TICKET-KEY>/ticket-summary.md` — including a verbatim "Provided API examples" section whenever QA already pasted a curl command, JSON payload, or HAR/DevTools excerpt into the ticket (redacted of any real credential/token first), and a `## Local Evidence Folder` section (filename + type catalog only, no content parsing) when the user mentions a local folder of already-downloaded evidence
 - `.claude/evidence/<TICKET-KEY>/screenshots/` (`browser` mode only, and only when a ticket attachment genuinely needs visual inspection)
+
+## Local evidence folder
+
+If the user already has exported evidence on disk — e.g. the actual spreadsheet used for a mass
+upload, or a JSON export pulled from OData — mention the folder path and this agent catalogs its
+contents (filename + inferred type) into `ticket-summary.md`. It never opens/parses the files itself
+(that's `smdg-jira-reproducer`'s job) — this step is just so downstream steps know the evidence
+exists and where to find it. Useful when a ticket's own attachment URL isn't reachable with your
+account, or you'd rather not wait on live reproduction for something you've already captured.
 
 It stops and asks a specific question — rather than guessing — if the environment URL, credentials, or steps to reproduce are missing or ambiguous.
 

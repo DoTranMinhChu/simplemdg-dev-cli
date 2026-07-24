@@ -13,7 +13,7 @@ import { TextInputPrompt } from "../components/TextInputPrompt";
  * ctx.interaction.select(...)` (etc.) call until the rendered widget submits
  * or cancels.
  */
-export function InteractionHost(props: { service: InkInteractionService }) {
+export function InteractionHost(props: { service: InkInteractionService; maxVisibleRows?: number }) {
   const [pending, setPending] = useState<TPendingRequest | undefined>(props.service.getCurrentRequest());
 
   useEffect(() => {
@@ -29,6 +29,10 @@ export function InteractionHost(props: { service: InkInteractionService }) {
   }
 
   const cancel = () => props.service.rejectCurrentRequest(pending.id, new InteractionCancelledError());
+  // SearchableList renders its own message + query line above its choice
+  // rows (2 lines of chrome not part of `limit`) — subtract those here too,
+  // same adjustment CommandPalette.tsx makes for its own SearchableList.
+  const searchableLimit = props.maxVisibleRows !== undefined ? Math.max(1, props.maxVisibleRows - 2) : undefined;
 
   switch (pending.kind) {
     case "confirm":
@@ -48,6 +52,7 @@ export function InteractionHost(props: { service: InkInteractionService }) {
           allowCustomValue={pending.allowCustomValue}
           customValueTitle={pending.customValueTitle}
           validateCustomValue={pending.validateCustomValue}
+          limit={searchableLimit}
           onSubmit={(value) => props.service.resolveCurrent(pending.id, value)}
           onCancel={cancel}
         />
@@ -58,6 +63,7 @@ export function InteractionHost(props: { service: InkInteractionService }) {
           message={pending.message}
           choices={pending.choices}
           hint={pending.hint}
+          maxVisibleRows={props.maxVisibleRows}
           onSubmit={(value) => props.service.resolveCurrent(pending.id, value)}
           onCancel={cancel}
         />

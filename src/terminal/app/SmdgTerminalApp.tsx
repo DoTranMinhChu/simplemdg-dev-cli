@@ -1,22 +1,33 @@
 import React, { useEffect, useState } from "react";
 import { Box, Static, Text, useApp } from "ink";
 import { useTerminalContext } from "./TerminalContext";
-import { TerminalRouter, type TTerminalRoute } from "./TerminalRouter";
+import { TerminalRouter, STREAMING_SCREENS } from "./TerminalRouter";
 import { InteractionHost } from "./InteractionHost";
-import { AppHeader } from "../components/AppHeader";
+import { AppHeader, estimateHeaderHeight } from "../components/AppHeader";
 import { CommandPalette } from "../components/CommandPalette";
 import { CommandInput } from "../components/CommandInput";
 import { ProgressList } from "../components/ProgressList";
 import { KeyHintBar } from "../components/KeyHintBar";
+import { SessionStatusBadge } from "../components/SessionStatusBadge";
 import { useGlobalShortcuts } from "../hooks/useKeyboardShortcuts";
-import { useCancellation } from "../hooks/useCancellation";
+import { useSessionRegistry, type TSession } from "../hooks/useSessionRegistry";
 import { useCommandHistory } from "../hooks/useCommandHistory";
-import { InkInteractionService, type TActiveProgress } from "../services/ink-interaction-service";
+import { useTerminalSize } from "../hooks/useTerminalSize";
+import type { TActiveProgress } from "../services/ink-interaction-service";
 import { searchCommands } from "../services/command-search";
 import { detectToolChecklist, type TToolCheck } from "../services/context-facts";
 import type { TInteractiveCommandDefinition } from "../services/command-registry";
 import type { TNotification } from "../../core/interaction/interaction-service";
 import type { TTerminalHeaderMode } from "../../core/types";
+
+// Below this the fixed-height live region would squeeze the composer/footer
+// out entirely on a tiny terminal — better to let content overflow than to
+// collapse to nothing.
+const MIN_LIVE_REGION_ROWS = 10;
+// Rows the live region reserves for its own bottom chrome (idle input block's
+// marginTop + one composer line, footer's marginTop + one hint line) before
+// handing the rest to whatever content/list is currently on screen.
+const FOOTER_CHROME_ROWS = 6;
 
 export function SmdgTerminalApp(props: {
   version: string;
@@ -25,34 +36,42 @@ export function SmdgTerminalApp(props: {
 }) {
   const { theme, capabilities, registry, projectName, branchName } = useTerminalContext();
   const { exit } = useApp();
-  const cancellation = useCancellation();
   const history = useCommandHistory();
+  const { columns, rows } = useTerminalSize();
 
-  const [route, setRoute] = useState<TTerminalRoute>({ screen: "home" });
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [activeService, setActiveService] = useState<InkInteractionService | undefined>(undefined);
   const [notifications, setNotifications] = useState<TNotification[]>([]);
   const [activeProgress, setActiveProgress] = useState<TActiveProgress[]>([]);
   const [toolChecklist, setToolChecklist] = useState<TToolCheck[]>([]);
   const [commandTextValue, setCommandTextValue] = useState("");
   const [naturalMatches, setNaturalMatches] = useState<TInteractiveCommandDefinition[]>([]);
 
+  const sessions = useSessionRegistry({
+    onNotify: (notification) => setNotifications((current) => [...current, notification]),
+    onNeedsFocusNotice: (session: TSession) =>
+      setNotifications((current) => [...current, { level: "warn", message: `Switched to "${session.label}" — it needs your input` }]),
+  });
+
   useEffect(() => {
     void detectToolChecklist().then(setToolChecklist);
   }, []);
 
-  function launchWorkflow(command: TInteractiveCommandDefinition): void {
-    const controller = cancellation.begin();
-    const service = new InkInteractionService(controller.signal);
-    service.on("notify", (notification: TNotification) => {
-      setNotifications((current) => [...current, notification]);
-    });
-    service.on("progress-change", (progress: TActiveProgress[]) => {
-      setActiveProgress(progress);
-    });
-    setActiveService(service);
-    setRoute({ screen: "workflow", commandId: command.id });
-  }
+  // Progress is scoped to whichever session is currently focused — merging in
+  // unrelated background sessions' progress would just be confusing clutter.
+  useEffect(() => {
+    const session = sessions.focusedSession;
+    if (!session || session.kind !== "workflow") {
+      setActiveProgress([]);
+      return;
+    }
+
+    setActiveProgress(session.service.getActiveProgress());
+    const onProgressChange = (progress: TActiveProgress[]) => setActiveProgress(progress);
+    session.service.on("progress-change", onProgressChange);
+    return () => {
+      session.service.off("progress-change", onProgressChange);
+    };
+  }, [sessions.focusedSession]);
 
   function handleCommandChosen(command: TInteractiveCommandDefinition): void {
     setPaletteOpen(false);
@@ -80,14 +99,12 @@ export function SmdgTerminalApp(props: {
       return;
     }
 
-    launchWorkflow(command);
-  }
+    if (STREAMING_SCREENS[command.id]) {
+      sessions.launchStreaming(command);
+      return;
+    }
 
-  function handleWorkflowDone(): void {
-    cancellation.end();
-    setActiveService(undefined);
-    setActiveProgress([]);
-    setRoute({ screen: "home" });
+    sessions.launchWorkflow(command);
   }
 
   function handleCommandInputSubmit(value: string): void {
@@ -122,8 +139,8 @@ export function SmdgTerminalApp(props: {
       onHistorySearch: () => setPaletteOpen(true),
       onClear: () => setNotifications([]),
       onCancelOrExit: () => {
-        if (route.screen === "workflow") {
-          cancellation.cancel();
+        if (sessions.focusedSession) {
+          sessions.cancelFocused();
           return;
         }
         if (paletteOpen) {
@@ -132,11 +149,23 @@ export function SmdgTerminalApp(props: {
         }
         exit();
       },
+      onCycleSession: () => sessions.cycleFocus(),
     },
     { isActive: true },
   );
 
-  const isIdle = route.screen === "home" && !paletteOpen;
+  const isIdle = !sessions.focusedSession && !paletteOpen;
+
+  // The header and Static notification log render at their natural height and
+  // scroll normally into real terminal scrollback (Ink never re-draws
+  // committed Static output, so it doesn't count against this box's height).
+  // Everything below is the "live" frame Ink does redraw on every change —
+  // sizing it to the remaining terminal rows, with a flexGrow spacer ahead of
+  // the composer/footer, is what pins the input to the bottom of the visible
+  // window and keeps it there as the terminal is resized.
+  const headerHeight = estimateHeaderHeight(props.headerMode, columns);
+  const liveRegionHeight = Math.max(MIN_LIVE_REGION_ROWS, rows - headerHeight);
+  const maxVisibleRows = Math.max(3, liveRegionHeight - FOOTER_CHROME_ROWS);
 
   return (
     <Box flexDirection="column">
@@ -156,52 +185,62 @@ export function SmdgTerminalApp(props: {
         )}
       </Static>
 
-      {activeProgress.length > 0 ? <ProgressList items={activeProgress} supportsUnicode={capabilities.supportsUnicode} /> : null}
+      <Box flexDirection="column" height={liveRegionHeight}>
+        {activeProgress.length > 0 ? (
+          <ProgressList items={activeProgress} supportsUnicode={capabilities.supportsUnicode} maxVisible={maxVisibleRows} />
+        ) : null}
 
-      {paletteOpen ? (
-        <CommandPalette
-          commands={registry}
-          recentIds={history.recent.map((entry) => entry.id)}
-          favoriteIds={history.favorites}
-          onSubmit={handleCommandChosen}
-          onCancel={() => setPaletteOpen(false)}
-        />
-      ) : (
-        <TerminalRouter
-          route={route}
-          commands={registry}
-          recent={history.recent}
-          toolChecklist={toolChecklist}
-          activeService={activeService}
-          onWorkflowDone={handleWorkflowDone}
-        />
-      )}
-
-      {route.screen === "workflow" && activeService ? <InteractionHost service={activeService} /> : null}
-
-      {isIdle ? (
-        <Box flexDirection="column" marginTop={1}>
-          {naturalMatches.length > 0 ? (
-            <Box flexDirection="column" marginBottom={1}>
-              <Text color={theme.muted || undefined}>Did you mean:</Text>
-              {naturalMatches.map((match) => (
-                <Text key={match.id} color={theme.primary || undefined}>
-                  /{match.path.join(" ")} — {match.description}
-                </Text>
-              ))}
-            </Box>
-          ) : null}
-          <CommandInput
-            history={history.recent.map((entry) => `/${entry.path.join(" ")}`)}
-            placeholder="Type a command, ask for help, or press / to browse actions."
-            onSubmit={handleCommandInputSubmit}
-            onSlashTrigger={() => setPaletteOpen(true)}
+        {paletteOpen ? (
+          <CommandPalette
+            commands={registry}
+            recentIds={history.recent.map((entry) => entry.id)}
+            favoriteIds={history.favorites}
+            onSubmit={handleCommandChosen}
+            onCancel={() => setPaletteOpen(false)}
+            maxVisibleRows={maxVisibleRows}
           />
-        </Box>
-      ) : null}
+        ) : (
+          <TerminalRouter
+            focusedSession={sessions.focusedSession}
+            commands={registry}
+            recent={history.recent}
+            toolChecklist={toolChecklist}
+            onSessionDone={sessions.finish}
+            maxVisibleRows={maxVisibleRows}
+          />
+        )}
 
-      <Box marginTop={1}>
-        <KeyHintBar hints={footerHints(route, paletteOpen)} />
+        {sessions.focusedSession?.kind === "workflow" ? (
+          <InteractionHost key={sessions.focusedSession.id} service={sessions.focusedSession.service} maxVisibleRows={maxVisibleRows} />
+        ) : null}
+
+        <Box flexGrow={1} />
+
+        {isIdle ? (
+          <Box flexDirection="column" marginTop={1}>
+            {naturalMatches.length > 0 ? (
+              <Box flexDirection="column" marginBottom={1}>
+                <Text color={theme.muted || undefined}>Did you mean:</Text>
+                {naturalMatches.map((match) => (
+                  <Text key={match.id} color={theme.primary || undefined}>
+                    /{match.path.join(" ")} — {match.description}
+                  </Text>
+                ))}
+              </Box>
+            ) : null}
+            <CommandInput
+              history={history.recent.map((entry) => `/${entry.path.join(" ")}`)}
+              placeholder="Type a command, ask for help, or press / to browse actions."
+              onSubmit={handleCommandInputSubmit}
+              onSlashTrigger={() => setPaletteOpen(true)}
+            />
+          </Box>
+        ) : null}
+
+        <Box marginTop={1} justifyContent="space-between">
+          <KeyHintBar hints={footerHints(sessions.focusedSession, paletteOpen)} />
+          <SessionStatusBadge count={sessions.sessions.length} cycleHint="Ctrl+N" />
+        </Box>
       </Box>
     </Box>
   );
@@ -224,7 +263,7 @@ function notificationColor(level: TNotification["level"], theme: ReturnType<type
   }
 }
 
-function footerHints(route: TTerminalRoute, paletteOpen: boolean): { key: string; label: string }[] {
+function footerHints(focusedSession: TSession | undefined, paletteOpen: boolean): { key: string; label: string }[] {
   if (paletteOpen) {
     return [
       { key: "↑↓", label: "Navigate" },
@@ -233,10 +272,11 @@ function footerHints(route: TTerminalRoute, paletteOpen: boolean): { key: string
     ];
   }
 
-  if (route.screen === "workflow") {
+  if (focusedSession) {
     return [
       { key: "Ctrl+C", label: "Cancel" },
       { key: "Enter", label: "Expand output" },
+      { key: "Ctrl+N", label: "Switch session" },
     ];
   }
 

@@ -63,7 +63,7 @@ function validateNotEmpty(label: string): (value: string) => true | string {
   return (value: string) => value.trim() ? true : `${label} is required`;
 }
 
-function maskToken(token: string): string {
+export function maskToken(token: string): string {
   const trimmedToken = token.trim();
 
   if (trimmedToken.length <= 8) {

@@ -72,11 +72,11 @@ function formatBytes(bytes: number | undefined): string {
 /** One dense, single-line row per queue — the previous 2-line trow layout was the main source of scroll fatigue. */
 function QueueHealthRow({ queue }: { queue: TQueueHealthInfo }): React.ReactElement {
   return (
-    <div className="row" style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", fontSize: "var(--font-size-xs)", gap: 8 }}>
+    <div className="row" style={{ padding: "4px 0", borderBottom: "1px solid var(--border)", fontSize: "var(--font-size-xs)", gap: 8, flexWrap: "wrap" }}>
       <span className={`cbadge ${HEALTH_BADGE_CLASS[queue.status]}`} style={{ flex: "none" }}>
         {HEALTH_LABEL[queue.status]}
       </span>
-      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ flex: "1 1 120px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {queue.queueName.split("/").pop()}
         {queue.isDeadLetter ? " (DMQ)" : ""}
       </span>
@@ -91,10 +91,12 @@ function QueueHealthRow({ queue }: { queue: TQueueHealthInfo }): React.ReactElem
   );
 }
 
-/** One card per Event Mesh instance, laid out 2-up (`ts-grid-2`) so several namespaces fit without scrolling past them one at a time. */
+/** One card per Event Mesh instance, laid out via `cpi-queue-grid` (wider min column than the
+ * generic `ts-grid-2`) so each row's queue name keeps room next to its stats string instead of
+ * being squeezed to a sliver when several namespaces' cards fit across a wide monitor. */
 function QueueHealthGrid({ results }: { results: TCpiQueueHealthResult[] }): React.ReactElement {
   return (
-    <div className="ts-grid-2">
+    <div className="cpi-queue-grid">
       {results.map((instance) => (
         <div key={instance.serviceKeyFileName} className="ts-card" style={{ padding: "var(--space-3)", marginBottom: "var(--space-3)" }}>
           <div className="note" style={{ marginBottom: 4 }}>

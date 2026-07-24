@@ -6,6 +6,7 @@ export type TGlobalShortcutHandlers = {
   onRecent?: () => void; // Ctrl+P
   onClear?: () => void; // Ctrl+L
   onCancelOrExit?: () => void; // Ctrl+C — meaning depends on whether a workflow is running
+  onCycleSession?: () => void; // Ctrl+N — cycle focus across running sessions + home
 };
 
 /**
@@ -36,6 +37,9 @@ export function useGlobalShortcuts(handlers: TGlobalShortcutHandlers, options?: 
           return;
         case "c":
           handlers.onCancelOrExit?.();
+          return;
+        case "n":
+          handlers.onCycleSession?.();
           return;
         default:
       }

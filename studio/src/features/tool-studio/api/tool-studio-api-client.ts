@@ -303,8 +303,6 @@ export const toolStudioApi = {
     post<{ results?: Record<string, TCfAppOpResult>; error?: string }>("/api/tool/cf-log-restart/restart", { targetKey, appNames }),
   getCloudLoggingDashboardLink: (targetKey: string, appName: string) =>
     post<{ url?: string; serviceName?: string; error?: string }>("/api/tool/cf-log-restart/cloud-logging-link", { targetKey, appName }),
-  startLogTail: (targetKey: string, appName: string) => post<{ jobId?: string; error?: string }>("/api/tool/cf-log-restart/tail/start", { targetKey, appName }),
-  stopLogTail: (jobId: string) => post<{ ok: boolean }>("/api/tool/cf-log-restart/tail/stop", { jobId }),
   openSshTerminal: (targetKey: string, appName: string, instanceIndex = "0") =>
     post<{ ok: boolean; error?: string }>("/api/tool/cf-log-restart/ssh", { targetKey, appName, instanceIndex }),
 

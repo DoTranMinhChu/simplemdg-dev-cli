@@ -8,11 +8,14 @@ import { resolveTerminalTheme, type TTerminalTheme } from "./terminal-theme";
 import { buildCommandRegistry, type TInteractiveCommandDefinition } from "./command-registry";
 import { detectContextFacts } from "./context-facts";
 import { installTerminalCrashGuard } from "./terminal-crash-guard";
+import { installTerminalTitleExitRestore, popTerminalTitle, pushTerminalTitle } from "./terminal-title";
 import { readCache } from "../../core/cache";
 import { runGroupNavigator } from "../../core/navigator";
 import { SmdgTerminalApp } from "../app/SmdgTerminalApp";
 import { TerminalContextProvider } from "../app/TerminalContext";
 import type { TTerminalHeaderMode } from "../../core/types";
+
+const SHELL_TERMINAL_TITLE = "smdg";
 
 type TRenderOptions = {
   version: string;
@@ -127,6 +130,8 @@ export async function launchInteractiveShell(program: Command, version: string):
   }
 
   installTerminalCrashGuard();
+  installTerminalTitleExitRestore();
+  pushTerminalTitle(SHELL_TERMINAL_TITLE);
 
   const registry = buildCommandRegistry(program);
   const cwd = process.cwd();
@@ -147,10 +152,16 @@ export async function launchInteractiveShell(program: Command, version: string):
     });
 
     if (!externalCommand) {
+      popTerminalTitle();
       return;
     }
 
+    // The handed-off child process (and the plain readline prompt below)
+    // should see the user's real terminal title, not a stale "smdg" left
+    // over from the shell it's replacing.
+    popTerminalTitle();
     runExternalProcessCommand(externalCommand.path);
+    pushTerminalTitle(SHELL_TERMINAL_TITLE);
     console.log("");
     await waitForEnter("Press Enter to return to the console...");
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../../components/common/Button";
 import { EmptyState } from "../../../components/common/EmptyState";
 import { Spinner } from "../../../components/common/Spinner";
@@ -87,6 +87,14 @@ export function CfMultiAppPicker({
   const lowerQ = search.toLowerCase();
   const filtered = (apps ?? []).filter((app) => (app.name ?? "").toLowerCase().includes(lowerQ));
 
+  // Selected apps float to the top so it's obvious at a glance what's already picked, instead of
+  // making the user scan the whole (potentially long) list for checked boxes. `.sort` is a stable
+  // sort (guaranteed since ES2019), so within each group the original list order is preserved.
+  const sorted = useMemo(
+    () => [...filtered].sort((a, b) => Number(selected.has(b.name)) - Number(selected.has(a.name))),
+    [filtered, selected],
+  );
+
   return (
     <div>
       <div className="wiz-breadcrumb" style={{ marginBottom: 8 }}>
@@ -129,11 +137,11 @@ export function CfMultiAppPicker({
             </Button>
           </div>
           <div className="wiz-body" style={{ maxHeight: 340, overflow: "auto" }}>
-            {!filtered.length ? (
+            {!sorted.length ? (
               <EmptyState>{search ? "No apps match your search." : "No apps found in this space."}</EmptyState>
             ) : (
-              filtered.map((app) => (
-                <label key={app.name} className="trow" style={{ cursor: "pointer" }}>
+              sorted.map((app) => (
+                <label key={app.name} className={`trow${selected.has(app.name) ? " active" : ""}`} style={{ cursor: "pointer" }}>
                   <input type="checkbox" checked={selected.has(app.name)} onChange={() => toggle(app.name)} style={{ marginRight: 8 }} />
                   <div className="trow-main">
                     <div className="trow-title">{app.name}</div>

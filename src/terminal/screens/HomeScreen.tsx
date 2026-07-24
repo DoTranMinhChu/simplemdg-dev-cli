@@ -53,6 +53,8 @@ export function HomeScreen(props: {
   commands: TInteractiveCommandDefinition[];
   recent: TCommandHistoryEntry[];
   toolChecklist: TToolCheck[];
+  /** Rows available for this screen before the composer/footer chrome — see SmdgTerminalApp.tsx. Only bites on a very short terminal; the lists here are small by design. */
+  maxVisibleRows?: number;
 }) {
   const theme = useTerminalTheme();
   const { columns } = useTerminalSize();
@@ -60,6 +62,14 @@ export function HomeScreen(props: {
   const groupColumnWidth = commandGroups.length > 0 ? Math.max(...commandGroups.map((group) => group.slug.length)) + 5 : 0;
   // Panel overhead this row sits inside of: 1 left-border char + 1 paddingLeft.
   const taglineMaxWidth = Math.max(0, columns - groupColumnWidth - 2);
+
+  // Environment checklist + "Command groups" heading + Recent actions heading
+  // all cost one row each regardless of list length — reserve for those
+  // before splitting the rest between the two lists.
+  const chromeRows = (props.toolChecklist.length > 0 ? 1 : 0) + (commandGroups.length > 0 ? 1 : 0) + (props.recent.length > 0 ? 1 : 0);
+  const availableListRows = props.maxVisibleRows !== undefined ? Math.max(0, props.maxVisibleRows - chromeRows) : undefined;
+  const visibleCommandGroups = availableListRows !== undefined ? commandGroups.slice(0, Math.max(1, availableListRows)) : commandGroups;
+  const hiddenGroupCount = commandGroups.length - visibleCommandGroups.length;
 
   const hasTips = props.toolChecklist.length > 0 || commandGroups.length > 0;
 
@@ -91,12 +101,13 @@ export function HomeScreen(props: {
           {commandGroups.length > 0 ? (
             <Box flexDirection="column">
               <Text bold>Command groups</Text>
-              {commandGroups.map((group) => (
+              {visibleCommandGroups.map((group) => (
                 <Text key={group.slug}>
                   <Text color={theme.primary || undefined}>{`❯ /${group.slug}`.padEnd(groupColumnWidth)}</Text>
                   <Text color={theme.muted || undefined}>{truncateToWidth(group.tagline, taglineMaxWidth)}</Text>
                 </Text>
               ))}
+              {hiddenGroupCount > 0 ? <Text color={theme.muted || undefined}>+{hiddenGroupCount} more — press / to browse all</Text> : null}
             </Box>
           ) : null}
         </Box>

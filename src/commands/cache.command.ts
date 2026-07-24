@@ -11,7 +11,7 @@ import {
   statNamespace,
 } from "../core/cache/smart-cache";
 
-function resolveScopeNamespaces(scope: string | undefined): string[] {
+export function resolveScopeNamespaces(scope: string | undefined): string[] {
   if (!scope) {
     return CACHE_SCOPES.all;
   }

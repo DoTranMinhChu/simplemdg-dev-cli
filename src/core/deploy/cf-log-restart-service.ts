@@ -1,11 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { execa } from "execa";
 import { cfExecutionService } from "../cf/cf-execution-service";
 import type { TCfExecutionContext } from "../cf/cf-execution-service";
 import { readAppVcapServicesInContext } from "../db/db-btp";
 import { mapWithConcurrency } from "../concurrency";
-import { emitJobEvent } from "../tool/studio/job-events";
-import { registerTail, dropTail, stopTail } from "./cf-log-tail-registry";
 import { openTerminalWithCommand } from "../../terminal/services/open-terminal";
 
 export type TCfLogLine = { raw: string };
@@ -67,60 +63,6 @@ export async function getCloudLoggingDashboardLink(context: TCfExecutionContext,
   if (!dashboardsEndpoint) return {};
   const serviceName = (entries[0] as { name?: string }).name;
   return { url: `https://${dashboardsEndpoint}`, serviceName };
-}
-
-/**
- * Starts a live tail — `cf logs <app>` with no `--recent`, which streams forward from "now" and
- * never exits on its own — spawned directly against `context.cfHome` rather than through
- * `cfExecutionService.runCf` (which awaits full completion). Deliberately NOT called from inside
- * `withCfTarget`'s mutex-held callback: an open browser tab can keep this alive indefinitely, and
- * holding the region's mutex that long would block every other CF action against the same region
- * for as long as the tail runs. The route resolves `context` via a short-lived `withCfTarget` call
- * first (which releases the mutex immediately, since it does nothing but hand the context back),
- * then calls this outside the lock.
- *
- * Each output line is broadcast over the existing Tool Studio job-event SSE channel as a
- * `job-log` event — a variant that was already declared in the shared event type but never
- * actually emitted anywhere until now.
- */
-export function startLogTail(context: TCfExecutionContext, appName: string): string {
-  const jobId = `cf-log-tail:${randomUUID()}`;
-  const child = execa("cf", ["logs", appName], { env: { ...process.env, CF_HOME: context.cfHome }, reject: false });
-  registerTail(jobId, child);
-  child.catch(() => undefined);
-  emitJobEvent({ jobId, type: "job-started" });
-
-  let buffer = "";
-  const flushLines = (chunk: Buffer): void => {
-    buffer += chunk.toString();
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (line.trim()) emitJobEvent({ jobId, type: "job-log", log: line });
-    }
-  };
-  child.stdout?.on("data", flushLines);
-  child.stderr?.on("data", flushLines);
-
-  child.on("exit", (code) => {
-    dropTail(jobId);
-    if (code !== 0 && code !== null) {
-      emitJobEvent({ jobId, type: "job-failed", error: `cf logs ${appName} exited with code ${code}` });
-    } else {
-      emitJobEvent({ jobId, type: "job-completed" });
-    }
-  });
-  child.on("error", (error) => {
-    dropTail(jobId);
-    emitJobEvent({ jobId, type: "job-failed", error: error.message });
-  });
-
-  return jobId;
-}
-
-/** Kills a running tail. Returns false if the jobId is unknown (already stopped/exited). */
-export function stopLogTail(jobId: string): boolean {
-  return stopTail(jobId);
 }
 
 /**

@@ -1,0 +1,15 @@
+{
+  "id": "smdg-evidence-tools",
+  "version": "1.0.0",
+  "displayName": "Evidence File Tools (Local Excel Reader)",
+  "description": "Registers an MCP server that reads a locally-downloaded .xlsx/.xlsm/.xltx/.xltm file (sheet listing + paginated cell reads), for agents that need to inspect an evidence file (e.g. a mass-upload spreadsheet) that Read/Grep/Glob cannot parse. Wraps @negokaz/excel-mcp-server, pinned to an exact version rather than @latest since it may handle real customer master data.",
+  "kind": "mcp-bundle",
+  "dependsOn": [],
+  "mcpScope": "always-user",
+  "components": {
+    "mcpServers": [
+      { "name": "smdg-evidence-tools", "package": "@negokaz/excel-mcp-server@0.12.0", "args": [] }
+    ]
+  },
+  "usageFile": "USAGE.md"
+}

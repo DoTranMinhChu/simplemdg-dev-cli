@@ -46,7 +46,7 @@ async function confirm(message: string, initial = true): Promise<boolean> {
   return Boolean(response.value);
 }
 
-function formatManifestLine(manifest: TPluginManifest, installedNote?: string): string {
+export function formatManifestLine(manifest: TPluginManifest, installedNote?: string): string {
   const kindLabel = chalk.gray(`[${manifest.kind}]`);
   const suffix = installedNote ? chalk.green(` (${installedNote})`) : "";
   return `${chalk.bold(manifest.id)} ${kindLabel} — ${manifest.displayName}${suffix}`;

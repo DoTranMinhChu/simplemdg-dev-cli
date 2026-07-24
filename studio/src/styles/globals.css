@@ -4648,20 +4648,6 @@ td.cell-active {
    color: var(--red);
 }
 
-.cflog-live-dot {
-   display: inline-block;
-   width: 8px;
-   height: 8px;
-   border-radius: 50%;
-   background: var(--red);
-   animation: cflog-live-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes cflog-live-pulse {
-   0%, 100% { opacity: 1; }
-   50% { opacity: .35; }
-}
-
 .cflog-bulk-toolbar {
    display: flex;
    align-items: center;
@@ -5580,6 +5566,21 @@ td.cell-active {
    display: grid;
    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
    gap: var(--space-3);
+}
+
+/* CPI Queue / Event Mesh's per-instance cards: each row packs a status badge, queue name, and a
+   fairly long fixed-width stats string (msg/unacked/consumer/size counts) on one line, so a 320px
+   column (ts-grid-2's minmax) squeezes the queue name down to 1-2 characters on wide monitors that
+   fit 4-5 columns. A wider min-width keeps rows readable while still wrapping to fewer columns on
+   narrower screens. */
+.cpi-queue-grid {
+   display: grid;
+   grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+   gap: var(--space-3);
+}
+
+@media (max-width: 767px) {
+   .cpi-queue-grid { grid-template-columns: 1fr; }
 }
 
 .ts-result {

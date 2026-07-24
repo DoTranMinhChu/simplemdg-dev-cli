@@ -8,6 +8,8 @@ export function CommandPalette(props: {
   favoriteIds: string[];
   onSubmit: (command: TInteractiveCommandDefinition) => void;
   onCancel: () => void;
+  /** Rows available before the composer/footer chrome — see SmdgTerminalApp.tsx. Falls back to the historical fixed limit. */
+  maxVisibleRows?: number;
 }) {
   const ordered = useMemo(() => {
     const byId = new Map(props.commands.map((command) => [command.id, command]));
@@ -36,12 +38,17 @@ export function CommandPalette(props: {
     searchText: [command.path.join(" "), ...command.keywords, ...command.aliases],
   }));
 
+  // SearchableList renders its own message + query line above these rows (2
+  // lines of chrome not part of `limit`), so subtract those before handing
+  // down the remaining row budget.
+  const limit = props.maxVisibleRows !== undefined ? Math.max(1, props.maxVisibleRows - 2) : 12;
+
   return (
     <SearchableList
       message="Commands — type to filter, Enter to run, Esc to close"
       choices={choices}
       allowCustomValue={false}
-      limit={12}
+      limit={limit}
       onSubmit={(value) => {
         const command = props.commands.find((candidate) => candidate.id === value);
         if (command) {

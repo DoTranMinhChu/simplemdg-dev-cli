@@ -22,6 +22,12 @@ You receive a feature or domain name (e.g. "Manage Users", "Parallel Change Vali
 
 4. **UI entry point.** Grep the generic UI module's shared controllers (e.g. `main/src/controller/masterData/*`, `admin/src/controller/masterdata/*`) for a `case BusinessObjectType.<X>:`-style branch, an i18n key, or a dynamically-built OData path segment matching this domain's shortname — that branch/config entry IS the UI entry point; there usually isn't a dedicated file to point to. Read only the matched branch — don't assume a whole dedicated screen exists. If GitNexus is available and this repo is already indexed, you may use `trace`/`explain` to jump from that symbol to its backend call site instead of manually grepping the OData/fetch call; otherwise grep for the API path/service name the branch builds and fall back to that. If truly nothing domain-specific is found (common — most domains have zero bespoke UI code), record `ui_entry_point: generic masterData module, no domain-specific branch found` rather than reporting a false negative as if the UI didn't exist.
 
+**Opportunistic evidence-source note**: while tracing the UI entry point (step 4) and API handler
+(step 5), if you notice a Monitor/Audit screen, a "Download Failed Items"-style export route, or an
+OData entity that exposes persisted error/evidence data for this feature, note it — this feeds the
+`evidence_sources` field in step 8. Do not do extra searching beyond what steps 4-5 already surface;
+this is opportunistic, not a new mandatory research step.
+
 5. **API/handler.** Grep the corresponding `_srv_` repo for the matching `srv.on(` handler (the action/entity name from the UI call), read only the match. If the repo turns out to be a thin wrapper around a shared generic service (e.g. `extend service ObjectTypeCommonService`/`ObjectTypeProcessService` with no bespoke handler code), say so explicitly and note the shared package that actually implements the behavior instead of reporting an empty handler.
 
 6. **Database entity/table.** Grep the handler for `SELECT.from`/`INSERT.into`/entity references, then grep the sibling `_db_` repo's `.cds` files for that entity's definition. This hop is always grep/read — never a GitNexus call, per boundary #1 above.
@@ -37,6 +43,7 @@ You receive a feature or domain name (e.g. "Manage Users", "Parallel Change Vali
    - db_entity: <path:line, entity/table name>
    - event_emitted: <topic name (from event-map.md or computed as shortname+action) + path:line if grepped, or "none found in event-map.md — run smdg-event-map-sweeper against this domain">
    - approval_sla_stakeholder: <"not applicable to this feature" | "handled by the shared config/background services (access-sequence/condition-table routing, SLA scheduler) — not specific to this domain">
+   - evidence_sources: <a Monitor/Audit screen, a "Download Failed Items"-style export route, or an OData entity exposing persisted error/evidence data directly, if noticed during the trace above — path/route + one line on what it exposes; else "none noted during this trace — not specifically searched for">
 
    <A short plain-language paragraph: what this feature does, in a sentence or two a non-technical reader could follow.>
 

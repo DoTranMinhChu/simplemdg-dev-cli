@@ -1,0 +1,3 @@
+[      23ms] [ERROR] Not allowed to load local resource: file:///C:/Users/MikeDo/Dev/GitHub/simplemdg-dev-cli/studio/src/styles/theme.css @ http://localhost:8642/AppData/Local/Temp/claude/c--Users-MikeDo-Dev-GitHub-simplemdg-dev-cli/9211cd3b-ca55-47e6-9ce5-1a84dafb4933/scratchpad/cpi-grid-check.html:4
+[      23ms] [ERROR] Not allowed to load local resource: file:///C:/Users/MikeDo/Dev/GitHub/simplemdg-dev-cli/studio/src/styles/globals.css @ http://localhost:8642/AppData/Local/Temp/claude/c--Users-MikeDo-Dev-GitHub-simplemdg-dev-cli/9211cd3b-ca55-47e6-9ce5-1a84dafb4933/scratchpad/cpi-grid-check.html:5
+[      71ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8642/favicon.ico:0

@@ -1,7 +1,7 @@
 import http from "node:http";
 import { getString, readJsonBody, sendJson } from "../../../studio-shared/studio-server-kit";
 import { withCfTarget } from "../../../cf/cf-target-switcher";
-import { getRecentLogsForApps, restartApps, getCloudLoggingDashboardLink, startLogTail, stopLogTail, openSshTerminalForApp } from "../../../deploy/cf-log-restart-service";
+import { getRecentLogsForApps, restartApps, getCloudLoggingDashboardLink, openSshTerminalForApp } from "../../../deploy/cf-log-restart-service";
 
 /** Historical default app-name list from the legacy tool's UI multiselect — an overridable starting point, not a hardcoded requirement (free-text app names always work too, since app names come live from /api/btp/apps). */
 export const DEFAULT_CF_LOG_RESTART_APPS = [
@@ -58,38 +58,6 @@ export async function handleCfLogRestartApi(req: http.IncomingMessage, res: http
     } catch (error) {
       sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
     }
-    return true;
-  }
-
-  if (url.pathname === "/api/tool/cf-log-restart/tail/start" && method === "POST") {
-    const body = await readJsonBody(req);
-    const targetKey = getString(body, "targetKey");
-    const appName = getString(body, "appName");
-    if (!targetKey || !appName) {
-      sendJson(res, { error: "targetKey and appName are required" }, 400);
-      return true;
-    }
-    try {
-      // A short-lived `withCfTarget` call just to resolve the isolated CF_HOME context (target
-      // org/space switch) — the mutex it holds is released as soon as this identity callback
-      // returns, well before the tail itself (which can run indefinitely) even starts.
-      const context = await withCfTarget(targetKey, async (ctx) => ctx);
-      const jobId = startLogTail(context, appName);
-      sendJson(res, { jobId });
-    } catch (error) {
-      sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
-    }
-    return true;
-  }
-
-  if (url.pathname === "/api/tool/cf-log-restart/tail/stop" && method === "POST") {
-    const body = await readJsonBody(req);
-    const jobId = getString(body, "jobId");
-    if (!jobId) {
-      sendJson(res, { error: "jobId is required" }, 400);
-      return true;
-    }
-    sendJson(res, { ok: stopLogTail(jobId) });
     return true;
   }
 

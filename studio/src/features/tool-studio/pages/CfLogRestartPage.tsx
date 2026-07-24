@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../../components/common/Button";
 import { Spinner } from "../../../components/common/Spinner";
 import { Modal } from "../../../components/common/Modal";
@@ -6,13 +6,11 @@ import { BtpTargetSelector } from "../../../components/btp/BtpTargetSelector";
 import { CfLogViewer } from "../../../components/common/CfLogViewer";
 import { CfMultiAppPicker } from "../components/CfMultiAppPicker";
 import { useAsync } from "../../../hooks/useAsync";
-import { useJobEvents } from "../hooks/useJobEvents";
 import { toolStudioApi } from "../api/tool-studio-api-client";
+import type { TCfAppOpResult } from "../api/tool-studio-api-client";
 import { parseCfLogs } from "../../../lib/cf-log-parser";
 import type { TCfLogLevel } from "../../../lib/cf-log-parser";
 import type { TCfTargetSummary } from "../../../api/studio-api-types";
-
-type TTailStatus = "idle" | "connecting" | "live" | "error";
 
 type TStep = "target" | "apps" | "logs";
 
@@ -34,73 +32,26 @@ export function CfLogRestartPage(): React.ReactElement {
   const sshCall = useAsync((key: string, app: string) => toolStudioApi.openSshTerminal(key, app));
   const [cloudLoggingUrl, setCloudLoggingUrl] = useState<string | undefined>();
 
-  // Live tail (`cf logs <app>`, no --recent — streams forward from now, forever) — only one app at
-  // a time; starting a new one stops whatever was running. Accumulated lines live separately from
-  // the one-shot `logsCall` snapshot per app, so switching back to a non-tailing tab still shows
-  // its last fetched snapshot untouched.
-  const [tailJobId, setTailJobId] = useState<string | undefined>();
-  const [tailingApp, setTailingApp] = useState<string | undefined>();
-  const [tailStatus, setTailStatus] = useState<TTailStatus>("idle");
-  const [tailError, setTailError] = useState<string | undefined>();
-  const [liveLinesByApp, setLiveLinesByApp] = useState<Record<string, string[]>>({});
-  const tailJobIdRef = useRef<string | undefined>(undefined);
+  // Per-app log results, seeded from each `logsCall` run (which fetches every tab at once) and
+  // patched in place by `refreshApp` (which re-fetches just the active tab) — kept as its own state
+  // rather than reading straight off `logsCall.data` so a single-app refresh doesn't clobber the
+  // other tabs' already-fetched logs.
+  const [results, setResults] = useState<Record<string, TCfAppOpResult>>({});
+  const [refreshingApp, setRefreshingApp] = useState<string | undefined>();
 
   useEffect(() => {
-    tailJobIdRef.current = tailJobId;
-  }, [tailJobId]);
+    if (logsCall.data?.results) setResults(logsCall.data.results);
+  }, [logsCall.data]);
 
-  // Kill any still-running tail if the user navigates away from this page entirely — `cf logs`
-  // (no --recent) never exits on its own, so an unmounted page would otherwise leak the process.
-  useEffect(() => {
-    return () => {
-      if (tailJobIdRef.current) void toolStudioApi.stopLogTail(tailJobIdRef.current);
-    };
-  }, []);
-
-  useJobEvents(tailJobId, (event) => {
-    if (event.type === "job-started") {
-      setTailStatus("live");
-      setTailError(undefined);
-    } else if (event.type === "job-log" && event.log !== undefined) {
-      setLiveLinesByApp((prev) => {
-        if (!tailingApp) return prev;
-        return { ...prev, [tailingApp]: [...(prev[tailingApp] ?? []), event.log as string] };
-      });
-    } else if (event.type === "job-failed") {
-      setTailStatus("error");
-      setTailError(event.error);
-    } else if (event.type === "job-completed") {
-      setTailStatus("idle");
-    }
-  });
-
-  const startTail = async (appName: string): Promise<void> => {
+  const refreshApp = async (appName: string): Promise<void> => {
     if (!target) return;
-    if (tailJobId) await toolStudioApi.stopLogTail(tailJobId).catch(() => undefined);
-    setTailJobId(undefined);
-    setTailingApp(appName);
-    setLiveLinesByApp((prev) => ({ ...prev, [appName]: [] }));
-    setTailStatus("connecting");
-    setTailError(undefined);
-    const result = await toolStudioApi.startLogTail(target.key, appName);
-    if (result.jobId) {
-      // Optimistic: the successful POST response already confirms the `cf logs` child process
-      // was spawned. Waiting for a "job-started" SSE event instead would race the subscription
-      // itself — useJobEvents only opens its EventSource once `tailJobId` is set below, i.e.
-      // strictly after "job-started" was already emitted server-side, so it would never arrive.
-      // A later "job-failed" event still corrects this if the process dies right after spawning.
-      setTailJobId(result.jobId);
-      setTailStatus("live");
-    } else {
-      setTailStatus("error");
-      setTailError(result.error);
+    setRefreshingApp(appName);
+    try {
+      const response = await toolStudioApi.getRecentLogs(target.key, [appName]);
+      if (response.results) setResults((prev) => ({ ...prev, ...response.results }));
+    } finally {
+      setRefreshingApp(undefined);
     }
-  };
-
-  const stopTailNow = async (): Promise<void> => {
-    if (tailJobId) await toolStudioApi.stopLogTail(tailJobId).catch(() => undefined);
-    setTailJobId(undefined);
-    setTailStatus("idle");
   };
 
   const targetLabel = target ? `${target.org} / ${target.space} (${target.region})` : "";
@@ -131,20 +82,18 @@ export function CfLogRestartPage(): React.ReactElement {
     const errorCounts: Record<string, number> = {};
     const aggregateCounts: Record<TCfLogLevel, number> = { error: 0, warn: 0, info: 0, debug: 0, unknown: 0 };
     let totalLines = 0;
-    if (logsCall.data?.results) {
-      for (const [app, result] of Object.entries(logsCall.data.results)) {
-        if (result.ok && result.logs) {
-          const lines = parseCfLogs(result.logs);
-          errorCounts[app] = lines.filter((line) => line.level === "error").length;
-          for (const line of lines) aggregateCounts[line.level] += 1;
-          totalLines += lines.length;
-        } else {
-          errorCounts[app] = 0;
-        }
+    for (const [app, result] of Object.entries(results)) {
+      if (result.ok && result.logs) {
+        const lines = parseCfLogs(result.logs);
+        errorCounts[app] = lines.filter((line) => line.level === "error").length;
+        for (const line of lines) aggregateCounts[line.level] += 1;
+        totalLines += lines.length;
+      } else {
+        errorCounts[app] = 0;
       }
     }
     return { errorCounts, aggregateCounts, totalLines };
-  }, [logsCall.data]);
+  }, [results]);
 
   const timeFromMs = timeFrom ? new Date(timeFrom).getTime() : undefined;
   const timeToMs = timeTo ? new Date(timeTo).getTime() : undefined;
@@ -156,7 +105,7 @@ export function CfLogRestartPage(): React.ReactElement {
     void logsCall.run(target.key, apps);
   };
 
-  const activeResult = activeApp ? logsCall.data?.results?.[activeApp] : undefined;
+  const activeResult = activeApp ? results[activeApp] : undefined;
 
   return (
     <div>
@@ -172,6 +121,7 @@ export function CfLogRestartPage(): React.ReactElement {
               setTarget(selected);
               setAppNames([]);
               setActiveApp(undefined);
+              setResults({});
               logsCall.reset();
               setStep("apps");
             }}
@@ -225,16 +175,10 @@ export function CfLogRestartPage(): React.ReactElement {
                 {sshCall.loading ? <Spinner /> : `🖥 SSH into ${activeApp}`}
               </Button>
             )}
-            {activeApp && tailingApp === activeApp && tailStatus !== "idle" ? (
-              <Button variant="sec" onClick={() => void stopTailNow()}>
-                {tailStatus === "connecting" ? <Spinner /> : <span className="cflog-live-dot" />} ⏹ Stop live tail
+            {activeApp && (
+              <Button variant="sec" onClick={() => void refreshApp(activeApp)} disabled={refreshingApp === activeApp}>
+                {refreshingApp === activeApp ? <Spinner /> : `⟳ Refresh ${activeApp}`}
               </Button>
-            ) : (
-              activeApp && (
-                <Button variant="sec" onClick={() => void startTail(activeApp)}>
-                  ▶ Live tail {activeApp}
-                </Button>
-              )
             )}
             {cloudLoggingUrl && (
               <a
@@ -252,7 +196,6 @@ export function CfLogRestartPage(): React.ReactElement {
 
           {logsCall.error && <div className="errbox" style={{ marginBottom: 12 }}>{logsCall.error}</div>}
           {restartCall.error && <div className="errbox" style={{ marginBottom: 12 }}>{restartCall.error}</div>}
-          {tailStatus === "error" && tailError && <div className="errbox" style={{ marginBottom: 12 }}>Live tail stopped: {tailError}</div>}
           {activeApp && restartCall.data?.results?.[activeApp] && (
             <div className={restartCall.data.results[activeApp].ok ? "note" : "errbox"} style={{ marginBottom: 12 }}>
               {restartCall.data.results[activeApp].ok ? `Restart requested for ${activeApp}.` : restartCall.data.results[activeApp].error}
@@ -274,7 +217,6 @@ export function CfLogRestartPage(): React.ReactElement {
               <div className="cflog-tabs">
                 {appNames.map((app) => (
                   <button key={app} type="button" className={`cflog-tab${app === activeApp ? " active" : ""}`} onClick={() => setActiveApp(app)}>
-                    {app === tailingApp && tailStatus === "live" && <span className="cflog-live-dot" title="Live tail running" />}
                     {app}
                     <span className={`cflog-tab-badge${errorCounts[app] ? " error" : ""}`}>{errorCounts[app] ?? 0}</span>
                   </button>
@@ -304,21 +246,10 @@ export function CfLogRestartPage(): React.ReactElement {
                 )}
               </div>
 
-              {activeApp && tailingApp === activeApp && tailStatus !== "idle" ? (
-                (liveLinesByApp[activeApp]?.length ?? 0) > 0 ? (
-                  <CfLogViewer
-                    key={`${activeApp}-live-${bulkLevel}`}
-                    logs={(liveLinesByApp[activeApp] ?? []).join("\n")}
-                    title={`${activeApp} — live tail`}
-                    initialLevel={bulkLevel}
-                    timeFrom={timeFromMs}
-                    timeTo={timeToMs}
-                  />
-                ) : (
-                  <div className="note faint" style={{ padding: 16 }}>
-                    <Spinner /> {tailStatus === "connecting" ? "connecting..." : "live — waiting for the next log line..."}
-                  </div>
-                )
+              {activeApp && refreshingApp === activeApp ? (
+                <div className="note faint" style={{ padding: 16 }}>
+                  <Spinner /> refreshing {activeApp}...
+                </div>
               ) : (
                 activeApp &&
                 activeResult &&

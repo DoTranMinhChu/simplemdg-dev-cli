@@ -3,7 +3,6 @@ import { Command } from "commander";
 import { startToolStudioServer } from "../core/tool/studio/tool-studio-server";
 import { getDefaultGitLabAuth } from "../core/gitlab/gitlab-client";
 import { importLegacyToolConfig } from "../core/deploy/legacy-config-importer";
-import { stopAllTails } from "../core/deploy/cf-log-tail-registry";
 
 type TToolStudioCommandOptions = { port?: string; devUi?: boolean; apiOnly?: boolean };
 type TImportLegacyConfigOptions = { environment?: string; btpSpace?: string };
@@ -45,7 +44,6 @@ async function runToolStudioCommand(options: TToolStudioCommandOptions): Promise
   const shutdown = async (): Promise<void> => {
     console.log("");
     console.log(chalk.gray("Stopping Tool Studio..."));
-    stopAllTails(); // kill any live `cf logs` tails still running — they don't exit on their own.
     await Promise.race([handle.close(), new Promise<void>((resolve) => setTimeout(resolve, 2000))]);
     process.exit(0);
   };
