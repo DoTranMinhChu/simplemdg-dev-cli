@@ -24,6 +24,12 @@ export type TStreamingSession = TSessionBase & { kind: "streaming"; service: Str
 
 export type TSession = TWorkflowSession | TStreamingSession;
 
+// Studio commands are singleton local dev servers with no parameters — unlike
+// e.g. `cf logs` (where launching twice legitimately tails two different
+// apps), running two AI Studio servers at once is never intentional and just
+// clutters the switcher with duplicates. See `launchStreaming` below.
+const SINGLETON_COMMAND_IDS = new Set(["ai.studio", "tool.studio", "cf.db.studio", "proxy.studio"]);
+
 /**
  * Replaces the shell's old single `route`/`activeService`/`useCancellation`
  * trio — that combination hard-assumed exactly one workflow could ever run
@@ -42,7 +48,6 @@ export function useSessionRegistry(options: {
   finish: (sessionId: string, success: boolean) => void;
   focusHome: () => void;
   focusSession: (sessionId: string) => void;
-  cycleFocus: () => void;
   cancelFocused: () => boolean;
 } {
   const [sessions, setSessions] = useState<TSession[]>([]);
@@ -91,6 +96,16 @@ export function useSessionRegistry(options: {
   }, []);
 
   const launchStreaming = useCallback((command: TInteractiveCommandDefinition): TStreamingSession => {
+    if (SINGLETON_COMMAND_IDS.has(command.id)) {
+      const existing = sessionsRef.current.find(
+        (entry): entry is TStreamingSession => entry.kind === "streaming" && entry.commandId === command.id,
+      );
+      if (existing) {
+        setFocusedSessionId(existing.id);
+        return existing;
+      }
+    }
+
     const controller = new AbortController();
     const service = new StreamingSessionService(controller.signal);
     const session: TStreamingSession = {
@@ -124,13 +139,6 @@ export function useSessionRegistry(options: {
   const focusHome = useCallback(() => setFocusedSessionId(undefined), []);
   const focusSession = useCallback((sessionId: string) => setFocusedSessionId(sessionId), []);
 
-  const cycleFocus = useCallback(() => {
-    const order: (string | undefined)[] = [...sessionsRef.current.map((session) => session.id), undefined];
-    const currentIndex = order.indexOf(focusedSessionIdRef.current);
-    const nextIndex = (currentIndex + 1) % order.length;
-    setFocusedSessionId(order[nextIndex]);
-  }, []);
-
   const cancelFocused = useCallback((): boolean => {
     const session = sessionsRef.current.find((entry) => entry.id === focusedSessionIdRef.current);
     if (!session || session.controller.signal.aborted) {
@@ -148,7 +156,6 @@ export function useSessionRegistry(options: {
     finish,
     focusHome,
     focusSession,
-    cycleFocus,
     cancelFocused,
   };
 }

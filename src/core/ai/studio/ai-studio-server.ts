@@ -4,8 +4,10 @@ import { getDirname } from "../../esm-paths";
 import {
   findAvailablePort,
   openBrowser,
+  reportStudioStartupLine,
   resolveStudioDistPath,
   serveStudioAsset as serveStudioAssetFromKit,
+  type TStudioLogFn,
 } from "../../studio-shared/studio-server-kit";
 import { AiSessionStore } from "../ai-session-store";
 import { ingestAiSessions, watchAiSessions } from "../ai-session-ingestion";
@@ -16,6 +18,7 @@ import { handleNexusApi } from "../../nexus/studio/nexus-routes";
 export type TAiStudioServerOptions = {
   port?: number;
   apiOnly?: boolean;
+  onLog?: TStudioLogFn;
 };
 
 export type TAiStudioServerHandle = {
@@ -111,11 +114,15 @@ export async function startAiStudioServer(options: TAiStudioServerOptions = {}):
   await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
 
   const url = `http://127.0.0.1:${port}`;
-  console.log(chalk.green(`SimpleMDG AI Studio: ${url}`));
+  reportStudioStartupLine(options.onLog, `SimpleMDG AI Studio: ${url}`, chalk.green);
   if (!store) {
-    console.log(chalk.yellow("node:sqlite is unavailable (requires Node.js 22.5+). Sessions cannot be stored; upgrade Node and restart."));
+    reportStudioStartupLine(
+      options.onLog,
+      "node:sqlite is unavailable (requires Node.js 22.5+). Sessions cannot be stored; upgrade Node and restart.",
+      chalk.yellow,
+    );
   }
-  console.log(chalk.gray("Server is bound to 127.0.0.1 only. Press Ctrl+C to stop."));
+  reportStudioStartupLine(options.onLog, "Server is bound to 127.0.0.1 only. Press Ctrl+C to stop.", chalk.gray);
 
   if (!options.apiOnly && !process.env.SMDG_AI_STUDIO_NO_OPEN) {
     await openBrowser(url);

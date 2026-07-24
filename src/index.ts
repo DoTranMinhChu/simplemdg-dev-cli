@@ -4,6 +4,7 @@ import path from "node:path";
 import { Command } from "commander";
 import prompts from "prompts";
 import fs from "fs-extra";
+import { execaSync } from "execa";
 import { getDirname } from "./core/esm-paths";
 import { askRootHelpMode, openUserGuideInBrowser, printUserGuide } from "./core/guide";
 import { installRepository } from "./core/install";
@@ -33,6 +34,28 @@ import { registerProxyCommands } from "./commands/proxy.command";
 import { enableInteractiveNavigation } from "./core/navigator";
 import { launchInteractiveShell } from "./terminal/services/terminal-launcher";
 import type { TInstallCommandOptions, TKeyValueMap } from "./types-local";
+
+// node:sqlite (used intentionally by AI Studio's session store) is an
+// experimental Node built-in — accessing it always triggers Node's own
+// ExperimentalWarning, printed directly to stderr, completely bypassing our
+// code. That's expected/harmless noise, not something the user needs to act
+// on, but printing it raw corrupts the Ink shell's managed terminal output
+// (it lands mid-frame, outside any session's own view).
+//
+// Node registers its own default "print to stderr" listener for the
+// `warning` event before any user code runs. Simply adding another listener
+// does NOT replace or suppress that default one — both fire, so the raw
+// text would still print (verified: `process.on('warning', fn)` alone still
+// prints Node's own banner). `removeAllListeners` strips that default first;
+// this file is the very first thing to touch the `warning` event, so nothing
+// else's listener is at risk of being dropped here.
+process.removeAllListeners("warning");
+process.on("warning", (warning) => {
+  if (warning.name === "ExperimentalWarning" && warning.message.includes("SQLite")) {
+    return;
+  }
+  console.warn(warning);
+});
 
 const program = new Command();
 
@@ -434,6 +457,16 @@ program
       console.log("Example:");
       console.log(`simplemdg install --override ${result.packageName}=9.8.3`);
     }
+  });
+
+program
+  .command("update")
+  .description("Update the SimpleMDG Dev CLI to the latest published version")
+  .action(() => {
+    console.log("Updating simplemdg-dev-cli to the latest version...");
+    console.log("");
+    const result = execaSync("npm", ["install", "-g", "simplemdg-dev-cli@latest"], { stdio: "inherit", reject: false });
+    process.exitCode = result.exitCode ?? 0;
   });
 
 registerCloudFoundryCommands(program);

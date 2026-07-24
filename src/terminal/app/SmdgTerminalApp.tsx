@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Box, Static, Text, useApp } from "ink";
 import { useTerminalContext } from "./TerminalContext";
 import { TerminalRouter, STREAMING_SCREENS } from "./TerminalRouter";
 import { InteractionHost } from "./InteractionHost";
-import { AppHeader, estimateHeaderHeight } from "../components/AppHeader";
+import { StaticIntro, buildCommandGroups } from "../components/StaticIntro";
+import { WelcomeBanner } from "../components/WelcomeBanner";
 import { CommandPalette } from "../components/CommandPalette";
+import { SessionSwitcher } from "../components/SessionSwitcher";
 import { CommandInput } from "../components/CommandInput";
 import { ProgressList } from "../components/ProgressList";
 import { KeyHintBar } from "../components/KeyHintBar";
@@ -15,46 +17,58 @@ import { useCommandHistory } from "../hooks/useCommandHistory";
 import { useTerminalSize } from "../hooks/useTerminalSize";
 import type { TActiveProgress } from "../services/ink-interaction-service";
 import { searchCommands } from "../services/command-search";
-import { detectToolChecklist, type TToolCheck } from "../services/context-facts";
+import { checkLatestVersion, type TVersionCheckResult } from "../services/version-check";
+import type { TToolCheck } from "../services/context-facts";
 import type { TInteractiveCommandDefinition } from "../services/command-registry";
+import type { TCommandHistorySnapshot } from "../services/command-history";
 import type { TNotification } from "../../core/interaction/interaction-service";
 import type { TTerminalHeaderMode } from "../../core/types";
 
-// Below this the fixed-height live region would squeeze the composer/footer
-// out entirely on a tiny terminal — better to let content overflow than to
-// collapse to nothing.
-const MIN_LIVE_REGION_ROWS = 10;
-// Rows the live region reserves for its own bottom chrome (idle input block's
-// marginTop + one composer line, footer's marginTop + one hint line) before
-// handing the rest to whatever content/list is currently on screen.
-const FOOTER_CHROME_ROWS = 6;
+// A soft UX budget, not a hard clipping boundary (the live region has no
+// fixed height for Ink to clip against anymore — see the render method below)
+// — keeps list-style screens (palette, progress, session switcher, recent
+// actions) from trying to cram too many rows onto a small terminal. Covers
+// the welcome banner + idle composer + footer's own rows.
+const RESERVED_CHROME_ROWS = 10;
+
+/** One entry in the shell's single, unified `<Static>` list — see the render method below for why this must stay a single Static instance (Ink only tracks one "static root" per app; splitting the intro and the notification log into two separate `<Static>` components would silently break one of them). */
+type TStaticEntry =
+  | { kind: "intro"; key: "intro" }
+  | { kind: "notification"; key: string; notification: TNotification };
 
 export function SmdgTerminalApp(props: {
   version: string;
   headerMode: TTerminalHeaderMode;
+  historySnapshot: TCommandHistorySnapshot;
+  toolChecklist: TToolCheck[];
   onExternalProcessCommand: (command: TInteractiveCommandDefinition) => void;
+  onClearRequested: () => void;
 }) {
   const { theme, capabilities, registry, projectName, branchName } = useTerminalContext();
   const { exit } = useApp();
-  const history = useCommandHistory();
+  const history = useCommandHistory(props.historySnapshot);
   const { columns, rows } = useTerminalSize();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   const [notifications, setNotifications] = useState<TNotification[]>([]);
   const [activeProgress, setActiveProgress] = useState<TActiveProgress[]>([]);
-  const [toolChecklist, setToolChecklist] = useState<TToolCheck[]>([]);
   const [commandTextValue, setCommandTextValue] = useState("");
   const [naturalMatches, setNaturalMatches] = useState<TInteractiveCommandDefinition[]>([]);
+  const [versionCheck, setVersionCheck] = useState<TVersionCheckResult | undefined>(undefined);
+
+  // Fire-and-forget, resolved well after mount — safe because the banner is
+  // plain LIVE content now (see WelcomeBanner.tsx), not something a fixed-
+  // height container could clip or shift around when this arrives late.
+  useEffect(() => {
+    void checkLatestVersion(props.version).then(setVersionCheck);
+  }, [props.version]);
 
   const sessions = useSessionRegistry({
     onNotify: (notification) => setNotifications((current) => [...current, notification]),
     onNeedsFocusNotice: (session: TSession) =>
       setNotifications((current) => [...current, { level: "warn", message: `Switched to "${session.label}" — it needs your input` }]),
   });
-
-  useEffect(() => {
-    void detectToolChecklist().then(setToolChecklist);
-  }, []);
 
   // Progress is scoped to whichever session is currently focused — merging in
   // unrelated background sessions' progress would just be confusing clutter.
@@ -111,6 +125,11 @@ export function SmdgTerminalApp(props: {
     const trimmed = value.trim();
     if (!trimmed) return;
 
+    if (trimmed.toLowerCase() === "clear" || trimmed.toLowerCase() === "/clear") {
+      props.onClearRequested();
+      return;
+    }
+
     if (trimmed === "/") {
       setPaletteOpen(true);
       return;
@@ -137,8 +156,18 @@ export function SmdgTerminalApp(props: {
       onPalette: () => setPaletteOpen((current) => !current),
       onRecent: () => setPaletteOpen(true),
       onHistorySearch: () => setPaletteOpen(true),
-      onClear: () => setNotifications([]),
+      // A plain in-memory `setNotifications([])` only hid the LIVE notification
+      // log — it never touched the already-committed `<Static>` content (the
+      // environment checklist, past command output) permanently burned into
+      // the real terminal's scrollback, so the screen stayed just as
+      // cluttered. A real clear needs to wipe the actual terminal, which is
+      // only safe once Ink has fully unmounted — see terminal-launcher.tsx.
+      onClear: () => props.onClearRequested(),
       onCancelOrExit: () => {
+        if (switcherOpen) {
+          setSwitcherOpen(false);
+          return;
+        }
         if (sessions.focusedSession) {
           sessions.cancelFocused();
           return;
@@ -149,48 +178,93 @@ export function SmdgTerminalApp(props: {
         }
         exit();
       },
-      onCycleSession: () => sessions.cycleFocus(),
+      // Ctrl+N used to blindly cycle focus one session at a time — with
+      // several sessions running (e.g. two Studio tools) that meant guessing
+      // your way through them with no visibility into what each one even
+      // was. It now opens an explicit, searchable list instead (see
+      // SessionSwitcher.tsx) so you can see and pick the one you actually want.
+      onCycleSession: () => {
+        if (sessions.sessions.length === 0) {
+          return;
+        }
+        setSwitcherOpen((current) => !current);
+      },
     },
     { isActive: true },
   );
 
-  const isIdle = !sessions.focusedSession && !paletteOpen;
+  const isIdle = !sessions.focusedSession && !paletteOpen && !switcherOpen;
+  const commandGroups = useMemo(() => buildCommandGroups(registry), [registry]);
 
-  // The header and Static notification log render at their natural height and
-  // scroll normally into real terminal scrollback (Ink never re-draws
-  // committed Static output, so it doesn't count against this box's height).
-  // Everything below is the "live" frame Ink does redraw on every change —
-  // sizing it to the remaining terminal rows, with a flexGrow spacer ahead of
-  // the composer/footer, is what pins the input to the bottom of the visible
-  // window and keeps it there as the terminal is resized.
-  const headerHeight = estimateHeaderHeight(props.headerMode, columns);
-  const liveRegionHeight = Math.max(MIN_LIVE_REGION_ROWS, rows - headerHeight);
-  const maxVisibleRows = Math.max(3, liveRegionHeight - FOOTER_CHROME_ROWS);
+  // The environment checklist + command-group legend and the notification
+  // log both live in ONE unified `<Static>` list below — Ink only tracks a
+  // single "static root" per app, so they can't be two separate `<Static>`
+  // components. `toolChecklist` arrives as a prop already resolved BEFORE
+  // this component's first render (see terminal-launcher.tsx), so the intro
+  // entry is present from render one. The greeting/version banner is
+  // deliberately NOT part of this Static list — see WelcomeBanner.tsx for why.
+  const staticEntries: TStaticEntry[] = [
+    { kind: "intro", key: "intro" },
+    ...notifications.map((notification, index): TStaticEntry => ({ kind: "notification", key: `notification-${index}`, notification })),
+  ];
+
+  const maxVisibleRows = Math.max(3, rows - RESERVED_CHROME_ROWS);
+  // "Did you mean" and HomeScreen's "Recent actions" can both be on screen at
+  // once (both only show while idle) and SHARE this one budget — each
+  // independently capping itself to the full `maxVisibleRows` would let
+  // their combined height run long on a small terminal. "Did you mean" is the
+  // direct result of what the user just typed, so it claims its (small, capped)
+  // share first; whatever's left goes to "Recent actions" via
+  // `homeScreenMaxRows` below. Sessions always clear naturalMatches on launch
+  // (see handleCommandChosen), so this never shrinks the budget for any
+  // focused-session screen — only the idle HomeScreen path is affected.
+  const visibleNaturalMatches = naturalMatches.slice(0, Math.max(0, Math.min(3, maxVisibleRows - 1)));
+  const naturalMatchesRows = visibleNaturalMatches.length > 0 ? 1 + visibleNaturalMatches.length : 0;
+  const homeScreenMaxRows = Math.max(0, maxVisibleRows - naturalMatchesRows);
 
   return (
     <Box flexDirection="column">
-      <AppHeader
-        version={props.version}
-        mode={props.headerMode}
-        facts={{ project: projectName, branch: branchName }}
-      />
-
-      <Static items={notifications}>
-        {(notification, index) => (
-          <Text key={index} color={notificationColor(notification.level, theme)}>
-            {notification.level === "step" && notification.current !== undefined
-              ? `Step ${notification.current}/${notification.total}  ${notification.message}`
-              : notification.message}
-          </Text>
-        )}
+      <Static items={staticEntries}>
+        {(entry) =>
+          entry.kind === "intro" ? (
+            <StaticIntro key={entry.key} toolChecklist={props.toolChecklist} commandGroups={commandGroups} columns={columns} />
+          ) : (
+            <Text key={entry.key} color={notificationColor(entry.notification.level, theme)}>
+              {entry.notification.level === "step" && entry.notification.current !== undefined
+                ? `Step ${entry.notification.current}/${entry.notification.total}  ${entry.notification.message}`
+                : entry.notification.message}
+            </Text>
+          )
+        }
       </Static>
 
-      <Box flexDirection="column" height={liveRegionHeight}>
-        {activeProgress.length > 0 ? (
+      <Box flexDirection="column">
+        {/* LIVE, not Static — reprinted on every render so it stays visible
+            immediately above whatever's current, no matter how much Static
+            output (command results, notifications) has scrolled past above
+            it in the real terminal's scrollback. */}
+        <WelcomeBanner version={props.version} headerMode={props.headerMode} facts={{ project: projectName, branch: branchName }} versionCheck={versionCheck} />
+
+        {!switcherOpen && activeProgress.length > 0 ? (
           <ProgressList items={activeProgress} supportsUnicode={capabilities.supportsUnicode} maxVisible={maxVisibleRows} />
         ) : null}
 
-        {paletteOpen ? (
+        {switcherOpen ? (
+          <SessionSwitcher
+            sessions={sessions.sessions}
+            focusedSessionId={sessions.focusedSession?.id}
+            onSelect={(sessionId) => {
+              setSwitcherOpen(false);
+              if (sessionId === undefined) {
+                sessions.focusHome();
+              } else {
+                sessions.focusSession(sessionId);
+              }
+            }}
+            onCancel={() => setSwitcherOpen(false)}
+            maxVisibleRows={maxVisibleRows}
+          />
+        ) : paletteOpen ? (
           <CommandPalette
             commands={registry}
             recentIds={history.recent.map((entry) => entry.id)}
@@ -202,26 +276,22 @@ export function SmdgTerminalApp(props: {
         ) : (
           <TerminalRouter
             focusedSession={sessions.focusedSession}
-            commands={registry}
             recent={history.recent}
-            toolChecklist={toolChecklist}
             onSessionDone={sessions.finish}
-            maxVisibleRows={maxVisibleRows}
+            maxVisibleRows={homeScreenMaxRows}
           />
         )}
 
-        {sessions.focusedSession?.kind === "workflow" ? (
+        {!switcherOpen && sessions.focusedSession?.kind === "workflow" ? (
           <InteractionHost key={sessions.focusedSession.id} service={sessions.focusedSession.service} maxVisibleRows={maxVisibleRows} />
         ) : null}
 
-        <Box flexGrow={1} />
-
         {isIdle ? (
           <Box flexDirection="column" marginTop={1}>
-            {naturalMatches.length > 0 ? (
+            {visibleNaturalMatches.length > 0 ? (
               <Box flexDirection="column" marginBottom={1}>
                 <Text color={theme.muted || undefined}>Did you mean:</Text>
-                {naturalMatches.map((match) => (
+                {visibleNaturalMatches.map((match) => (
                   <Text key={match.id} color={theme.primary || undefined}>
                     /{match.path.join(" ")} — {match.description}
                   </Text>
@@ -238,7 +308,7 @@ export function SmdgTerminalApp(props: {
         ) : null}
 
         <Box marginTop={1} justifyContent="space-between">
-          <KeyHintBar hints={footerHints(sessions.focusedSession, paletteOpen)} />
+          <KeyHintBar hints={footerHints(sessions.focusedSession, paletteOpen, switcherOpen)} />
           <SessionStatusBadge count={sessions.sessions.length} cycleHint="Ctrl+N" />
         </Box>
       </Box>
@@ -263,8 +333,8 @@ function notificationColor(level: TNotification["level"], theme: ReturnType<type
   }
 }
 
-function footerHints(focusedSession: TSession | undefined, paletteOpen: boolean): { key: string; label: string }[] {
-  if (paletteOpen) {
+function footerHints(focusedSession: TSession | undefined, paletteOpen: boolean, switcherOpen: boolean): { key: string; label: string }[] {
+  if (switcherOpen || paletteOpen) {
     return [
       { key: "↑↓", label: "Navigate" },
       { key: "Enter", label: "Select" },
@@ -285,6 +355,7 @@ function footerHints(focusedSession: TSession | undefined, paletteOpen: boolean)
     { key: "Ctrl+K", label: "Palette" },
     { key: "Ctrl+R", label: "History" },
     { key: "Ctrl+P", label: "Recent" },
+    { key: "Ctrl+L", label: "Clear" },
     { key: "Ctrl+C", label: "Exit" },
   ];
 }

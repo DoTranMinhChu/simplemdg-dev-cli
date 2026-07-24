@@ -5,6 +5,7 @@ import {
   findAvailablePort,
   openBrowser,
   readJsonBody,
+  reportStudioStartupLine,
   resolveStudioDistPath,
   sendJson,
   sendText,
@@ -12,6 +13,7 @@ import {
   getString,
   getNumber,
   type TJsonBody,
+  type TStudioLogFn,
 } from "../studio-shared/studio-server-kit";
 import { StudioConnectionPool } from "./db-connection";
 import { classifyDatabaseError } from "./db-error";
@@ -85,6 +87,7 @@ export type TStudioServerOptions = {
   debugCf?: boolean;
   /** Serve only the JSON/SSE API — no static UI, no browser auto-open. Used by `--dev-ui`/`--api-only` so a separately-run Vite dev server owns the frontend. */
   apiOnly?: boolean;
+  onLog?: TStudioLogFn;
 };
 
 const __dirname = getDirname(import.meta.url);
@@ -1219,19 +1222,19 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
   const url = `http://127.0.0.1:${port}`;
 
   if (options.apiOnly) {
-    console.log(chalk.green(`SimpleMDG CF DB Studio API: ${url}`));
-    console.log(chalk.gray("Running in --api-only mode (no UI is served here)."));
-    console.log(chalk.gray("In another terminal, run:"));
-    console.log(chalk.cyan("  cd studio && npm run dev"));
-    console.log(chalk.gray(`Vite will proxy /api/* to ${url}.`));
+    reportStudioStartupLine(options.onLog, `SimpleMDG CF DB Studio API: ${url}`, chalk.green);
+    reportStudioStartupLine(options.onLog, "Running in --api-only mode (no UI is served here).", chalk.gray);
+    reportStudioStartupLine(options.onLog, "In another terminal, run:", chalk.gray);
+    reportStudioStartupLine(options.onLog, "  cd studio && npm run dev", chalk.cyan);
+    reportStudioStartupLine(options.onLog, `Vite will proxy /api/* to ${url}.`, chalk.gray);
   } else {
-    console.log(chalk.green(`SimpleMDG CF DB Studio: ${url}`));
+    reportStudioStartupLine(options.onLog, `SimpleMDG CF DB Studio: ${url}`, chalk.green);
   }
 
   if (serverReadOnlyDefault) {
-    console.log(chalk.yellow("Read-only mode is ON. Write/DDL statements are blocked."));
+    reportStudioStartupLine(options.onLog, "Read-only mode is ON. Write/DDL statements are blocked.", chalk.yellow);
   }
-  console.log(chalk.gray("Server is bound to 127.0.0.1 only. Press Ctrl+C to stop."));
+  reportStudioStartupLine(options.onLog, "Server is bound to 127.0.0.1 only. Press Ctrl+C to stop.", chalk.gray);
 
   if (!options.apiOnly && !process.env.SMDG_STUDIO_NO_OPEN) {
     await openBrowser(url);

@@ -150,3 +150,23 @@ export function getBoolean(body: TJsonBody, key: string, fallback = false): bool
   const value = body[key];
   return typeof value === "boolean" ? value : fallback;
 }
+
+export type TStudioLogFn = (message: string) => void;
+
+/**
+ * Reports one of a Studio server's startup status lines. Traditional CLI use
+ * (`smdg ai studio` run directly, no `onLog` supplied) prints the colored
+ * line straight to stdout, same as always. Inside the Ink shell, `onLog` is
+ * the focused session's own managed sink (see StudioSessionScreen.tsx) —
+ * calling `console.log` directly there would write straight to the real
+ * terminal while Ink is independently redrawing it, corrupting the display
+ * (this was a real bug: raw "SimpleMDG AI Studio: ..." lines and Node's own
+ * process warnings landing mid-frame, outside any managed session view).
+ */
+export function reportStudioStartupLine(onLog: TStudioLogFn | undefined, plainMessage: string, colorize: (text: string) => string): void {
+  if (onLog) {
+    onLog(plainMessage);
+    return;
+  }
+  console.log(colorize(plainMessage));
+}

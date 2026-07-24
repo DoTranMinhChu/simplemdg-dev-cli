@@ -1,0 +1,245 @@
+[    4190ms] [WARNING] A speculation rule set was inserted into the document but will be ignored. This might happen, for example, if it was previously inserted into another document, or if it was created using the innerHTML setter. @ https://www.google.com/search?q=firmat+code&oq=firmat+code&gs_lcrp=EgZjaHJvbWUyBggAEEUYOTIPCAEQABgNGIMBGLEDGIAEMgwIAhAAGA0YsQMYgAQyCQgDEAAYDRiABDIJCAQQABgNGIAEMgkIBRAAGA0YgAQyCQgGEAAYDRiABDIJCAcQABgNGIAEMgkICBAAGA0YgAQyCQgJEAAYDRiABNIBCDI2ODhqMGo3qAIAsAIA&sourceid=chrome&source=chrome.ob&ie=UTF-8:36
+[   20686ms] [INFO] Hi developer! You can access the editors and use the following JSON utility libraries in the developer console:
+
+NAME         DESCRIPTION             DOCUMENTATION                                         
+_            Lodash utility library  https://lodash.com/
+jsonrepair   JSON repair library     https://github.com/josdejong/jsonrepair/
+Ajv          JSON Schema validator   https://ajv.js.org/
+jsonquery    JSON query language     https://jsonquerylang.org/
+jmespath     JSON query language     https://jmespath.org/
+JSONPath     JSON query language     https://github.com/JSONPath-Plus/JSONPath/
+patch        JSON Patch library      https://github.com/josdejong/immutable-json-patch/
+editorLeft   Left JSON Editor        https://github.com/josdejong/svelte-jsoneditor/
+editorRight  Right JSON Editor       https://github.com/josdejong/svelte-jsoneditor/
+
+EXAMPLES
+_.sortBy([{id: 3}, {id: 1}, {id: 2}], "id")
+jsonrepair("{name: John")
+new Ajv().validate(schema, data)
+jsonquery(data, query)
+jmespath.search(data, query)
+JSONPathPlus({ json, path: '$.store.book[*].author' })
+patch.immutableJSONPatch(data, operations)
+editorLeft.get()
+editorRight.get()
+
+ @ https://jsoneditoronline.org/_astro/App.UpcyTxK5.js:1
+[   22166ms] [WARNING] [GPT] PubAdsService.setTargeting is deprecated, use googletag.setConfig({targeting: ...}) instead.
+https://goo.gle/gpt-message#170 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202607170101/pubads_impl.js?cb=31099818:18
+[   22631ms] [LOG] [8, 1, 1, 0] @ https://cdn.intergi.com/pf?country=VN&browser=Chrome&device=desktop&website_id=72735:0
+[   22633ms] [LOG] [8, 1, 1, 0] @ https://cdn.intergi.com/pf?country=VN&browser=Chrome&device=desktop&website_id=72735:0
+[   22801ms] [LOG] [8, 1, 1, 4] @ https://cdn.intergi.com/pf?country=VN&browser=Chrome&device=desktop&website_id=72735:0
+[   22802ms] [LOG] [8, 1, 1, 4] @ https://cdn.intergi.com/pf?country=VN&browser=Chrome&device=desktop&website_id=72735:0
+[   22808ms] [LOG] [8, 1, 1, 1] @ https://cdn.intergi.com/pf?country=VN&browser=Chrome&device=desktop&website_id=72735:0
+[   22808ms] [LOG] [8, 1, 1, 1] @ https://cdn.intergi.com/pf?country=VN&browser=Chrome&device=desktop&website_id=72735:0
+[   22811ms] [LOG] [8, 1, 1, 2] @ https://cdn.intergi.com/pf?country=VN&browser=Chrome&device=desktop&website_id=72735:0
+[   22812ms] [LOG] [8, 1, 1, 2] @ https://cdn.intergi.com/pf?country=VN&browser=Chrome&device=desktop&website_id=72735:0
+[   23085ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/:0
+[   23085ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/:0
+[   23086ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/:0
+[   23089ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/:0
+[   23089ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/:0
+[   23089ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/:0
+[   23089ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/:0
+[   23089ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/:0
+[   23089ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/:0
+[   23149ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/:0
+[   23151ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/:0
+[   23231ms] [LOG] [8, 1, 1, 3] @ https://cdn.intergi.com/pf?country=VN&browser=Chrome&device=desktop&website_id=72735:0
+[   23232ms] [LOG] [8, 1, 1, 0] @ https://cdn.intergi.com/pf?country=VN&browser=Chrome&device=desktop&website_id=72735:0
+[   23331ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/:0
+[   24193ms] [WARNING] [GPT] Slot.updateTargetingFromMap is deprecated, use Slot.setConfig({targeting: ...}) instead.
+https://goo.gle/gpt-message#171 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202607170101/pubads_impl.js?cb=31099818:18
+[   25818ms] [INFO] Magnite Apex 3.0.1 @ https://video-outstream.rubiconproject.com/apex.js:0
+[   26842ms] [ERROR] Failed to load resource: the server responded with a status of 424 (Failed Dependency) @ https://t.adx.opera.com/pub/sync?pubid=pub10101531197440&gdpr=1&gdpr_consent=:0
+[   27051ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://match.prod.bidr.io/cookie-sync/see?_bee_ppp=1:0
+[   28664ms] [ERROR] Failed to load resource: net::ERR_NAME_NOT_RESOLVED @ https://cs.lkqd.net/cs?partnerId=59&redirect=https%3A%2F%2Fcm.g.doubleclick.net%2Fpixel%3Fgoogle_nid%3Dlkqd_dbm%26google_hm%3D%24%24rawlkqduserid%7Cbase64%24%24:0
+[   29288ms] [TIMEEND] a: 0.006103515625 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[   29726ms] [TIMEEND] a: 0.006103515625 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[   30889ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30933ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   40766ms] [LOG] {id5id: Object} @ https://d2qlq4kdetaeuz.cloudfront.net/eyewise-id-module/eyewise-id-module-cookies-consent.js?token=dGVzdHRva2VuOg==:58
+[   40767ms] [LOG] prebid js processing time: 1603 ms @ https://d2qlq4kdetaeuz.cloudfront.net/eyewise-id-module/eyewise-id-module-cookies-consent.js?token=dGVzdHRva2VuOg==:23
+[   46498ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ https://static.aroa.io/sync/sync.php?eyeid=2C53ejBnNrCuzhZog66zCRilXGLlhfJgDxsTMvz3p4Io:0
+[   48764ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://visitor.fiftyt.com/p.gif?ev=sync&bstep=2&p=ey&uid=2nfhOEhqr5-ipyGCb3KYuCtoXy8zseyxHOE6jkbdSlYI:0
+[   52313ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52313ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52313ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52313ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52313ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52313ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52314ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52314ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52314ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52314ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52314ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52314ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52314ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52315ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52323ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52326ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52326ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   52328ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   30889ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30933ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   28664ms] [ERROR] Failed to load resource: net::ERR_NAME_NOT_RESOLVED @ https://cs.lkqd.net/cs?partnerId=59&redirect=https%3A%2F%2Fcm.g.doubleclick.net%2Fpixel%3Fgoogle_nid%3Dlkqd_dbm%26google_hm%3D%24%24rawlkqduserid%7Cbase64%24%24:0
+[   56035ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30889ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30933ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56035ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56426ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   28664ms] [ERROR] Failed to load resource: net::ERR_NAME_NOT_RESOLVED @ https://cs.lkqd.net/cs?partnerId=59&redirect=https%3A%2F%2Fcm.g.doubleclick.net%2Fpixel%3Fgoogle_nid%3Dlkqd_dbm%26google_hm%3D%24%24rawlkqduserid%7Cbase64%24%24:0
+[   57581ms] [TIMEEND] a: 0.0029296875 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[   58654ms] [TIMEEND] a: 0.005126953125 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[   82940ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   82940ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   82940ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   82940ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   82940ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   82940ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   82941ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   82948ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   82948ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   83156ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   83156ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   83156ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   83156ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   83156ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   83156ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   83157ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   83173ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   83175ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   30889ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30933ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56035ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56426ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   86795ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   86928ms] [INFO] Magnite Apex 3.0.1 @ https://video-outstream.rubiconproject.com/apex.js:0
+[   86966ms] [INFO] Magnite Apex 3.0.1 @ https://video-outstream.rubiconproject.com/apex.js:0
+[   30889ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30933ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56035ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56426ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   86795ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   87160ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   89229ms] [TIMEEND] a: 0.005859375 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[   89420ms] [TIMEEND] a: 0.00390625 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[   26842ms] [ERROR] Failed to load resource: the server responded with a status of 424 (Failed Dependency) @ https://t.adx.opera.com/pub/sync?pubid=pub10101531197440&gdpr=1&gdpr_consent=:0
+[  113617ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113617ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113617ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113617ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113617ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113617ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113618ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113635ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113637ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113893ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113893ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113893ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113893ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113893ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113893ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113894ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113902ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  113903ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   30889ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30933ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56035ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56426ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   86795ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   87160ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  117716ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  117796ms] [INFO] Magnite Apex 3.0.1 @ https://video-outstream.rubiconproject.com/apex.js:0
+[   30889ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30933ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56035ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56426ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   86795ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   87160ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  117716ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  117959ms] [INFO] Magnite Apex 3.0.1 @ https://video-outstream.rubiconproject.com/apex.js:0
+[  118007ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  120200ms] [TIMEEND] a: 0.006103515625 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[  120982ms] [TIMEEND] a: 0.0029296875 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[  144555ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144555ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144555ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144555ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144555ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144555ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144556ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144561ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144564ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144785ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144786ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144788ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144788ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144789ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144789ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144790ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144815ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  144815ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   30889ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30933ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56035ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56426ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   86795ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   87160ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  117716ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  118007ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30889ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30933ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56035ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56426ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   86795ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   87160ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  117716ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  118007ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  148573ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  148634ms] [INFO] Magnite Apex 3.0.1 @ https://video-outstream.rubiconproject.com/apex.js:0
+[  148800ms] [INFO] Magnite Apex 3.0.1 @ https://video-outstream.rubiconproject.com/apex.js:0
+[  148959ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  150443ms] [ERROR] Failed to load resource: net::ERR_NAME_NOT_RESOLVED @ https://sync.search.spotxchange.com/partner?adv_id=7025&redir=https%3A%2F%2Fcm.g.doubleclick.net%2Fpixel%3Fgoogle_nid%3Dspotxchange_dbm%26google_hm%3D%24SPOTX_BASE64_USER_ID:0
+[  150962ms] [TIMEEND] a: 0.003173828125 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[  151218ms] [TIMEEND] a: 0.0029296875 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[  175122ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175123ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175123ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175123ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175123ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175123ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175123ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175131ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175134ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175551ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175551ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175551ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175552ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175552ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175553ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175556ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175569ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  175571ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[   30889ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   30933ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56035ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   56426ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   86795ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[   87160ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  117716ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  118007ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  148573ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  148959ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  179320ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[  179403ms] [INFO] Magnite Apex 3.0.1 @ https://video-outstream.rubiconproject.com/apex.js:0
+[  181152ms] [TIMEEND] a: 0.0048828125 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[  206376ms] [ERROR] Attestation check for Protected Audience on https://s.seedtag.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  206377ms] [ERROR] Attestation check for Protected Audience on https://tlx.3lift.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  206377ms] [ERROR] Attestation check for Protected Audience on https://prebid.media.net failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  206377ms] [ERROR] Attestation check for Protected Audience on https://fastlane.rubiconproject.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  206377ms] [ERROR] Attestation check for Protected Audience on https://direct.adsrvr.org failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  206377ms] [ERROR] Attestation check for Protected Audience on https://ib.adnxs.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  206377ms] [ERROR] Attestation check for Protected Audience on https://htlb.casalemedia.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  206388ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0
+[  206392ms] [ERROR] Attestation check for Protected Audience on https://hbopenbid.pubmatic.com failed. @ https://jsoneditoronline.org/#left=local.fuquze:0

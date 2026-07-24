@@ -113,3 +113,19 @@ export async function getFavoriteCommandIds(): Promise<string[]> {
   const file = await readCommandHistory();
   return file.favorites;
 }
+
+export type TCommandHistorySnapshot = { recent: TCommandHistoryEntry[]; favorites: string[] };
+
+/**
+ * Resolved once, BEFORE the Ink shell's first paint (see terminal-launcher.tsx),
+ * the same way project facts/theme/registry already are — so `useCommandHistory`
+ * can seed its initial state with real data instead of `[]`. Loading this
+ * asynchronously after mount instead caused a real rendering bug: the "Recent
+ * actions" block growing from 0 lines to N lines shortly after first paint
+ * left stale characters behind at the boundary row (Ink's live-region redraw
+ * didn't fully clear the shorter previous frame in that specific transition).
+ */
+export async function loadCommandHistorySnapshot(): Promise<TCommandHistorySnapshot> {
+  const [recent, favorites] = await Promise.all([getRecentCommands(20), getFavoriteCommandIds()]);
+  return { recent, favorites };
+}

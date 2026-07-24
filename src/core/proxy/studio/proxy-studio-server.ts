@@ -4,9 +4,11 @@ import { getDirname } from "../../esm-paths";
 import {
   findAvailablePort,
   openBrowser,
+  reportStudioStartupLine,
   resolveStudioDistPath,
   sendJson,
   serveStudioAsset as serveStudioAssetFromKit,
+  type TStudioLogFn,
 } from "../../studio-shared/studio-server-kit";
 import { onProxyLogEvent, onProxyStatusEvent } from "./proxy-events";
 import { handleEnvironmentsApi } from "./routes/environments-routes";
@@ -17,6 +19,7 @@ import { handlePortsApi } from "./routes/ports-routes";
 export type TProxyStudioServerOptions = {
   port?: number;
   apiOnly?: boolean;
+  onLog?: TStudioLogFn;
 };
 
 export type TProxyStudioServerHandle = {
@@ -115,15 +118,15 @@ export async function startProxyStudioServer(options: TProxyStudioServerOptions 
   const url = `http://127.0.0.1:${port}`;
 
   if (options.apiOnly) {
-    console.log(chalk.green(`SimpleMDG Proxy Studio API: ${url}`));
-    console.log(chalk.gray("Running in --api-only mode (no UI is served here)."));
-    console.log(chalk.gray("In another terminal, run:"));
-    console.log(chalk.cyan("  cd studio && npm run dev"));
-    console.log(chalk.gray(`Vite will proxy /api/proxy to ${url}.`));
+    reportStudioStartupLine(options.onLog, `SimpleMDG Proxy Studio API: ${url}`, chalk.green);
+    reportStudioStartupLine(options.onLog, "Running in --api-only mode (no UI is served here).", chalk.gray);
+    reportStudioStartupLine(options.onLog, "In another terminal, run:", chalk.gray);
+    reportStudioStartupLine(options.onLog, "  cd studio && npm run dev", chalk.cyan);
+    reportStudioStartupLine(options.onLog, `Vite will proxy /api/proxy to ${url}.`, chalk.gray);
   } else {
-    console.log(chalk.green(`SimpleMDG Proxy Studio: ${url}`));
+    reportStudioStartupLine(options.onLog, `SimpleMDG Proxy Studio: ${url}`, chalk.green);
   }
-  console.log(chalk.gray("Server is bound to 127.0.0.1 only. Press Ctrl+C to stop."));
+  reportStudioStartupLine(options.onLog, "Server is bound to 127.0.0.1 only. Press Ctrl+C to stop.", chalk.gray);
 
   if (!options.apiOnly && !process.env.SMDG_PROXY_STUDIO_NO_OPEN) {
     await openBrowser(url);

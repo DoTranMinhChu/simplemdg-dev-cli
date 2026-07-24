@@ -4,9 +4,11 @@ import { getDirname } from "../../esm-paths";
 import {
   findAvailablePort,
   openBrowser,
+  reportStudioStartupLine,
   resolveStudioDistPath,
   sendJson,
   serveStudioAsset as serveStudioAssetFromKit,
+  type TStudioLogFn,
 } from "../../studio-shared/studio-server-kit";
 import { onCacheEvent } from "../../cache/smart-cache";
 import { onJobEvent } from "./job-events";
@@ -25,6 +27,7 @@ import { handleNpmrcApi } from "./routes/npmrc-routes";
 export type TToolStudioServerOptions = {
   port?: number;
   apiOnly?: boolean;
+  onLog?: TStudioLogFn;
 };
 
 export type TToolStudioServerHandle = {
@@ -140,15 +143,15 @@ export async function startToolStudioServer(options: TToolStudioServerOptions = 
   const url = `http://127.0.0.1:${port}`;
 
   if (options.apiOnly) {
-    console.log(chalk.green(`SimpleMDG Tool Studio API: ${url}`));
-    console.log(chalk.gray("Running in --api-only mode (no UI is served here)."));
-    console.log(chalk.gray("In another terminal, run:"));
-    console.log(chalk.cyan("  cd studio && npm run dev"));
-    console.log(chalk.gray(`Vite will proxy /api/tool to ${url}.`));
+    reportStudioStartupLine(options.onLog, `SimpleMDG Tool Studio API: ${url}`, chalk.green);
+    reportStudioStartupLine(options.onLog, "Running in --api-only mode (no UI is served here).", chalk.gray);
+    reportStudioStartupLine(options.onLog, "In another terminal, run:", chalk.gray);
+    reportStudioStartupLine(options.onLog, "  cd studio && npm run dev", chalk.cyan);
+    reportStudioStartupLine(options.onLog, `Vite will proxy /api/tool to ${url}.`, chalk.gray);
   } else {
-    console.log(chalk.green(`SimpleMDG Tool Studio: ${url}`));
+    reportStudioStartupLine(options.onLog, `SimpleMDG Tool Studio: ${url}`, chalk.green);
   }
-  console.log(chalk.gray("Server is bound to 127.0.0.1 only. Press Ctrl+C to stop."));
+  reportStudioStartupLine(options.onLog, "Server is bound to 127.0.0.1 only. Press Ctrl+C to stop.", chalk.gray);
 
   if (!options.apiOnly && !process.env.SMDG_TOOL_STUDIO_NO_OPEN) {
     await openBrowser(url);

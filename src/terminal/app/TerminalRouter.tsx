@@ -37,9 +37,7 @@ import { startToolStudioServer } from "../../core/tool/studio/tool-studio-server
 import { startAiStudioServer } from "../../core/ai/studio/ai-studio-server";
 import { startStudioServer as startDbStudioServer } from "../../core/db/db-studio-server";
 import { startProxyStudioServer } from "../../core/proxy/studio/proxy-studio-server";
-import type { TInteractiveCommandDefinition } from "../services/command-registry";
 import type { TCommandHistoryEntry } from "../services/command-history";
-import type { TToolCheck } from "../services/context-facts";
 import type { InkInteractionService } from "../services/ink-interaction-service";
 import type { StreamingSessionService } from "../services/streaming-session-service";
 import type { TSession } from "../hooks/useSessionRegistry";
@@ -103,17 +101,15 @@ export const STREAMING_SCREENS: Record<string, React.ComponentType<TScreenProps<
   "cf.logs": CfLogsScreen,
   "cf.http-watch": CfHttpWatchScreen,
   "proxy.start": ProxyStartScreen,
-  "tool.studio": makeStudioSessionScreen({ title: "Tool Studio", startServer: () => startToolStudioServer({}), relayJobEvents: true }),
-  "ai.studio": makeStudioSessionScreen({ title: "AI Studio", startServer: () => startAiStudioServer({}) }),
-  "cf.db.studio": makeStudioSessionScreen({ title: "DB Studio", startServer: () => startDbStudioServer({}) }),
-  "proxy.studio": makeStudioSessionScreen({ title: "Proxy Studio", startServer: () => startProxyStudioServer({}) }),
+  "tool.studio": makeStudioSessionScreen({ title: "Tool Studio", startServer: (onLog) => startToolStudioServer({ onLog }), relayJobEvents: true }),
+  "ai.studio": makeStudioSessionScreen({ title: "AI Studio", startServer: (onLog) => startAiStudioServer({ onLog }) }),
+  "cf.db.studio": makeStudioSessionScreen({ title: "DB Studio", startServer: (onLog) => startDbStudioServer({ onLog }) }),
+  "proxy.studio": makeStudioSessionScreen({ title: "Proxy Studio", startServer: (onLog) => startProxyStudioServer({ onLog }) }),
 };
 
 export function TerminalRouter(props: {
   focusedSession: TSession | undefined;
-  commands: TInteractiveCommandDefinition[];
   recent: TCommandHistoryEntry[];
-  toolChecklist: TToolCheck[];
   onSessionDone: (sessionId: string, success: boolean) => void;
   /** Rows available for this screen's own lists before the composer/footer chrome — see SmdgTerminalApp.tsx. */
   maxVisibleRows?: number;
@@ -148,12 +144,5 @@ export function TerminalRouter(props: {
     }
   }
 
-  return (
-    <HomeScreen
-      commands={props.commands}
-      recent={props.recent}
-      toolChecklist={props.toolChecklist}
-      maxVisibleRows={props.maxVisibleRows}
-    />
-  );
+  return <HomeScreen recent={props.recent} maxVisibleRows={props.maxVisibleRows} />;
 }

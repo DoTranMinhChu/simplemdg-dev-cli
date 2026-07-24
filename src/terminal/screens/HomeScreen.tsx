@@ -1,128 +1,45 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useTerminalTheme } from "../hooks/useTerminalTheme";
-import { useTerminalSize } from "../hooks/useTerminalSize";
-import type { TInteractiveCommandDefinition } from "../services/command-registry";
 import type { TCommandHistoryEntry } from "../services/command-history";
-import type { TToolCheck } from "../services/context-facts";
-import { CATEGORY_LABELS, CATEGORY_TAGLINES } from "../services/command-registry-metadata";
-
-type TCommandGroup = { slug: string; label: string; tagline: string };
-
-/** Keeps each "/slug  tagline" row on one line — an Ink Text that wraps mid-row
- * loses the column alignment (the wrapped remainder starts flush against the
- * panel's left border with no indent), which reads as a broken layout on
- * narrow terminals. Truncating is preferable to that. */
-function truncateToWidth(text: string, maxWidth: number): string {
-  if (maxWidth <= 0) {
-    return "";
-  }
-  if (text.length <= maxWidth) {
-    return text;
-  }
-  if (maxWidth === 1) {
-    return "…";
-  }
-  return `${text.slice(0, maxWidth - 1)}…`;
-}
 
 /**
- * Derives the top-level group legend ("/cf — Targets, apps, logs & DB
- * Studio", ...) straight from whatever groups are actually registered, in
- * their registration order — never a hand-maintained list, so it can't drift
- * from the real command tree.
+ * The idle home screen's only LIVE content now — the environment checklist
+ * and command-group legend moved into `<StaticIntro>` (see
+ * SmdgTerminalApp.tsx), printed once instead of being recomputed and
+ * redrawn on every keystroke. "Recent actions" stays live since it actually
+ * changes as commands run.
  */
-function buildCommandGroups(commands: TInteractiveCommandDefinition[]): TCommandGroup[] {
-  const slugs: string[] = [];
+export function HomeScreen(props: { recent: TCommandHistoryEntry[]; maxVisibleRows?: number }) {
+  const theme = useTerminalTheme();
 
-  for (const command of commands) {
-    const slug = command.path[0];
-    if (slug && !slugs.includes(slug)) {
-      slugs.push(slug);
-    }
+  if (props.recent.length === 0) {
+    return null;
   }
 
-  return slugs.map((slug) => ({
-    slug,
-    label: CATEGORY_LABELS[slug] ?? slug,
-    tagline: CATEGORY_TAGLINES[slug] ?? `${commands.filter((command) => command.path[0] === slug).length} commands`,
-  }));
-}
+  // This block sits inside the live region's fixed-height Box alongside the
+  // composer/footer below it (see SmdgTerminalApp.tsx's `maxVisibleRows`).
+  // Ink doesn't wrap or scroll overflowing content in a fixed-height Box —
+  // it silently clips from the TOP, which previously cut off the "Recent
+  // actions" heading itself on shorter terminals since this list always
+  // rendered up to 5 items regardless of how much room was actually
+  // available. Clamping to the budget (minus 1 row for the heading) keeps
+  // the heading itself always visible instead.
+  const maxItems = Math.max(0, Math.min(5, (props.maxVisibleRows ?? Number.POSITIVE_INFINITY) - 1));
+  const visible = props.recent.slice(0, maxItems);
 
-export function HomeScreen(props: {
-  commands: TInteractiveCommandDefinition[];
-  recent: TCommandHistoryEntry[];
-  toolChecklist: TToolCheck[];
-  /** Rows available for this screen before the composer/footer chrome — see SmdgTerminalApp.tsx. Only bites on a very short terminal; the lists here are small by design. */
-  maxVisibleRows?: number;
-}) {
-  const theme = useTerminalTheme();
-  const { columns } = useTerminalSize();
-  const commandGroups = buildCommandGroups(props.commands);
-  const groupColumnWidth = commandGroups.length > 0 ? Math.max(...commandGroups.map((group) => group.slug.length)) + 5 : 0;
-  // Panel overhead this row sits inside of: 1 left-border char + 1 paddingLeft.
-  const taglineMaxWidth = Math.max(0, columns - groupColumnWidth - 2);
-
-  // Environment checklist + "Command groups" heading + Recent actions heading
-  // all cost one row each regardless of list length — reserve for those
-  // before splitting the rest between the two lists.
-  const chromeRows = (props.toolChecklist.length > 0 ? 1 : 0) + (commandGroups.length > 0 ? 1 : 0) + (props.recent.length > 0 ? 1 : 0);
-  const availableListRows = props.maxVisibleRows !== undefined ? Math.max(0, props.maxVisibleRows - chromeRows) : undefined;
-  const visibleCommandGroups = availableListRows !== undefined ? commandGroups.slice(0, Math.max(1, availableListRows)) : commandGroups;
-  const hiddenGroupCount = commandGroups.length - visibleCommandGroups.length;
-
-  const hasTips = props.toolChecklist.length > 0 || commandGroups.length > 0;
+  if (visible.length === 0) {
+    return null;
+  }
 
   return (
-    <Box flexDirection="column">
-      {hasTips ? (
-        <Box
-          flexDirection="column"
-          borderStyle="round"
-          borderColor={theme.secondary || undefined}
-          borderTop={false}
-          borderRight={false}
-          borderBottom={false}
-          paddingLeft={1}
-          marginBottom={1}
-        >
-          {props.toolChecklist.length > 0 ? (
-            <Box flexDirection="column" marginBottom={commandGroups.length > 0 ? 1 : 0}>
-              <Text bold>Environment</Text>
-              {props.toolChecklist.map((tool) => (
-                <Text key={tool.label} color={(tool.detected ? theme.success : theme.warning) || undefined}>
-                  {tool.detected ? "✓" : "⚠"} {tool.label}
-                  {!tool.detected ? " not found" : ""}
-                </Text>
-              ))}
-            </Box>
-          ) : null}
-
-          {commandGroups.length > 0 ? (
-            <Box flexDirection="column">
-              <Text bold>Command groups</Text>
-              {visibleCommandGroups.map((group) => (
-                <Text key={group.slug}>
-                  <Text color={theme.primary || undefined}>{`❯ /${group.slug}`.padEnd(groupColumnWidth)}</Text>
-                  <Text color={theme.muted || undefined}>{truncateToWidth(group.tagline, taglineMaxWidth)}</Text>
-                </Text>
-              ))}
-              {hiddenGroupCount > 0 ? <Text color={theme.muted || undefined}>+{hiddenGroupCount} more — press / to browse all</Text> : null}
-            </Box>
-          ) : null}
-        </Box>
-      ) : null}
-
-      {props.recent.length > 0 ? (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text bold>Recent actions</Text>
-          {props.recent.slice(0, 5).map((entry, index) => (
-            <Text key={`${entry.timestamp}-${index}`} color={theme.muted || undefined}>
-              {index + 1}. {entry.path.join(" ")}
-            </Text>
-          ))}
-        </Box>
-      ) : null}
+    <Box flexDirection="column" marginBottom={1}>
+      <Text bold>Recent actions</Text>
+      {visible.map((entry, index) => (
+        <Text key={`${entry.timestamp}-${index}`} color={theme.muted || undefined}>
+          {index + 1}. {entry.path.join(" ")}
+        </Text>
+      ))}
     </Box>
   );
 }

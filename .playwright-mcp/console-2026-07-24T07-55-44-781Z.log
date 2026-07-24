@@ -1,1 +1,33 @@
 [     378ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8642/favicon.ico:0
+[ 4320690ms] [LOG] %c
+▲
+
+    ________   _ __ _          ____           __
+   /  _/ __/  (_) /( )_____   / __/___ ______/ /_
+   / // /_   / / __/// ___/  / /_/ __ `/ ___/ __/
+ _/ // __/  / / /_  (__  )  / __/ /_/ (__  ) /_
+/___/_/    /_/\__/ /____/  /_/  \__,_/____/\__/
+    _ __ _                         _    __                    __
+   (_) /( )_____   ____  ____     | |  / /__  _____________  / /
+  / / __/// ___/  / __ \/ __ \    | | / / _ \/ ___/ ___/ _ \/ /
+ / / /_  (__  )  / /_/ / / / /    | |/ /  __/ /  / /__/  __/ /
+/_/\__/ /____/   \____/_/ /_/     |___/\___/_/   \___/\___/_/
+  
+
+Hello!
+
+- Open Source https://vercel.com/oss
+- Careers https://vercel.com/careers
+- Status https://vercel-status.com
+
+ font-family: "Geist Mono", monospace; white-space: pre; line-height: 1; @ https://vercel.com/vc-ap-vercel-marketing/_next/static/immutable/chunks/2cea-loojf33n.js:78
+[ 4320835ms] [ERROR] Loading the image 'https://py8fhxnkzwtsqdo9.public.blob.vercel-storage.com/front/favicon/vercel/android-chrome-192x192.png' violates the following Content Security Policy directive: "img-src 'self' blob: data: *.github.io avatars.githubusercontent.com user-images.githubusercontent.com vercel.com vercel.live *.vercel.sh assets.vercel.com cdn.raster.app https://images.ctfassets.net https://www.google.com https://i.ytimg.com https://s3.amazonaws.com pbs.twimg.com https://www.gravatar.com https://lishhsx6kmthaacj.public.blob.vercel-storage.com https://fvqcrhkhgatlyl2m.public.blob.vercel-storage.com". The action has been blocked. @ https://vercel.com/:0
+[ 4320849ms] [WARNING] Error while trying to use the following icon from the Manifest: https://py8fhxnkzwtsqdo9.public.blob.vercel-storage.com/front/favicon/vercel/android-chrome-192x192.png (Download error or resource isn't a valid image) @ https://vercel.com/:0
+[ 4321105ms] [WARNING] Deprecated API for given entry type. @ https://vercel.com/vc-ap-vercel-marketing/_next/static/immutable/chunks/08pwovp_uh7al.js:18
+[ 4321309ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://vercel.com/api/jwt:0
+[ 4324265ms] [ERROR] Loading the image 'https://py8fhxnkzwtsqdo9.public.blob.vercel-storage.com/front/favicon/vercel/android-chrome-192x192.png' violates the following Content Security Policy directive: "img-src 'self' blob: data: *.github.io avatars.githubusercontent.com user-images.githubusercontent.com vercel.com vercel.live *.vercel.sh assets.vercel.com cdn.raster.app https://images.ctfassets.net https://www.google.com https://i.ytimg.com https://s3.amazonaws.com pbs.twimg.com https://www.gravatar.com https://lishhsx6kmthaacj.public.blob.vercel-storage.com https://fvqcrhkhgatlyl2m.public.blob.vercel-storage.com". The action has been blocked. @ https://vercel.com/enterprise:0
+[ 4324266ms] [WARNING] Error while trying to use the following icon from the Manifest: https://py8fhxnkzwtsqdo9.public.blob.vercel-storage.com/front/favicon/vercel/android-chrome-192x192.png (Download error or resource isn't a valid image) @ https://vercel.com/enterprise:0
+[ 4328401ms] [WARNING] The resource https://vercel.com/vc-ap-vercel-marketing/_next/static/immutable/chunks/2iol1p5w97q60.css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://vercel.com/enterprise:0
+[ 4328401ms] [WARNING] The resource https://vercel.com/vc-ap-vercel-marketing/_next/static/immutable/chunks/27pzo08attfg2.css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://vercel.com/enterprise:0
+[ 4328401ms] [WARNING] The resource https://vercel.com/vc-ap-vercel-marketing/_next/static/immutable/chunks/1cxxk57-8cknz.css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://vercel.com/enterprise:0
+[ 4331525ms] [WARNING] A speculation rule set was inserted into the document but will be ignored. This might happen, for example, if it was previously inserted into another document, or if it was created using the innerHTML setter. @ https://www.google.com/search?q=vercel+log&oq=vercel+log&gs_lcrp=EgZjaHJvbWUyBggAEEUYOTIHCAEQABiABDIHCAIQABiABDIKCAMQABgKGBYYHjIKCAQQABgKGBYYHjIICAUQABgWGB4yCAgGEAAYFhgeMggIBxAAGBYYHjIICAgQABgWGB4yCAgJEAAYFhge0gEIMTUwOWowajSoAgCwAgE&sourceid=chrome&source=chrome.ob&ie=UTF-8:35
