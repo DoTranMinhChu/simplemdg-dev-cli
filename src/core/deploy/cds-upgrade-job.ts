@@ -1,14 +1,15 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "fs-extra";
-import type { TGitLabAuth } from "../gitlab/gitlab-client";
+import type { TGitLabAuth, TGitLabGroup } from "../gitlab/gitlab-client";
 import { fetchRawFile } from "../gitlab/gitlab-client";
 import { createMergeRequest } from "../gitlab/gitlab-write-client";
 import { emitJobEvent } from "../tool/studio/job-events";
 import type { TObjectTypeRepoRef } from "./object-type-discovery";
 import { cleanupClone, cloneRepoAtSourceBranch, commitAndPushBranch, createAndSwitchUpgradeBranch } from "./cds-upgrade-clone";
 import { bumpCdsPackageJson, runNpmInstall } from "./cds-upgrade-install";
-import { runCdsCompileValidation } from "./cds-upgrade-compile";
+import { hasCompilableModel, runCdsCompileValidation } from "./cds-upgrade-compile";
+import { resolveNpmrcAuthForGroup, writeScopedNpmrc } from "./cds-upgrade-npmrc";
 import type { TCdsFixupResult } from "./cds-upgrade-fixups";
 
 /** One repo to consider, plus the clone URL discovery alone doesn't carry (see `object-type-discovery.ts`'s `TObjectTypeRepoRef`). */
@@ -37,6 +38,8 @@ export type TCdsUpgradeResult = {
 
 export type TCdsUpgradeOptions = {
   auth: TGitLabAuth;
+  /** Needed to resolve this group's private npm registry (`smdg npmrc`'s existing config) — see `cds-upgrade-npmrc.ts`. */
+  group: TGitLabGroup;
   /** One fixed branch name, typed by the user, checked across every repo — not a per-repo picker. */
   sourceBranch: string;
   /** Exact semver typed by the user each run — nothing persisted. */
@@ -124,6 +127,7 @@ export async function runCdsUpgradeJob(jobId: string, options: TCdsUpgradeOption
       emitJobEvent({ jobId, type: "job-step", steps: [{ key: stepKey, label: `${repo.pathWithNamespace}: ${label}`, status, detail }] });
 
     let repoPath: string | undefined;
+    let npmrcPath: string | undefined;
     try {
       step("checking current version", "running");
       const current = await readCurrentCdsVersion(options.auth, repo.projectId, options.sourceBranch);
@@ -150,11 +154,29 @@ export async function runCdsUpgradeJob(jobId: string, options: TCdsUpgradeOption
       await createAndSwitchUpgradeBranch(repoPath, options.auth, newBranchName);
 
       step("bump package.json + apply known fixups", "running");
-      const bump = await bumpCdsPackageJson(repoPath, options.targetVersion);
-      step("bump package.json + apply known fixups", "success", bump.fixups.length ? bump.fixups.map((f) => f.title).join("; ") : "no known fixups applied");
+      const bump = await bumpCdsPackageJson(repoPath, options.targetVersion, options.sourceBranch);
+      const bumpDetailParts = [
+        bump.fixups.length ? bump.fixups.map((f) => f.title).join("; ") : "no known fixups applied",
+        bump.substitutedVariables.length ? `substituted ${bump.substitutedVariables.map((name) => `\${${name}}`).join(", ")} -> "${options.sourceBranch}"` : undefined,
+      ].filter(Boolean);
+      step("bump package.json + apply known fixups", "success", bumpDetailParts.join(" · "));
+
+      // Only provision a registry token when this repo actually references a private scope —
+      // never block a repo that doesn't need one on npmrc being configured at all.
+      if (bump.scopePrefixes.length > 0) {
+        const scope = bump.scopePrefixes[0];
+        const resolvedNpmrc = await resolveNpmrcAuthForGroup(options.auth, options.group, scope);
+        if (!resolvedNpmrc) {
+          throw new Error(`No npm registry/token configured for scope ${scope} (needed for ${bump.scopePrefixes.join(", ")}) — set one up via "smdg npmrc create"/"smdg npmrc token", then retry.`);
+        }
+        // Written OUTSIDE the clone (see runNpmInstall's `NPM_CONFIG_USERCONFIG`) — never inside
+        // the repo directory, so the token can never end up in `git add -A`'s reach.
+        npmrcPath = path.join(scratchRoot, `${repo.projectId}.npmrc`);
+        await writeScopedNpmrc(npmrcPath, resolvedNpmrc, scope);
+      }
 
       step("npm install", "running");
-      const install = await runNpmInstall(repoPath);
+      const install = await runNpmInstall(repoPath, { npmrcPath });
       if (install.exitCode !== 0 || install.timedOut) {
         const detail = install.timedOut ? "npm install timed out" : tailOf(install.stderr || install.stdout);
         result.buildFailed.push({ role: repo.role, pathWithNamespace: repo.pathWithNamespace, projectId: repo.projectId, bucket: "buildFailed", currentVersion: current.version, detail, appliedFixups: bump.fixups });
@@ -162,17 +184,26 @@ export async function runCdsUpgradeJob(jobId: string, options: TCdsUpgradeOption
         continue;
       }
 
-      step("cds compile", "running");
-      const compile = await runCdsCompileValidation(repoPath, repo.role);
-      if (!compile.ok) {
-        const detail = compile.timedOut ? "cds compile timed out" : tailOf(compile.stderr || compile.stdout || "cds compile failed");
-        result.buildFailed.push({ role: repo.role, pathWithNamespace: repo.pathWithNamespace, projectId: repo.projectId, bucket: "buildFailed", currentVersion: current.version, detail, appliedFixups: bump.fixups });
-        step("cds compile failed", "failed", detail);
-        continue;
+      let compileSkippedNote: string | undefined;
+      if (await hasCompilableModel(repoPath, repo.role)) {
+        step("cds compile", "running");
+        const compile = await runCdsCompileValidation(repoPath, repo.role);
+        if (!compile.ok) {
+          const detail = compile.timedOut ? "cds compile timed out" : tailOf(compile.stderr || compile.stdout || "cds compile failed");
+          result.buildFailed.push({ role: repo.role, pathWithNamespace: repo.pathWithNamespace, projectId: repo.projectId, bucket: "buildFailed", currentVersion: current.version, detail, appliedFixups: bump.fixups });
+          step("cds compile failed", "failed", detail);
+          continue;
+        }
+      } else {
+        // Structurally has no real .cds model for this role (e.g. simplemdg_db_f4's db/external-only
+        // archive repo) — there was never anything to compile, so this is not a build failure.
+        compileSkippedNote = `no ${repo.role === "db" ? "db" : "srv"}/*.cds model found — compile validation skipped`;
+        step("cds compile", "success", compileSkippedNote);
       }
 
       step("commit + push", "running");
       const fixupSummary = bump.fixups.length ? `\n\nApplied fixups:\n${bump.fixups.map((f) => `- ${f.title} (${f.note})`).join("\n")}` : "";
+      const compileNote = compileSkippedNote ? `\n\nNote: ${compileSkippedNote}.` : "";
       await commitAndPushBranch(repoPath, options.auth, newBranchName, `Upgrade @sap/cds to ${options.targetVersion}`);
 
       step("open merge request", "running");
@@ -180,7 +211,7 @@ export async function runCdsUpgradeJob(jobId: string, options: TCdsUpgradeOption
         sourceBranch: newBranchName,
         targetBranch: options.sourceBranch,
         title: `cds-upgrade: @sap/cds -> ${options.targetVersion}`,
-        description: `Automated @sap/cds/@sap/cds-dk/@sap/cds-compiler version bump to ${options.targetVersion}, validated with a real npm install + cds compile before this MR was opened.${fixupSummary}`,
+        description: `Automated @sap/cds/@sap/cds-dk/@sap/cds-compiler version bump to ${options.targetVersion}, validated with a real npm install${compileSkippedNote ? "" : " + cds compile"} before this MR was opened.${fixupSummary}${compileNote}`,
       });
 
       result.upgraded.push({
@@ -189,6 +220,7 @@ export async function runCdsUpgradeJob(jobId: string, options: TCdsUpgradeOption
         projectId: repo.projectId,
         bucket: "upgraded",
         currentVersion: current.version,
+        detail: compileSkippedNote,
         mergeRequestUrl: mergeRequest.web_url,
         appliedFixups: bump.fixups,
       });
@@ -199,6 +231,7 @@ export async function runCdsUpgradeJob(jobId: string, options: TCdsUpgradeOption
       step("failed", "failed", message);
     } finally {
       if (repoPath) await cleanupClone(repoPath);
+      if (npmrcPath) await fs.remove(npmrcPath).catch(() => undefined);
     }
   }
 

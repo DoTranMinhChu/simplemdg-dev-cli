@@ -4,7 +4,7 @@ import { execa } from "execa";
 import { splitCommand } from "./process";
 import type { TInstallRepositoryOptions, TInstallRepositoryResult } from "./types";
 
-function replaceVariables(content: string, variableValues: Record<string, string>): string {
+export function replaceVariables(content: string, variableValues: Record<string, string>): string {
   return content.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (fullMatch: string, variableName: string) => {
     return variableValues[variableName] ?? fullMatch;
   });

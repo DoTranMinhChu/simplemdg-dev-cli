@@ -27,11 +27,34 @@ export type TAuditLogDiscoveryCandidate = {
 const MAX_APPS_TO_PROBE = 25;
 
 /**
- * Find a HANA/PostgreSQL binding for one CF target by trying its apps in listed order until one
- * yields a database candidate, then import + cache that credential exactly the way CpiQueuePage's
- * app picker does (`buildDraftFromCandidate` + `upsertConnectionFromDraft` — the latter dedupes by
- * app+serviceName+type, so re-discovering the same environment a second time reuses the existing
- * encrypted connection profile instead of creating a duplicate).
+ * A CF space can (and, confirmed on a real customer QAS space, does) contain apps with bound
+ * databases that have nothing to do with MDG at all — e.g. `copilot-ai-backend`, an unrelated AI
+ * service sitting in the same `mckesson-qas-simplemdg`/`app` space as every real `simplemdg-db-*`/
+ * `simplemdg-srv-*` app. Trying apps in whatever order the CF API happens to return them (previously
+ * plain listed order) picked exactly that wrong app — its bound HANA instance resolved to zero
+ * audit-log tables (it's a different database entirely) and the connection itself was unreachable.
+ *
+ * Lower number = tried first. The shared "process" service (`*-srv-process-system` in every real
+ * environment seen, both this customer's DEV and QAS orgs) exposes by far the richest, most
+ * cross-cutting set of audit-log tables — confirmed empirically: probing it alone matched almost
+ * every entry in `AUDIT_LOG_CATALOG`, where a single `db-<domain>` app's schema only ever matches a
+ * handful of domain-specific entries. Any other `simplemdg`-named app is still strongly preferred
+ * over a same-space app with no relation to MDG at all, which is only ever a last-resort fallback
+ * (better than reporting "no db found" for a target with an unconventional naming scheme).
+ */
+function appProbePriority(appName: string): number {
+  if (/srv-process-system/i.test(appName)) return 0;
+  if (/simplemdg/i.test(appName)) return 1;
+  return 2;
+}
+
+/**
+ * Find a HANA/PostgreSQL binding for one CF target by trying its apps — ordered by
+ * `appProbePriority`, most-likely-to-be-the-real-MDG-database first, not raw CF listing order —
+ * until one yields a database candidate, then import + cache that credential exactly the way
+ * CpiQueuePage's app picker does (`buildDraftFromCandidate` + `upsertConnectionFromDraft` — the
+ * latter dedupes by app+serviceName+type, so re-discovering the same environment a second time
+ * reuses the existing encrypted connection profile instead of creating a duplicate).
  */
 async function discoverOne(targetKey: string): Promise<TAuditLogDiscoveryCandidate> {
   const parts = targetKey.split("::");
@@ -46,7 +69,12 @@ async function discoverOne(targetKey: string): Promise<TAuditLogDiscoveryCandida
         return { ...base, region: target.region, org: target.org, space: target.space, status: "no-app-found" as const, suggestedProjectName: target.org, suggestedEnvLabel: `${target.space} (${target.region})` };
       }
 
-      const candidateApps = apps.slice(0, MAX_APPS_TO_PROBE);
+      // Stable sort: ties (e.g. two equally-generic app names) keep the CF API's original relative order.
+      const prioritized = apps
+        .map((app, index) => ({ app, index }))
+        .sort((a, b) => appProbePriority(a.app.name) - appProbePriority(b.app.name) || a.index - b.index)
+        .map((entry) => entry.app);
+      const candidateApps = prioritized.slice(0, MAX_APPS_TO_PROBE);
       let triedCount = 0;
 
       for (const app of candidateApps) {

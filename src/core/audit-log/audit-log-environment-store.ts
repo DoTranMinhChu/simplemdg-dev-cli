@@ -16,7 +16,10 @@ const ENVIRONMENTS_FILE_PATH = path.join(CACHE_DIRECTORY, "audit-log-environment
  * `connectionId` points at an encrypted profile in db-connections.json (see db-cache.ts) —
  * once set, `StudioConnectionPool` reuses that cached, already-decrypted-on-demand credential
  * on every subsequent scan, so re-registering the same app/environment never re-prompts for
- * BTP/HANA credentials (upsertConnectionFromDraft in db-cache.ts also dedupes by app+serviceName+type).
+ * BTP/HANA credentials (`upsertConnectionFromDraft` in db-cache.ts dedupes by
+ * region+org+space+app+serviceName+type — every one of those must match, not just app+service,
+ * or two different environments that happen to share an app-naming convention would collide onto
+ * the same connection row and silently overwrite each other's credentials).
  *
  * Deliberately has no "which codebase fork does this run" tag: whether a given log table exists
  * in a given environment is always answered by live-probing the schema (see

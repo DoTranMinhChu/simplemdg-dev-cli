@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "fs-extra";
+import fastGlob from "fast-glob";
 import { execa } from "execa";
 import type { TObjectTypeRepoRole } from "./object-type-discovery";
 
@@ -9,6 +10,23 @@ const DEFAULT_CDS_COMPILE_TIMEOUT_MS = 3 * 60_000;
 export async function resolveLocalCdsCli(repoPath: string): Promise<string | undefined> {
   const cliPath = path.join(repoPath, "node_modules", "@sap", "cds-dk", "bin", "cds.js");
   return (await fs.pathExists(cliPath)) ? cliPath : undefined;
+}
+
+/**
+ * Some repos (e.g. the special `simplemdg_db_f4` — confirmed in
+ * `object-type-discovery.ts`'s own comments to contain only
+ * `db/external/*.csn`/`.xml` archive files, no real `.cds` schema) have
+ * nothing to compile for their role at all. Rather than hardcoding that one
+ * repo name, this checks structurally: does `db/` (or `srv/`) contain any
+ * real `.cds` file outside its `external/` archive folder? If not, `cds
+ * compile` was never going to succeed there regardless of the version
+ * upgrade, so the job skips validation for that repo instead of reporting a
+ * false "build failed".
+ */
+export async function hasCompilableModel(repoPath: string, role: TObjectTypeRepoRole): Promise<boolean> {
+  const modelDir = role === "db" ? "db" : "srv";
+  const matches = await fastGlob([`${modelDir}/**/*.cds`], { cwd: repoPath, ignore: [`${modelDir}/external/**`] });
+  return matches.length > 0;
 }
 
 export type TCdsCompileResult = { ok: boolean; exitCode: number; stdout: string; stderr: string; timedOut: boolean };

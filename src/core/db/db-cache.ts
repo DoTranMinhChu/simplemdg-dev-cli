@@ -107,12 +107,23 @@ export async function upsertConnectionFromDraft(draft: TConnectionDraft): Promis
   const cache = await readCacheFile();
   const now = new Date().toISOString();
 
+  // `region`/`org`/`space` MUST be part of this match — confirmed as a real, active-harm bug:
+  // two different BTP environments that happen to share an app+service naming convention (e.g.
+  // this codebase's own `simplemdg-srv-process-system` app existing in BOTH a DEV and a QAS org)
+  // deduped onto the SAME connection row without it, so discovering the second environment
+  // silently overwrote the first one's already-working host/credentials in place — the DEV
+  // environment started resolving against QAS's database, mislabeled as DEV, with no error or
+  // warning anywhere. `app`+`serviceName`+`type` alone only identifies which SERVICE BINDING this
+  // is; it says nothing about WHICH environment that binding lives in.
   const existingIndex = draft.id
     ? cache.connections.findIndex((connection) => connection.id === draft.id)
     : cache.connections.findIndex((connection) =>
         connection.app === draft.app &&
         connection.serviceName === draft.serviceName &&
         connection.type === draft.type &&
+        connection.region === draft.region &&
+        connection.org === draft.org &&
+        connection.space === draft.space &&
         Boolean(draft.app) &&
         Boolean(draft.serviceName));
 

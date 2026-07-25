@@ -1,16 +1,42 @@
 export type TXsuaaTokenCredential = { clientId: string; clientSecret: string; url: string };
 
+/**
+ * None of this file's `fetch` calls had a timeout — confirmed as a real bug: a call whose target
+ * hangs (e.g. `getObjectOnPremiseData`-style function imports that reach out via SAP Cloud
+ * Connector to an on-premise system that's slow or unreachable) left the Check API External UI
+ * spinning forever with zero feedback, indistinguishable from "still working." Every call below
+ * now bounds itself with this timeout and reports a clear, specific error instead.
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 45_000;
+
+/** Wraps a `fetch` rejection so a timeout reads as an actionable message instead of a bare `TimeoutError` `DOMException`. */
+async function fetchWithTimeout(url: string | URL, init: RequestInit, timeoutMs: number, describe: string): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error(`${describe} timed out after ${Math.round(timeoutMs / 1000)}s — the app/service may be slow to respond or unreachable (e.g. an on-premise call via Cloud Connector that never returns).`);
+    }
+    throw error;
+  }
+}
+
 /** Standard XSUAA client-credentials OAuth2 grant. */
-export async function fetchXsuaaAccessToken(credential: TXsuaaTokenCredential): Promise<string> {
+export async function fetchXsuaaAccessToken(credential: TXsuaaTokenCredential, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<string> {
   const tokenUrl = `${credential.url.replace(/\/+$/, "")}/oauth/token`;
-  const response = await fetch(tokenUrl, {
-    method: "POST",
-    headers: {
-      authorization: `Basic ${Buffer.from(`${credential.clientId}:${credential.clientSecret}`).toString("base64")}`,
-      "content-type": "application/x-www-form-urlencoded",
+  const response = await fetchWithTimeout(
+    tokenUrl,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${Buffer.from(`${credential.clientId}:${credential.clientSecret}`).toString("base64")}`,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ grant_type: "client_credentials" }),
     },
-    body: new URLSearchParams({ grant_type: "client_credentials" }),
-  });
+    timeoutMs,
+    "XSUAA token request",
+  );
   const json = (await response.json().catch(() => ({}))) as { access_token?: string; error_description?: string };
   if (!response.ok || !json.access_token) {
     throw new Error(json.error_description || `XSUAA token request failed (HTTP ${response.status})`);
@@ -27,24 +53,34 @@ export type TCallCapApiOptions = {
   /** Arbitrary query params — `$select`/`$expand`/`$filter`/`$orderby`/`$top`/`$skip`/`$count`/`$inlinecount`, function-import params, etc. Empty-string values are dropped. */
   queryParams?: Record<string, string>;
   body?: unknown;
+  /** Longer default than the other calls here — this is the one most likely to hit a genuinely slow function import (e.g. one backed by an on-premise call via Cloud Connector), not just an internal CAP round trip. */
+  timeoutMs?: number;
 };
 
 export type TCallCapApiResult = { status: number; ok: boolean; body: unknown; url: string };
 
+const CALL_CAP_API_TIMEOUT_MS = 90_000;
+
 /** Proxies the actual authenticated call server-side, avoiding CORS from the browser (same reason the legacy tool did this server-side). */
 export async function callCapApi(options: TCallCapApiOptions): Promise<TCallCapApiResult> {
-  const token = await fetchXsuaaAccessToken(options.credential);
+  const timeoutMs = options.timeoutMs ?? CALL_CAP_API_TIMEOUT_MS;
+  const token = await fetchXsuaaAccessToken(options.credential, timeoutMs);
   const base = options.baseUrl.replace(/\/+$/, "");
   const url = new URL(`${base}${options.path.startsWith("/") ? "" : "/"}${options.path}`);
   for (const [key, value] of Object.entries(options.queryParams ?? {})) {
     if (value) url.searchParams.set(key, value);
   }
 
-  const response = await fetch(url, {
-    method: options.method ?? "GET",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: options.method ?? "GET",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    },
+    timeoutMs,
+    `${options.method ?? "GET"} ${options.path}`,
+  );
 
   const text = await response.text();
   let body: unknown = text;
@@ -62,7 +98,7 @@ export async function fetchODataMetadataXml(options: { credential: TXsuaaTokenCr
   const token = await fetchXsuaaAccessToken(options.credential);
   const base = options.baseUrl.replace(/\/+$/, "");
   const servicePath = options.path.startsWith("/") ? options.path : `/${options.path}`;
-  const response = await fetch(`${base}${servicePath}/$metadata`, { headers: { authorization: `Bearer ${token}` } });
+  const response = await fetchWithTimeout(`${base}${servicePath}/$metadata`, { headers: { authorization: `Bearer ${token}` } }, DEFAULT_REQUEST_TIMEOUT_MS, "$metadata request");
   if (!response.ok) throw new Error(`$metadata request failed (HTTP ${response.status})`);
   return await response.text();
 }
@@ -81,9 +117,12 @@ export type TLiveDiscoveredService = { name: string; path: string };
  */
 export async function discoverServicesViaLiveIndex(credential: TXsuaaTokenCredential, baseUrl: string): Promise<TLiveDiscoveredService[] | undefined> {
   const token = await fetchXsuaaAccessToken(credential);
-  const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/`, {
-    headers: { authorization: `Bearer ${token}`, accept: "application/json, text/html" },
-  });
+  const response = await fetchWithTimeout(
+    `${baseUrl.replace(/\/+$/, "")}/`,
+    { headers: { authorization: `Bearer ${token}`, accept: "application/json, text/html" } },
+    DEFAULT_REQUEST_TIMEOUT_MS,
+    "Live service index request",
+  );
   if (!response.ok) return undefined;
 
   const contentType = response.headers.get("content-type") ?? "";

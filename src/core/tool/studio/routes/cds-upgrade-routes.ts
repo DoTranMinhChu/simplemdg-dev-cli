@@ -104,7 +104,7 @@ export async function handleCdsUpgradeApi(req: http.IncomingMessage, res: http.S
       const jobId = crypto.randomUUID();
       // Respond immediately with the jobId; progress streams over /api/tool/events (channel:"job").
       sendJson(res, { jobId });
-      void runCdsUpgradeJob(jobId, { auth, sourceBranch, targetVersion, repos }).catch(() => undefined);
+      void runCdsUpgradeJob(jobId, { auth, group: groupFromTarget(target), sourceBranch, targetVersion, repos }).catch(() => undefined);
     } catch (error) {
       sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
     }
