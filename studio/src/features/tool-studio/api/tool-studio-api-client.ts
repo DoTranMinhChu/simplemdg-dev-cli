@@ -1,3 +1,118 @@
+import type { TDatabaseQueryResult } from "../../../api/studio-api-types";
+
+// --- Audit Log Monitor ------------------------------------------------------
+// Mirrors src/core/audit-log/*.ts on the backend. Kept in sync by hand (same
+// convention as the rest of this file's server-shape mirrors).
+
+export type TAuditLogTier = "core" | "master-data-domain";
+export type TAuditLogCategory =
+  | "activation" | "outbox" | "mass-upload" | "workflow-task" | "config-admin"
+  | "generic-audit" | "consolidation" | "data-quality" | "onprem-sync" | "eres-lock" | "domain-status-log";
+export type TAuditLogModule = "process" | "config" | "user" | "data-quality" | "consolidate" | "background" | "service-defined";
+export type TAuditLogSourceHint = "core" | "client-extension";
+
+export type TAuditLogDefinition = {
+  id: string;
+  displayName: string;
+  tier: TAuditLogTier;
+  category: TAuditLogCategory;
+  module?: TAuditLogModule;
+  description: string;
+  cdsEntity?: string;
+  tableNameCandidates: string[];
+  timestampColumn?: string;
+  statusColumn?: string;
+  errorColumn?: string;
+  correlationKeys: string[];
+  sourceHint: TAuditLogSourceHint;
+  multiTable?: boolean;
+};
+
+export type TAuditLogEnvironment = {
+  id: string;
+  projectName: string;
+  envLabel: string;
+  cfTargetKey: string;
+  region: string;
+  org: string;
+  space: string;
+  appName: string;
+  connectionId: string;
+  createdAt: string;
+  updatedAt: string;
+  lastScannedAt?: string;
+};
+
+export type TAuditLogEnvironmentSaveInput = Partial<Pick<TAuditLogEnvironment, "id">> &
+  Pick<TAuditLogEnvironment, "projectName" | "envLabel" | "cfTargetKey" | "region" | "org" | "space" | "appName" | "connectionId">;
+
+export type TAuditLogDiscoveryStatus = "ready" | "no-app-found" | "no-db-found" | "error";
+
+export type TAuditLogDiscoveryCandidate = {
+  cfTargetKey: string;
+  region: string;
+  org: string;
+  space: string;
+  status: TAuditLogDiscoveryStatus;
+  appName?: string;
+  connectionId?: string;
+  databaseType?: "hana" | "postgresql";
+  serviceName?: string;
+  suggestedProjectName: string;
+  suggestedEnvLabel: string;
+  triedAppCount?: number;
+  error?: string;
+};
+
+export type TResolvedAuditLogTable = { schema: string; name: string; kind: string };
+export type TAuditLogResolutionEntry = { catalogId: string; tables: TResolvedAuditLogTable[] };
+export type TAuditLogEnvironmentResolution = {
+  connectionId: string;
+  schema?: string;
+  resolvedAt: string;
+  entries: TAuditLogResolutionEntry[];
+  error?: string;
+};
+
+export type TAuditLogTableStat = {
+  schema: string;
+  table: string;
+  totalRows?: number;
+  recentRows?: number;
+  lastActivityAt?: string;
+  error?: string;
+};
+
+export type TAuditLogStatCell = {
+  catalogId: string;
+  tables: TAuditLogTableStat[];
+  totalRows: number;
+  recentRows?: number;
+  lastActivityAt?: string;
+  errorCount: number;
+};
+
+export type TAuditLogStatsResult = {
+  environmentId: string;
+  cells: Record<string, TAuditLogStatCell>;
+  resolutionError?: string;
+  error?: string;
+};
+
+export type TAuditLogTraceRow = {
+  catalogId: string;
+  displayName: string;
+  schema: string;
+  table: string;
+  timestampColumn?: string;
+  row: Record<string, unknown>;
+  environmentId: string;
+  envLabel: string;
+};
+
+export type TAuditLogDetailFilterOp = "eq" | "contains" | "gte" | "lte";
+export type TAuditLogDetailFilter = { column: string; op: TAuditLogDetailFilterOp; value: string };
+
 export type TConnectivityTestStep = {
   key: string;
   label: string;
@@ -212,6 +327,43 @@ export type TDeployModelResult = {
 /** Mirrors `TCustomModelWarning` in `csn-model-types.ts` — a `custom-model.cds` attachment existed on the previously-committed file but couldn't be re-applied because its parent entity is no longer in this upload. */
 export type TCustomModelWarning = { businessTable: string; message: string };
 
+// --- Bulk CDS version upgrade -----------------------------------------------
+// Mirrors src/core/deploy/cds-upgrade-job.ts / cds-upgrade-fixups.ts on the
+// backend. Kept in sync by hand (same convention as the rest of this file).
+
+export type TCdsUpgradeRepoInput = { projectId: number; pathWithNamespace: string; role: "db" | "srv" | "srv_process" | "unknown"; defaultBranch: string; httpUrlToRepo: string };
+
+export type TCdsUpgradePreviewRow = {
+  role: string;
+  pathWithNamespace: string;
+  projectId: number;
+  bucket: "wouldUpgrade" | "alreadyUpToDate" | "branchNotFound" | "unknownVersion";
+  currentVersion?: string;
+};
+
+export type TCdsFixupResult = { id: string; title: string; applied: boolean; note: string };
+
+export type TCdsUpgradeBucket = "upgraded" | "alreadyUpToDate" | "branchNotFound" | "buildFailed" | "skipped";
+
+export type TCdsUpgradeRepoOutcome = {
+  role: string;
+  pathWithNamespace: string;
+  projectId: number;
+  bucket: TCdsUpgradeBucket;
+  currentVersion?: string;
+  detail?: string;
+  mergeRequestUrl?: string;
+  appliedFixups?: TCdsFixupResult[];
+};
+
+export type TCdsUpgradeResult = {
+  upgraded: TCdsUpgradeRepoOutcome[];
+  alreadyUpToDate: TCdsUpgradeRepoOutcome[];
+  branchNotFound: TCdsUpgradeRepoOutcome[];
+  buildFailed: TCdsUpgradeRepoOutcome[];
+  skipped: TCdsUpgradeRepoOutcome[];
+};
+
 /** Mirrors `TMergeRequestStatus` in `merge-orchestrator.ts` — polled per-MR so the UI can show merge/pipeline state without the user opening GitLab. */
 export type TMrLiveStatus = { state: string; mergedAt?: string; pipeline?: { id: number; status: string; webUrl: string }; error?: string };
 
@@ -383,6 +535,13 @@ export const toolStudioApi = {
     post<{ jobId?: string; error?: string }>("/api/tool/deploy-model/auto-merge", { dbTarget, restTargets }),
   addManualObjectType: (input: { deployTargetId: string; slug: string; envObjectName?: string; projectId: number; pathWithNamespace: string; role: string; defaultBranch?: string }) =>
     post<{ ok?: boolean; error?: string }>("/api/tool/deploy-model/manual-object-type", input),
+
+  getCdsUpgradeCandidateRepos: (deployTargetId: string) =>
+    get<{ repos: TCdsUpgradeRepoInput[]; error?: string }>(`/api/tool/cds-upgrade/candidate-repos?deployTargetId=${encodeURIComponent(deployTargetId)}`),
+  previewCdsUpgrade: (input: { deployTargetId: string; sourceBranch: string; targetVersion: string }) =>
+    post<{ rows?: TCdsUpgradePreviewRow[]; error?: string }>("/api/tool/cds-upgrade/preview", input),
+  startCdsUpgradeJob: (input: { deployTargetId: string; sourceBranch: string; targetVersion: string }) =>
+    post<{ jobId?: string; error?: string }>("/api/tool/cds-upgrade/run", input),
   removeManualObjectType: (deployTargetId: string, slug: string) =>
     post<{ ok?: boolean; error?: string }>("/api/tool/deploy-model/manual-object-type/remove", { deployTargetId, slug }),
 
@@ -397,4 +556,33 @@ export const toolStudioApi = {
     ),
   pinNpmrcPackageId: (groupId: number, groupPath: string, packageId: string) => post<{ ok: boolean }>("/api/tool/npmrc/pin", { groupId, groupPath, packageId }),
   unpinNpmrcPackageId: (groupId: number, groupPath: string) => post<{ ok: boolean }>("/api/tool/npmrc/unpin", { groupId, groupPath }),
+
+  // --- Audit Log Monitor ---
+  listAuditLogCatalog: () => get<{ catalog: TAuditLogDefinition[] }>("/api/tool/audit-log/catalog"),
+  listAuditLogEnvironments: () => get<{ environments: TAuditLogEnvironment[] }>("/api/tool/audit-log/environments"),
+  discoverAuditLogEnvironments: (input: { targetKeys: string[]; jobId?: string }) =>
+    post<{ candidates: TAuditLogDiscoveryCandidate[]; error?: string }>("/api/tool/audit-log/environments/discover", input),
+  saveAuditLogEnvironment: (draft: TAuditLogEnvironmentSaveInput) =>
+    post<{ environment?: TAuditLogEnvironment; error?: string }>("/api/tool/audit-log/environments/save", draft),
+  removeAuditLogEnvironment: (id: string) => post<{ removed: boolean }>("/api/tool/audit-log/environments/remove", { id }),
+  resolveAuditLogEnvironment: (id: string, force = false) =>
+    post<{ resolution?: TAuditLogEnvironmentResolution; error?: string }>("/api/tool/audit-log/environments/resolve", { id, force }),
+  getAuditLogStats: (input: { environmentIds: string[]; sinceHours: number; jobId?: string }) =>
+    post<{ results: TAuditLogStatsResult[]; error?: string }>("/api/tool/audit-log/stats", input),
+  traceAuditLog: (input: { environmentIds: string[]; correlationColumn: string; correlationValue: string }) =>
+    post<{ rows: TAuditLogTraceRow[]; error?: string }>("/api/tool/audit-log/trace", input),
+  getAuditLogDetail: (input: {
+    environmentId: string;
+    catalogId: string;
+    tableIndex?: number;
+    limit: number;
+    offset: number;
+    filters: TAuditLogDetailFilter[];
+    orderBy?: string;
+    orderDirection?: "asc" | "desc";
+  }) =>
+    post<{ result?: TDatabaseQueryResult; total?: number; table?: TResolvedAuditLogTable; availableTables?: TResolvedAuditLogTable[]; error?: string }>(
+      "/api/tool/audit-log/detail",
+      input,
+    ),
 };

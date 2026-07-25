@@ -8,18 +8,22 @@ import { CpiQueuePage } from "./pages/CpiQueuePage";
 import { JiraDeployInfoPage } from "./pages/JiraDeployInfoPage";
 import { IncidentSearchPage } from "./pages/IncidentSearchPage";
 import { DeployModelPage } from "./pages/DeployModelPage";
+import { CdsBulkUpgradePage } from "./pages/CdsBulkUpgradePage";
 import { ObjectTypesPage } from "./pages/ObjectTypesPage";
 import { NpmrcRegistryPage } from "./pages/NpmrcRegistryPage";
 import { BtpCredentialsPage } from "./pages/BtpCredentialsPage";
+import { AuditLogPage } from "./pages/AuditLogPage";
 
 type TToolStudioSection =
   | "deploy-model"
+  | "cds-bulk-upgrade"
   | "check-api-external"
   | "jira-deploy-info"
   | "incident-search"
   | "test-config"
   | "cpi-queue"
   | "cf-log-restart"
+  | "audit-log-monitor"
   | "npmrc-registry"
   | "object-types"
   | "btp-credentials";
@@ -28,10 +32,12 @@ type TNavItem = { id: TToolStudioSection; label: string; ready: boolean };
 
 const NAV_ITEMS: TNavItem[] = [
   { id: "deploy-model", label: "Deploy Model", ready: true },
+  { id: "cds-bulk-upgrade", label: "Upgrade CDS Version", ready: true },
   { id: "check-api-external", label: "Check API External", ready: true },
   { id: "test-config", label: "Test Config", ready: true },
   { id: "cpi-queue", label: "CPI Queue / Event Mesh", ready: true },
   { id: "cf-log-restart", label: "CF Log / Restart", ready: true },
+  { id: "audit-log-monitor", label: "Audit Log Monitor", ready: true },
   { id: "jira-deploy-info", label: "Jira Deploy Info", ready: true },
   { id: "incident-search", label: "Incident Search", ready: true },
   { id: "object-types", label: "Object Types", ready: true },
@@ -50,15 +56,15 @@ export function ToolStudioApp(): React.ReactElement {
           SimpleMDG Tool Studio
         </div>
         <div className="ts-nav-group">MDG Deploy</div>
-        {NAV_ITEMS.slice(0, 2).map((item) => (
+        {NAV_ITEMS.slice(0, 3).map((item) => (
           <NavButton key={item.id} item={item} active={section === item.id} onSelect={setSection} />
         ))}
         <div className="ts-nav-group">Operations</div>
-        {NAV_ITEMS.slice(2, 7).map((item) => (
+        {NAV_ITEMS.slice(3, 9).map((item) => (
           <NavButton key={item.id} item={item} active={section === item.id} onSelect={setSection} />
         ))}
         <div className="ts-nav-group">Configuration</div>
-        {NAV_ITEMS.slice(7).map((item) => (
+        {NAV_ITEMS.slice(9).map((item) => (
           <NavButton key={item.id} item={item} active={section === item.id} onSelect={setSection} />
         ))}
       </nav>
@@ -67,6 +73,8 @@ export function ToolStudioApp(): React.ReactElement {
           <TestConfigPage />
         ) : section === "cf-log-restart" ? (
           <CfLogRestartPage />
+        ) : section === "audit-log-monitor" ? (
+          <AuditLogPage />
         ) : section === "check-api-external" ? (
           <CheckApiExternalPage />
         ) : section === "cpi-queue" ? (
@@ -77,6 +85,8 @@ export function ToolStudioApp(): React.ReactElement {
           <IncidentSearchPage />
         ) : section === "deploy-model" ? (
           <DeployModelPage />
+        ) : section === "cds-bulk-upgrade" ? (
+          <CdsBulkUpgradePage />
         ) : section === "object-types" ? (
           <ObjectTypesPage />
         ) : section === "npmrc-registry" ? (
