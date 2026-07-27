@@ -32,7 +32,13 @@ export function useJobEvents(jobId: string | undefined, onEvent: (event: TJobEve
     source.onmessage = (message) => {
       try {
         const event = JSON.parse(message.data) as TJobEvent;
-        if (event.channel === "job" && event.jobId === jobId) handlerRef.current(event);
+        if (event.channel !== "job" || event.jobId !== jobId) return;
+        handlerRef.current(event);
+        // Self-close as soon as the job is done — callers never reset `jobId` back to `undefined`
+        // after completion, so without this the connection would otherwise stay open for as long as
+        // the component stays mounted (which, with Tool Studio's keep-alive nav, can be the rest of
+        // the tab's life).
+        if (event.type === "job-completed" || event.type === "job-failed") source.close();
       } catch {
         // ignore malformed events
       }

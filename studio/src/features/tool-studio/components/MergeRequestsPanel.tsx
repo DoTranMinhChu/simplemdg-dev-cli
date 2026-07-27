@@ -49,12 +49,18 @@ function MergeRequestRow({ mr }: { mr: TDeployModelResult["mergeRequests"][numbe
 
   useEffect(() => {
     let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | undefined;
     const poll = async () => {
       const result = await toolStudioApi.getMrStatus(mr.projectId, mr.iid).catch(() => undefined);
-      if (!cancelled && result && !result.error) setStatus(result);
+      if (cancelled) return;
+      if (result && !result.error) setStatus(result);
+      // A merged/closed MR's state never changes again — keeping this polling forever once mounted
+      // used to be bounded by "until the user leaves Deploy Model"; with keep-alive nav that's now
+      // "for the rest of the tab's life," so it must stop itself once there's nothing left to watch.
+      if (result?.state === "merged" || result?.state === "closed") clearInterval(interval);
     };
     void poll();
-    const interval = setInterval(poll, POLL_INTERVAL_MS);
+    interval = setInterval(poll, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(interval);

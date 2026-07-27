@@ -21,11 +21,21 @@ type TAuditLogPageTab = "environments" | "stats" | "trace" | "detail";
  */
 export function AuditLogPage(): React.ReactElement {
   const [tab, setTab] = useState<TAuditLogPageTab>("environments");
+  // Every tab that's ever been shown stays mounted (hidden via CSS) from then on, so switching
+  // between Environments/Stats/Trace/Detail never loses a scan result or a selection mid-flight.
+  const [visitedTabs, setVisitedTabs] = useState<Set<TAuditLogPageTab>>(() => new Set(["environments"]));
   const [environments, setEnvironments] = useState<TAuditLogEnvironment[]>([]);
   const [catalog, setCatalog] = useState<TAuditLogDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] = useState<string[]>([]);
-  const [detailTarget, setDetailTarget] = useState<{ environmentId: string; catalogId: string; tableIndex?: number } | undefined>();
+  const [detailTarget, setDetailTarget] = useState<
+    { environmentId: string; catalogId: string; tableIndex?: number; initialFilter?: { column: string; value: string } } | undefined
+  >();
+
+  const goToTab = (next: TAuditLogPageTab): void => {
+    setTab(next);
+    setVisitedTabs((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
+  };
 
   const reloadEnvironments = async (): Promise<void> => {
     const response = await toolStudioApi.listAuditLogEnvironments();
@@ -64,34 +74,53 @@ export function AuditLogPage(): React.ReactElement {
       </div>
 
       <div className="ts-tabs">
-        <button className={`ts-tab${tab === "environments" ? " active" : ""}`} onClick={() => setTab("environments")}>
+        <button className={`ts-tab${tab === "environments" ? " active" : ""}`} onClick={() => goToTab("environments")}>
           Environments ({environments.length})
         </button>
-        <button className={`ts-tab${tab === "stats" ? " active" : ""}`} onClick={() => setTab("stats")}>Stats</button>
-        <button className={`ts-tab${tab === "trace" ? " active" : ""}`} onClick={() => setTab("trace")}>Trace</button>
-        <button className={`ts-tab${tab === "detail" ? " active" : ""}`} onClick={() => setTab("detail")}>Detail Viewer</button>
+        <button className={`ts-tab${tab === "stats" ? " active" : ""}`} onClick={() => goToTab("stats")}>Stats</button>
+        <button className={`ts-tab${tab === "trace" ? " active" : ""}`} onClick={() => goToTab("trace")}>Trace</button>
+        <button className={`ts-tab${tab === "detail" ? " active" : ""}`} onClick={() => goToTab("detail")}>Detail Viewer</button>
       </div>
 
-      {tab === "environments" && <AuditLogEnvironmentsTab environments={environments} onChanged={() => void reloadEnvironments()} />}
-
-      {tab === "stats" && (
-        <AuditLogStatsTab
-          environments={environments}
-          catalog={catalog}
-          selectedEnvironmentIds={selectedEnvironmentIds}
-          onChangeSelection={setSelectedEnvironmentIds}
-          onOpenDetail={(environmentId, catalogId) => {
-            setDetailTarget({ environmentId, catalogId, tableIndex: 0 });
-            setTab("detail");
-          }}
-        />
+      {visitedTabs.has("environments") && (
+        <div style={{ display: tab === "environments" ? "block" : "none" }}>
+          <AuditLogEnvironmentsTab
+            environments={environments}
+            onChanged={() => void reloadEnvironments()}
+            onJumpToEnvironment={(environmentId) => {
+              setSelectedEnvironmentIds([environmentId]);
+              goToTab("stats");
+            }}
+          />
+        </div>
       )}
 
-      {tab === "trace" && (
-        <AuditLogTraceTab environments={environments} catalog={catalog} selectedEnvironmentIds={selectedEnvironmentIds} onChangeSelection={setSelectedEnvironmentIds} />
+      {visitedTabs.has("stats") && (
+        <div style={{ display: tab === "stats" ? "block" : "none" }}>
+          <AuditLogStatsTab
+            environments={environments}
+            catalog={catalog}
+            selectedEnvironmentIds={selectedEnvironmentIds}
+            onChangeSelection={setSelectedEnvironmentIds}
+            onOpenDetail={(environmentId, catalogId, statusFilter) => {
+              setDetailTarget({ environmentId, catalogId, tableIndex: 0, initialFilter: statusFilter });
+              goToTab("detail");
+            }}
+          />
+        </div>
       )}
 
-      {tab === "detail" && <AuditLogDetailTab environments={environments} catalog={catalog} initialTarget={detailTarget} />}
+      {visitedTabs.has("trace") && (
+        <div style={{ display: tab === "trace" ? "block" : "none" }}>
+          <AuditLogTraceTab environments={environments} catalog={catalog} selectedEnvironmentIds={selectedEnvironmentIds} onChangeSelection={setSelectedEnvironmentIds} />
+        </div>
+      )}
+
+      {visitedTabs.has("detail") && (
+        <div style={{ display: tab === "detail" ? "block" : "none" }}>
+          <AuditLogDetailTab environments={environments} catalog={catalog} initialTarget={detailTarget} />
+        </div>
+      )}
     </div>
   );
 }

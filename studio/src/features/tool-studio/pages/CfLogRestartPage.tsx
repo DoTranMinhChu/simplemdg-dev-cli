@@ -4,6 +4,7 @@ import { Spinner } from "../../../components/common/Spinner";
 import { Modal } from "../../../components/common/Modal";
 import { BtpTargetSelector } from "../../../components/btp/BtpTargetSelector";
 import { CfLogViewer } from "../../../components/common/CfLogViewer";
+import { CodeBlock } from "../../../components/common/CodeBlock";
 import { CfMultiAppPicker } from "../components/CfMultiAppPicker";
 import { useAsync } from "../../../hooks/useAsync";
 import { toolStudioApi } from "../api/tool-studio-api-client";
@@ -202,8 +203,13 @@ export function CfLogRestartPage(): React.ReactElement {
             </div>
           )}
           {sshCall.data && (
-            <div className={sshCall.data.ok ? "note" : "errbox"} style={{ marginBottom: 12 }}>
-              {sshCall.data.ok ? `Opened a new terminal — connecting via cf ssh ${activeApp}.` : sshCall.data.error}
+            <div style={{ marginBottom: 12 }}>
+              <div className={sshCall.data.ok ? "note" : "errbox"}>
+                {sshCall.data.ok
+                  ? `Tried to open a new terminal for cf ssh ${activeApp}. Opening a GUI window from here isn't 100% reliable — if nothing appeared, copy the command below and run it in your own terminal:`
+                  : sshCall.data.error}
+              </div>
+              {sshCall.data.manualCommand && <CodeBlock code={sshCall.data.manualCommand} language="powershell" />}
             </div>
           )}
           {sshCall.error && <div className="errbox" style={{ marginBottom: 12 }}>{sshCall.error}</div>}
@@ -246,12 +252,12 @@ export function CfLogRestartPage(): React.ReactElement {
                 )}
               </div>
 
-              {activeApp && refreshingApp === activeApp ? (
-                <div className="note faint" style={{ padding: 16 }}>
-                  <Spinner /> refreshing {activeApp}...
+              {activeApp && refreshingApp === activeApp && (
+                <div className="note faint" style={{ marginBottom: 8 }}>
+                  <Spinner /> refreshing {activeApp}... (showing previous results below until this finishes)
                 </div>
-              ) : (
-                activeApp &&
+              )}
+              {activeApp &&
                 activeResult &&
                 (activeResult.ok ? (
                   activeResult.logs ? (
@@ -261,8 +267,7 @@ export function CfLogRestartPage(): React.ReactElement {
                   )
                 ) : (
                   <div className="errbox">{activeResult.error}</div>
-                ))
-              )}
+                ))}
             </>
           ) : null}
 

@@ -73,7 +73,7 @@ export async function getCloudLoggingDashboardLink(context: TCfExecutionContext,
  * behalf (restarting is disruptive and already has its own explicit button on this page) — instead
  * it reports back that a restart is needed before SSH will actually work.
  */
-export async function openSshTerminalForApp(context: TCfExecutionContext, appName: string, instanceIndex = "0"): Promise<{ ok: boolean; error?: string }> {
+export async function openSshTerminalForApp(context: TCfExecutionContext, appName: string, instanceIndex = "0"): Promise<{ ok: boolean; error?: string; manualCommand?: string }> {
   const sshEnabledResult = await cfExecutionService.runCf(context, ["ssh-enabled", appName], { silent: true });
   const combinedOutput = `${sshEnabledResult.stdout}\n${sshEnabledResult.stderr}`;
   const isEnabled = sshEnabledResult.exitCode === 0 && /enabled/i.test(combinedOutput) && !/not enabled/i.test(combinedOutput);

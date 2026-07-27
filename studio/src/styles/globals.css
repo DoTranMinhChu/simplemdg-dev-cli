@@ -5445,6 +5445,15 @@ td.cell-active {
    height: 100vh;
    background: var(--bg);
    color: var(--text);
+   transition: grid-template-columns 0.15s ease;
+}
+
+/* Only applies at the sidebar breakpoint — on mobile the nav is already a horizontal top bar
+   (see the max-width:767px block below), where "collapsed" wouldn't mean anything. */
+@media (min-width: 768px) {
+   .ts-shell.nav-collapsed {
+      grid-template-columns: 44px 1fr;
+   }
 }
 
 .ts-nav {
@@ -5452,6 +5461,15 @@ td.cell-active {
    border-right: 1px solid var(--border);
    padding: var(--space-4) var(--space-2);
    overflow-y: auto;
+   overflow-x: hidden;
+}
+
+.ts-nav-toggle {
+   margin: 0 0 var(--space-3) var(--space-1);
+}
+
+.nav-collapsed .ts-nav-toggle {
+   margin-left: 6px;
 }
 
 .ts-nav-brand {
@@ -5485,6 +5503,7 @@ td.cell-active {
    font-size: var(--font-size-base);
    padding: var(--space-2) var(--space-3);
    cursor: pointer;
+   text-decoration: none;
 }
 
 .ts-nav-item:hover {
@@ -5962,6 +5981,196 @@ td.cell-active {
    text-align: center;
 }
 
+/* SqlAutocompleteTextarea — anchored-under-caret popover, mirrors .ssel-popover/.ssel-item. */
+.sqlac-popover {
+   display: flex;
+   flex-direction: column;
+   max-height: 260px;
+   min-width: 200px;
+   background: var(--panel);
+   border: 1px solid var(--border-2);
+   border-radius: var(--radius-md);
+   box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+   overflow: auto;
+   padding: var(--space-1);
+   z-index: 60;
+}
+
+.sqlac-item {
+   padding: 6px var(--space-2);
+   border-radius: var(--radius-sm);
+   font-size: var(--font-size-sm);
+   font-family: var(--font-mono, monospace);
+   cursor: pointer;
+}
+
+.sqlac-item:hover,
+.sqlac-item.active { background: var(--sel); color: var(--accent); }
+
+.audit-advanced-where {
+   border: 1px solid var(--border-2);
+   border-radius: var(--radius-md);
+   padding: var(--space-2);
+   background: var(--bg-3);
+}
+
+/* Audit Log Monitor — Stats results table. Deliberately its own class, not a reuse of `.grid`
+   (that one is built for single-line, truncated data-grid cells — `white-space: nowrap` +
+   `max-width: 440px` + `overflow: hidden` actively fought against this table's multi-line
+   bar-chart cells, which is a real chunk of why the previous layout looked cramped/broken). */
+.audit-stats-table {
+   border-collapse: separate;
+   border-spacing: 0;
+   width: 100%;
+   font-size: var(--font-size-sm);
+}
+
+.audit-stats-table th,
+.audit-stats-table td {
+   border-bottom: 1px solid var(--border);
+   border-right: 1px solid var(--border);
+   padding: 10px 14px;
+   text-align: left;
+   vertical-align: top;
+   white-space: normal;
+}
+
+.audit-stats-table th {
+   position: sticky;
+   top: 0;
+   z-index: 1;
+   background: #172339;
+   color: #cfe0ff;
+}
+
+.audit-stats-table tr:hover td {
+   background: #13203450;
+}
+
+.audit-stat-cell {
+   min-width: 200px;
+}
+
+.audit-stat-total {
+   cursor: pointer;
+   display: flex;
+   align-items: baseline;
+   flex-wrap: wrap;
+   gap: 6px;
+}
+
+.audit-stat-tables-toggle {
+   background: transparent;
+   border: none;
+   color: var(--faint);
+   font-size: var(--font-size-xs);
+   cursor: pointer;
+   padding: 0;
+}
+
+.audit-stat-recent-badge {
+   font-size: var(--font-size-xs);
+   color: var(--accent);
+   background: rgba(59, 130, 246, 0.16);
+   border-radius: var(--radius-full);
+   padding: 1px 7px;
+   cursor: help;
+}
+
+.audit-stat-tables-toggle:hover {
+   color: var(--text);
+}
+
+.audit-stat-table-list {
+   list-style: none;
+   margin: 4px 0 0;
+   padding: 2px 0 2px 8px;
+   border-left: 2px solid var(--border-2);
+   display: flex;
+   flex-direction: column;
+   gap: 2px;
+}
+
+.audit-stat-table-list li {
+   display: flex;
+   justify-content: space-between;
+   gap: 10px;
+   font-size: var(--font-size-xs);
+   color: var(--faint);
+}
+
+.audit-stat-table-list li span:first-child {
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.audit-stat-breakdown {
+   margin-top: 8px;
+   display: flex;
+   flex-direction: column;
+   gap: 4px;
+}
+
+.audit-stat-bar-row {
+   display: grid;
+   grid-template-columns: 110px 1fr 52px;
+   align-items: center;
+   gap: 8px;
+   cursor: pointer;
+   padding: 2px 4px;
+   border-radius: var(--radius-sm);
+}
+
+.audit-stat-bar-row:hover {
+   background: var(--bg-3);
+}
+
+.audit-stat-bar-label {
+   font-size: var(--font-size-xs);
+   color: var(--muted);
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.audit-stat-bar-track {
+   position: relative;
+   height: 6px;
+   border-radius: var(--radius-full);
+   background: var(--bg-3);
+   overflow: hidden;
+}
+
+.audit-stat-bar-fill {
+   position: absolute;
+   top: 0;
+   left: 0;
+   bottom: 0;
+   background: var(--accent);
+   border-radius: var(--radius-full);
+}
+
+.audit-stat-bar-count {
+   font-size: var(--font-size-xs);
+   color: var(--faint);
+   text-align: right;
+}
+
+.audit-stat-more {
+   background: transparent;
+   border: none;
+   color: var(--faint);
+   font-size: var(--font-size-xs);
+   text-align: left;
+   cursor: pointer;
+   padding: 2px 0;
+}
+
+.audit-stat-more:hover {
+   color: var(--text);
+}
+
 /* Proxy Studio — additive only, built on the design tokens above. */
 .proxy-filter-row,
 .proxy-actions-row {
@@ -6364,3 +6573,83 @@ td.cell-active {
    .ai-nexus-layout.has-selection .ai-mobile-back { display: flex; }
 }
 .log-line.dim { color: var(--faint); }
+
+/* --- File Editor: drop zone + spreadsheet/document editor chrome --- */
+
+/* Unlike other Tool Studio pages (forms/text where ts-card's 1400px cap keeps lines readable), a
+   spreadsheet grid or document benefits from all the width a wide monitor can give it. */
+.fe-card {
+   max-width: none;
+}
+
+.fe-dropzone {
+   border: 2px dashed var(--border);
+   border-radius: var(--radius-lg);
+   padding: var(--space-6);
+   text-align: center;
+   color: var(--muted);
+   transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.fe-dropzone.active {
+   border-color: var(--accent);
+   background: var(--bg-3);
+}
+
+.fe-toolbar {
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
+   flex-wrap: wrap;
+   margin-bottom: var(--space-3);
+}
+
+.fe-filename {
+   font-weight: 600;
+   color: var(--text);
+}
+
+.fe-dirty-dot {
+   width: 8px;
+   height: 8px;
+   border-radius: 50%;
+   background: var(--accent);
+   display: inline-block;
+}
+
+.ts-doc-editor {
+   border: 1px solid var(--border);
+   border-radius: var(--radius-md);
+   background: var(--panel);
+   overflow: hidden;
+}
+
+.ts-doc-toolbar {
+   display: flex;
+   flex-wrap: wrap;
+   gap: 4px;
+   padding: var(--space-2);
+   border-bottom: 1px solid var(--border);
+   background: var(--bg-3);
+}
+
+.ts-doc-content {
+   padding: var(--space-4) var(--space-5);
+   min-height: calc(100vh - 260px);
+}
+
+.ts-doc-content .ProseMirror {
+   outline: none;
+   min-height: calc(100vh - 260px - var(--space-4) * 2);
+   line-height: 1.6;
+   max-width: 840px;
+}
+
+.ts-doc-content .ProseMirror h1 { font-size: 1.6em; margin: 0.6em 0 0.3em; }
+.ts-doc-content .ProseMirror h2 { font-size: 1.35em; margin: 0.6em 0 0.3em; }
+.ts-doc-content .ProseMirror h3 { font-size: 1.15em; margin: 0.6em 0 0.3em; }
+.ts-doc-content .ProseMirror p { margin: 0.4em 0; }
+.ts-doc-content .ProseMirror ul,
+.ts-doc-content .ProseMirror ol {
+   padding-left: 1.4em;
+}

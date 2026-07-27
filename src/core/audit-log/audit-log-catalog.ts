@@ -325,21 +325,21 @@ const CORE_CATALOG: TAuditLogDefinition[] = [
 const MASTER_DATA_DOMAIN_CATALOG: TAuditLogDefinition[] = [
   {
     id: "md-consolidate-log", displayName: "MDConsolidateLog (per master-data domain)", tier: "master-data-domain", category: "consolidation",
-    description: "Per-domain consolidation/merge status log (onPremiseObjectID+requestID+stepID, with errorMessage). Confirmed in business-partner (bp.model.f4.MDConsolidateLog); repeats with the same shape across every domain that has consolidation enabled. Which domains exist, and under what table name, varies per environment — resolved at scan time.",
+    description: "Per-domain consolidation/merge status log (onPremiseObjectID+requestID+stepID, with errorMessage). Confirmed mckesson-only (db/consolidate-model.cds, byte-identical across all 13 mckesson domains) — not present anywhere in simplemdg-dashboard core, which uses the generic core-level MDErrorLog instead. Which domains exist, and under what table name, varies per environment — resolved at scan time.",
     tableNameCandidates: ["MDCONSOLIDATELOG"],
-    statusColumn: "status", errorColumn: "errorMessage", correlationKeys: ["requestID", "onPremiseObjectID"], sourceHint: "core", multiTable: true,
+    statusColumn: "status", errorColumn: "errorMessage", correlationKeys: ["requestID", "onPremiseObjectID"], sourceHint: "client-extension", multiTable: true,
   },
   {
     id: "md-sync-data-batch", displayName: "MDSyncDataBatch (per master-data domain)", tier: "master-data-domain", category: "onprem-sync",
-    description: "Per-domain sync batch tracker (requestID+onPremiseObjectID+userID+objectType). Confirmed in business-partner.",
+    description: "Per-domain sync batch tracker (requestID+onPremiseObjectID+userID+objectType). Confirmed mckesson-only (same file/domains as MDConsolidateLog) — not present in dashboard core.",
     tableNameCandidates: ["MDSYNCDATABATCH"],
-    correlationKeys: ["requestID", "onPremiseObjectID"], sourceHint: "core", multiTable: true,
+    correlationKeys: ["requestID", "onPremiseObjectID"], sourceHint: "client-extension", multiTable: true,
   },
   {
     id: "md-process-report", displayName: "MDProcessReport (per master-data domain)", tier: "master-data-domain", category: "data-quality",
-    description: "Per-domain rule-evaluation report data (reportID+ruleID+dataValue). Confirmed in business-partner.",
+    description: "Per-domain rule-evaluation report data (reportID+ruleID+dataValue). Confirmed mckesson-only (same file/domains as MDConsolidateLog) — not present in dashboard core.",
     tableNameCandidates: ["MDPROCESSREPORT"],
-    correlationKeys: ["reportID", "ruleID"], sourceHint: "core", multiTable: true,
+    correlationKeys: ["reportID", "ruleID"], sourceHint: "client-extension", multiTable: true,
   },
   {
     id: "domain-status-log", displayName: "<Domain>StatusLog (per master-data domain)", tier: "master-data-domain", category: "domain-status-log",

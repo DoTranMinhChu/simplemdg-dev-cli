@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../components/common/Button";
 import { Spinner } from "../../../components/common/Spinner";
 import { EmptyState } from "../../../components/common/EmptyState";
 import { SearchableSelect } from "../../../components/common/SearchableSelect";
+import { SqlAutocompleteTextarea } from "../../../components/common/SqlAutocompleteTextarea";
 import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TAuditLogDefinition, TAuditLogDetailFilter, TAuditLogDetailFilterOp, TAuditLogEnvironment, TResolvedAuditLogTable } from "../api/tool-studio-api-client";
-import type { TDatabaseQueryResult } from "../../../api/studio-api-types";
+import type { TDatabaseColumn, TDatabaseQueryResult } from "../../../api/studio-api-types";
 
 const FILTER_OPS: Array<{ value: TAuditLogDetailFilterOp; label: string }> = [
   { value: "eq", label: "=" },
@@ -22,6 +23,12 @@ function formatCellValue(value: unknown): string {
   return String(value);
 }
 
+type TDetailTarget = { environmentId: string; catalogId: string; tableIndex?: number; initialFilter?: { column: string; value: string } };
+
+function filtersFromTarget(target: TDetailTarget | undefined): TAuditLogDetailFilter[] {
+  return target?.initialFilter ? [{ column: target.initialFilter.column, op: "eq", value: target.initialFilter.value }] : [];
+}
+
 export function AuditLogDetailTab({
   environments,
   catalog,
@@ -29,12 +36,16 @@ export function AuditLogDetailTab({
 }: {
   environments: TAuditLogEnvironment[];
   catalog: TAuditLogDefinition[];
-  initialTarget?: { environmentId: string; catalogId: string; tableIndex?: number };
+  initialTarget?: TDetailTarget;
 }): React.ReactElement {
   const [environmentId, setEnvironmentId] = useState(initialTarget?.environmentId ?? environments[0]?.id ?? "");
   const [catalogId, setCatalogId] = useState(initialTarget?.catalogId ?? "");
   const [tableIndex, setTableIndex] = useState(initialTarget?.tableIndex ?? 0);
-  const [filters, setFilters] = useState<TAuditLogDetailFilter[]>([]);
+  const [filters, setFilters] = useState<TAuditLogDetailFilter[]>(() => filtersFromTarget(initialTarget));
+  // Tracks which `initialTarget` reference has already been folded into a load — lets the auto-load
+  // effect below use freshly-seeded filters directly instead of racing the `setFilters` re-render
+  // (an effect from THIS render's commit can't see a sibling effect's state update in the same pass).
+  const appliedTargetRef = useRef<TDetailTarget | undefined>(initialTarget);
   const [offset, setOffset] = useState(0);
   const [result, setResult] = useState<TDatabaseQueryResult | undefined>();
   const [total, setTotal] = useState<number | undefined>();
@@ -48,12 +59,20 @@ export function AuditLogDetailTab({
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | undefined>();
 
+  const [advancedMode, setAdvancedMode] = useState(false);
+  const [rawWhere, setRawWhere] = useState("");
+  const [columns, setColumns] = useState<TDatabaseColumn[]>([]);
+  const [columnsFetched, setColumnsFetched] = useState(false);
+
   useEffect(() => {
-    if (initialTarget) {
+    if (initialTarget && initialTarget !== appliedTargetRef.current) {
       setEnvironmentId(initialTarget.environmentId);
       setCatalogId(initialTarget.catalogId);
       setTableIndex(initialTarget.tableIndex ?? 0);
       setOffset(0);
+      setFilters(filtersFromTarget(initialTarget));
+      setAdvancedMode(false);
+      setRawWhere("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTarget]);
@@ -81,7 +100,39 @@ export function AuditLogDetailTab({
     });
   }, [environmentId]);
 
-  const load = async (nextOffset = offset): Promise<void> => {
+  // Refetches per resolved table (not once per catalog entry) — required for `multiTable` domain
+  // entries, whose field names aren't generalized across domains (see audit-log-catalog.ts).
+  useEffect(() => {
+    const table = availableTables[tableIndex];
+    const environment = environments.find((item) => item.id === environmentId);
+    setColumnsFetched(false);
+    if (!table || !environment) {
+      setColumns([]);
+      setColumnsFetched(true);
+      return;
+    }
+    void toolStudioApi
+      .getAuditLogColumns(environment.connectionId, table.schema, table.name)
+      .then((response) => {
+        const fetchedColumns = response.columns ?? [];
+        setColumns(fetchedColumns);
+        if (!fetchedColumns.length) return;
+        // Catalog-declared column names (e.g. from a Stats status-breakdown click-through) are
+        // camelCase; the backend already tolerates a case mismatch when running the query (see
+        // runWithColumnCaseFallback/runDetailQueryWithCaseFallback), but the filter row's column
+        // picker only highlights an exact match — normalize here so it displays correctly too.
+        setFilters((prev) =>
+          prev.map((filter) => {
+            const match = fetchedColumns.find((column) => column.name.toLowerCase() === filter.column.toLowerCase());
+            return match && match.name !== filter.column ? { ...filter, column: match.name } : filter;
+          }),
+        );
+      })
+      .catch(() => setColumns([]))
+      .finally(() => setColumnsFetched(true));
+  }, [environmentId, availableTables, tableIndex, environments]);
+
+  const load = async (nextOffset = offset, overrideFilters?: TAuditLogDetailFilter[]): Promise<void> => {
     if (!environmentId || !catalogId) return;
     setLoading(true);
     setError(undefined);
@@ -91,7 +142,8 @@ export function AuditLogDetailTab({
       tableIndex,
       limit: PAGE_SIZE,
       offset: nextOffset,
-      filters,
+      filters: advancedMode ? [] : (overrideFilters ?? filters),
+      rawWhere: advancedMode ? rawWhere.trim() || undefined : undefined,
     });
     if (response.error) {
       setError(response.error);
@@ -106,7 +158,14 @@ export function AuditLogDetailTab({
   };
 
   useEffect(() => {
-    if (environmentId && catalogId) void load(0);
+    if (!environmentId || !catalogId) return;
+    // A same-render sibling effect's `setFilters` (from a fresh `initialTarget`) hasn't committed
+    // yet when this effect runs — read the target directly instead of the (still-stale) `filters`
+    // state so a jump-with-filter doesn't fire its first load unfiltered.
+    const isFreshTarget = initialTarget && initialTarget !== appliedTargetRef.current && initialTarget.environmentId === environmentId && initialTarget.catalogId === catalogId;
+    const overrideFilters = isFreshTarget ? filtersFromTarget(initialTarget) : undefined;
+    if (initialTarget) appliedTargetRef.current = initialTarget;
+    void load(0, overrideFilters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [environmentId, catalogId, tableIndex]);
 
@@ -164,38 +223,75 @@ export function AuditLogDetailTab({
         )}
 
         <div className="field">
-          <label>Filters</label>
-          {filters.map((filter, index) => (
-            <div key={index} className="row" style={{ gap: 6, marginBottom: 4 }}>
-              <input
-                className="input"
-                style={{ flex: 1 }}
-                placeholder="column name"
-                value={filter.column}
-                onChange={(event) => setFilters((prev) => prev.map((item, itemIndex) => (itemIndex === index ? { ...item, column: event.target.value } : item)))}
-              />
-              <select
-                className="input"
-                style={{ width: 110 }}
-                value={filter.op}
-                onChange={(event) => setFilters((prev) => prev.map((item, itemIndex) => (itemIndex === index ? { ...item, op: event.target.value as TAuditLogDetailFilterOp } : item)))}
-              >
-                {FILTER_OPS.map((op) => (
-                  <option key={op.value} value={op.value}>{op.label}</option>
-                ))}
-              </select>
-              <input
-                className="input"
-                style={{ flex: 1 }}
-                placeholder="value"
-                value={filter.value}
-                onChange={(event) => setFilters((prev) => prev.map((item, itemIndex) => (itemIndex === index ? { ...item, value: event.target.value } : item)))}
-              />
-              <Button variant="ghost" size="sm" onClick={() => setFilters((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}>✕</Button>
-            </div>
-          ))}
-          <Button variant="sec" size="sm" onClick={() => setFilters((prev) => [...prev, { column: "", op: "eq", value: "" }])}>+ Add filter</Button>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={advancedMode} onChange={(event) => setAdvancedMode(event.target.checked)} />
+            Advanced: raw SQL WHERE
+          </label>
         </div>
+
+        {advancedMode ? (
+          <div className="field audit-advanced-where">
+            <p className="note" style={{ marginTop: 0 }}>
+              Raw SQL WHERE fragment — appended verbatim as <code>WHERE (...)</code>, not parameterized. Semicolons and
+              destructive keywords (DROP/DELETE/UPDATE/INSERT/ALTER/TRUNCATE/...) are rejected server-side.
+            </p>
+            <SqlAutocompleteTextarea
+              value={rawWhere}
+              onChange={setRawWhere}
+              suggestions={columns.map((column) => column.name)}
+              placeholder="e.g. STATUS = 'FAILED' AND CREATEDAT >= '2026-01-01'"
+              rows={3}
+            />
+          </div>
+        ) : (
+          <div className="field">
+            <label>Filters</label>
+            {filters.map((filter, index) => (
+              <div key={index} className="row" style={{ gap: 6, marginBottom: 4 }}>
+                {columns.length > 0 ? (
+                  <div style={{ flex: 1 }}>
+                    <SearchableSelect
+                      value={filter.column}
+                      onChange={(value) => setFilters((prev) => prev.map((item, itemIndex) => (itemIndex === index ? { ...item, column: value } : item)))}
+                      options={columns.map((column) => ({ value: column.name, label: column.name, meta: column.dataType }))}
+                      placeholder="column"
+                    />
+                  </div>
+                ) : (
+                  <input
+                    className="input"
+                    style={{ flex: 1 }}
+                    placeholder="column name"
+                    value={filter.column}
+                    onChange={(event) => setFilters((prev) => prev.map((item, itemIndex) => (itemIndex === index ? { ...item, column: event.target.value } : item)))}
+                  />
+                )}
+                <select
+                  className="input"
+                  style={{ width: 110 }}
+                  value={filter.op}
+                  onChange={(event) => setFilters((prev) => prev.map((item, itemIndex) => (itemIndex === index ? { ...item, op: event.target.value as TAuditLogDetailFilterOp } : item)))}
+                >
+                  {FILTER_OPS.map((op) => (
+                    <option key={op.value} value={op.value}>{op.label}</option>
+                  ))}
+                </select>
+                <input
+                  className="input"
+                  style={{ flex: 1 }}
+                  placeholder="value"
+                  value={filter.value}
+                  onChange={(event) => setFilters((prev) => prev.map((item, itemIndex) => (itemIndex === index ? { ...item, value: event.target.value } : item)))}
+                />
+                <Button variant="ghost" size="sm" onClick={() => setFilters((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}>✕</Button>
+              </div>
+            ))}
+            <Button variant="sec" size="sm" onClick={() => setFilters((prev) => [...prev, { column: "", op: "eq", value: "" }])}>+ Add filter</Button>
+            {columnsFetched && columns.length === 0 && (
+              <p className="note" style={{ marginTop: 4 }}>Couldn't list real columns for this table — falling back to free-text column names.</p>
+            )}
+          </div>
+        )}
 
         <div className="row">
           <Button disabled={!environmentId || !catalogId || loading} onClick={() => void load(0)}>

@@ -11,7 +11,7 @@ import {
 import type { TAuditLogEnvironmentDraft } from "../../../audit-log/audit-log-environment-store";
 import { discoverAuditLogEnvironments } from "../../../audit-log/audit-log-discovery";
 import { resolveEnvironmentTables, getCachedResolution } from "../../../audit-log/audit-log-table-resolver";
-import { queryStatsForDefinition, queryTraceForDefinition, queryDetailTable, countDetailTable } from "../../../audit-log/audit-log-query-service";
+import { queryStatsForDefinition, queryTraceForDefinition, queryDetailTable, countDetailTable, validateRawWhere } from "../../../audit-log/audit-log-query-service";
 import type { TAuditLogDetailFilter } from "../../../audit-log/audit-log-query-service";
 import { StudioConnectionPool } from "../../../db/db-connection";
 import { emitJobEvent } from "../job-events";
@@ -127,7 +127,8 @@ export async function handleAuditLogApi(req: http.IncomingMessage, res: http.Ser
   if (pathname === "/api/tool/audit-log/stats" && method === "POST") {
     const body = await readJsonBody(req);
     const environmentIds = getStringArray(body, "environmentIds");
-    const sinceHours = getNumber(body, "sinceHours", 24);
+    const since = getString(body, "since") || undefined;
+    const until = getString(body, "until") || undefined;
     const jobId = getString(body, "jobId") || undefined;
 
     if (!environmentIds.length) {
@@ -152,7 +153,7 @@ export async function handleAuditLogApi(req: http.IncomingMessage, res: http.Ser
             AUDIT_LOG_CATALOG.map(async (definition) => {
               const entry = resolution.entries.find((item) => item.catalogId === definition.id);
               const tables = entry?.tables ?? [];
-              const cell = await queryStatsForDefinition(environment.connectionId, pool, definition, tables, { sinceHours });
+              const cell = await queryStatsForDefinition(environment.connectionId, pool, definition, tables, { since, until });
               return [definition.id, cell] as const;
             }),
           );
@@ -220,6 +221,15 @@ export async function handleAuditLogApi(req: http.IncomingMessage, res: http.Ser
     const orderBy = getString(body, "orderBy") || undefined;
     const orderDirection = getString(body, "orderDirection") === "desc" ? "desc" : "asc";
     const filters = getFilters(body);
+    const rawWhere = getString(body, "rawWhere").trim() || undefined;
+
+    if (rawWhere) {
+      const validation = validateRawWhere(rawWhere);
+      if (!validation.ok) {
+        sendJson(res, { error: validation.error }, 400);
+        return true;
+      }
+    }
 
     const environment = environmentId ? await findAuditLogEnvironment(environmentId) : undefined;
     const definition = catalogId ? findAuditLogDefinition(catalogId) : undefined;
@@ -239,13 +249,30 @@ export async function handleAuditLogApi(req: http.IncomingMessage, res: http.Ser
       }
 
       const [result, total] = await Promise.all([
-        queryDetailTable(environment.connectionId, pool, table, { limit, offset, filters, orderBy, orderDirection }),
-        offset === 0 ? countDetailTable(environment.connectionId, pool, table, filters) : Promise.resolve(undefined),
+        queryDetailTable(environment.connectionId, pool, table, { limit, offset, filters, rawWhere, orderBy, orderDirection }),
+        offset === 0 ? countDetailTable(environment.connectionId, pool, table, filters, rawWhere) : Promise.resolve(undefined),
       ]);
 
       sendJson(res, { result, total, table, availableTables: tables });
     } catch (error) {
       sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/tool/audit-log/columns" && method === "GET") {
+    const connectionId = url.searchParams.get("connectionId") ?? "";
+    const schema = url.searchParams.get("schema") ?? "";
+    const table = url.searchParams.get("table") ?? "";
+    if (!connectionId || !schema || !table) {
+      sendJson(res, { columns: [], error: "connectionId, schema, and table are required" }, 400);
+      return true;
+    }
+    try {
+      const columns = await pool.runWithAdapter(connectionId, (adapter) => adapter.listColumns(schema, table), { retryReadOnlyOnNetworkError: true });
+      sendJson(res, { columns });
+    } catch (error) {
+      sendJson(res, { columns: [], error: error instanceof Error ? error.message : String(error) }, 500);
     }
     return true;
   }

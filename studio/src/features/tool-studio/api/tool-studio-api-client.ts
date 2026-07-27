@@ -1,4 +1,4 @@
-import type { TDatabaseQueryResult } from "../../../api/studio-api-types";
+import type { TDatabaseColumn, TDatabaseQueryResult } from "../../../api/studio-api-types";
 
 // --- Audit Log Monitor ------------------------------------------------------
 // Mirrors src/core/audit-log/*.ts on the backend. Kept in sync by hand (same
@@ -74,12 +74,15 @@ export type TAuditLogEnvironmentResolution = {
   error?: string;
 };
 
+export type TAuditLogStatusBreakdownEntry = { value: string; count: number };
+
 export type TAuditLogTableStat = {
   schema: string;
   table: string;
   totalRows?: number;
   recentRows?: number;
   lastActivityAt?: string;
+  statusBreakdown?: TAuditLogStatusBreakdownEntry[];
   error?: string;
 };
 
@@ -90,6 +93,7 @@ export type TAuditLogStatCell = {
   recentRows?: number;
   lastActivityAt?: string;
   errorCount: number;
+  statusBreakdown?: TAuditLogStatusBreakdownEntry[];
 };
 
 export type TAuditLogStatsResult = {
@@ -456,7 +460,7 @@ export const toolStudioApi = {
   getCloudLoggingDashboardLink: (targetKey: string, appName: string) =>
     post<{ url?: string; serviceName?: string; error?: string }>("/api/tool/cf-log-restart/cloud-logging-link", { targetKey, appName }),
   openSshTerminal: (targetKey: string, appName: string, instanceIndex = "0") =>
-    post<{ ok: boolean; error?: string }>("/api/tool/cf-log-restart/ssh", { targetKey, appName, instanceIndex }),
+    post<{ ok: boolean; error?: string; manualCommand?: string }>("/api/tool/cf-log-restart/ssh", { targetKey, appName, instanceIndex }),
 
   getCredentialForApp: (targetKey: string, appName: string) =>
     get<{ credential?: TBtpServiceCredential; autoImported?: boolean; candidates?: TXsuaaCandidate[]; error?: string }>(
@@ -567,7 +571,7 @@ export const toolStudioApi = {
   removeAuditLogEnvironment: (id: string) => post<{ removed: boolean }>("/api/tool/audit-log/environments/remove", { id }),
   resolveAuditLogEnvironment: (id: string, force = false) =>
     post<{ resolution?: TAuditLogEnvironmentResolution; error?: string }>("/api/tool/audit-log/environments/resolve", { id, force }),
-  getAuditLogStats: (input: { environmentIds: string[]; sinceHours: number; jobId?: string }) =>
+  getAuditLogStats: (input: { environmentIds: string[]; since?: string; until?: string; jobId?: string }) =>
     post<{ results: TAuditLogStatsResult[]; error?: string }>("/api/tool/audit-log/stats", input),
   traceAuditLog: (input: { environmentIds: string[]; correlationColumn: string; correlationValue: string }) =>
     post<{ rows: TAuditLogTraceRow[]; error?: string }>("/api/tool/audit-log/trace", input),
@@ -578,11 +582,16 @@ export const toolStudioApi = {
     limit: number;
     offset: number;
     filters: TAuditLogDetailFilter[];
+    rawWhere?: string;
     orderBy?: string;
     orderDirection?: "asc" | "desc";
   }) =>
     post<{ result?: TDatabaseQueryResult; total?: number; table?: TResolvedAuditLogTable; availableTables?: TResolvedAuditLogTable[]; error?: string }>(
       "/api/tool/audit-log/detail",
       input,
+    ),
+  getAuditLogColumns: (connectionId: string, schema: string, table: string) =>
+    get<{ columns?: TDatabaseColumn[]; error?: string }>(
+      `/api/tool/audit-log/columns?connectionId=${encodeURIComponent(connectionId)}&schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}`,
     ),
 };
