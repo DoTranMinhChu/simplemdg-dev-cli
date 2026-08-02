@@ -226,7 +226,7 @@ export type TCpiQueueHealthResult = {
 
 export type TEventMeshInstanceSummary = { serviceKeyFileName: string; namespace: string; canPublish: boolean };
 
-export type TEventMeshPublishResult = { status?: number; statusText?: string; body?: string; error?: string };
+export type TEventMeshPublishResult = { status?: number; statusText?: string; body?: string; url?: string; error?: string };
 
 export type TDestinationSummary = { name: string; type?: string; url?: string; authentication?: string; proxyType?: string };
 

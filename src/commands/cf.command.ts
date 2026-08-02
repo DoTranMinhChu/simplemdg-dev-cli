@@ -327,7 +327,32 @@ export async function ensureCloudFoundrySessionFromCache(ctx: TInteractionContex
   const target = await readCloudFoundryTarget();
 
   if (target.apiEndpoint && target.user) {
-    return target;
+    // `cf target` only echoes locally cached config — it never calls the API, so it
+    // still reports apiEndpoint/user after the underlying token expired or was revoked.
+    // Verify with a real authenticated call before trusting it, and self-heal via the
+    // same cached-credential re-login used by the target-switch path.
+    const sessionCheck = await runCommand("cf", ["orgs"]);
+
+    if (sessionCheck.exitCode === 0) {
+      return target;
+    }
+
+    await ensureCloudFoundryAuthenticatedForApiEndpoint({
+      apiEndpoint: target.apiEndpoint,
+      preferredOrg: target.org,
+      preferredSpace: target.space,
+      reason: "Cloud Foundry session has expired.",
+    }, ctx);
+
+    if (target.org) {
+      await targetCloudFoundryOrg(target.org);
+    }
+
+    if (target.space) {
+      await targetCloudFoundrySpace(target.space);
+    }
+
+    return readCloudFoundryTarget();
   }
 
   const cache = await readCache();

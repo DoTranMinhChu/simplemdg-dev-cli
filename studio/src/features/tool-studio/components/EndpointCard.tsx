@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Button } from "../../../components/common/Button";
 import { Spinner } from "../../../components/common/Spinner";
 import { SearchableSelect } from "../../../components/common/SearchableSelect";
@@ -7,6 +7,7 @@ import { Modal } from "../../../components/common/Modal";
 import { useAsync } from "../../../hooks/useAsync";
 import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TODataEntityType, TODataFunctionImport } from "../api/tool-studio-api-client";
+import { CopyAsCurlButton } from "./CopyAsCurlButton";
 
 const FILTER_OPERATORS = [
   { value: "eq", label: "= (eq)" },
@@ -49,6 +50,41 @@ function toggleInSet(current: Set<string>, value: string): Set<string> {
   if (next.has(value)) next.delete(value);
   else next.add(value);
   return next;
+}
+
+/** Type-aware placeholder so a freshly-picked function import starts with something more useful
+ * than an empty string — booleans/numbers/guids get a real type-correct value, and free-text
+ * fields (whose actual meaning we have no way to know ahead of time) get a `<paramName>` hint so
+ * it's obvious in the JSON exactly what still needs filling in. */
+function buildDefaultParamValue(type: string, name: string): string {
+  if (type === "Edm.Boolean") return "false";
+  if (isNumericEdmType(type)) return "0";
+  if (type === "Edm.Guid") return "00000000-0000-0000-0000-000000000000";
+  if (type === "Edm.DateTime" || type === "Edm.DateTimeOffset") return new Date().toISOString();
+  return `<${name}>`;
+}
+
+/** Converts a param's raw text-input value back into its real JSON type (boolean/number) so the
+ * generated body/query actually matches the EDM type instead of stringifying everything. */
+function coerceParamValue(rawValue: string, type: string): unknown {
+  if (type === "Edm.Boolean") return rawValue === "true";
+  if (isNumericEdmType(type)) {
+    const num = Number(rawValue);
+    return Number.isNaN(num) ? rawValue : num;
+  }
+  return rawValue;
+}
+
+type TFunctionParamLike = { name: string; type: string };
+
+/** Only params the user has toggled "included" — see the Parameters section render below. */
+function buildIncludedParamsPayload(parameters: TFunctionParamLike[], values: Record<string, string>, included: Set<string>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const param of parameters) {
+    if (!included.has(param.name)) continue;
+    payload[param.name] = coerceParamValue(values[param.name] ?? "", param.type);
+  }
+  return payload;
 }
 
 /** Checkbox list for $select/$expand — plain scrollable box, no search needed at typical entity-property counts. */
@@ -116,7 +152,34 @@ export function EndpointCard({ kind, name, entityType, functionImport, version, 
   const [httpMethod, setHttpMethod] = useState(kind === "fn" ? functionImport?.httpMethod || "GET" : "GET");
   const [requestBodyText, setRequestBodyText] = useState("");
   const [bodyExpanded, setBodyExpanded] = useState(false);
-  const [functionParamValues, setFunctionParamValues] = useState<Record<string, string>>({});
+  // Pre-filled with type-correct placeholders (not blank) — see buildDefaultParamValue.
+  const [functionParamValues, setFunctionParamValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries((functionImport?.parameters ?? []).map((param) => [param.name, buildDefaultParamValue(param.type, param.name)])),
+  );
+  // Which params actually get sent. Required (`!nullable`) params start included; optional ones
+  // start excluded so the payload isn't padded with placeholders nobody asked for — click a
+  // param's name to toggle it in/out.
+  const [includedParams, setIncludedParams] = useState<Set<string>>(() => new Set((functionImport?.parameters ?? []).filter((param) => !param.nullable).map((param) => param.name)));
+  const lastAutoFilledBodyRef = useRef("");
+
+  // A POST/PUT/PATCH/DELETE function import's parameters belong in the JSON body, not the query
+  // string (this was the actual bug: every param, regardless of verb, was silently sent as a query
+  // param — so typing into a POST function import's Parameters section never affected the body at
+  // all). Keeps the body in sync with the toggled params, but only while the user hasn't taken over
+  // by hand-editing it — same "don't clobber an in-progress edit" rule the Send Event tab uses.
+  useEffect(() => {
+    if (kind !== "fn" || !functionImport || httpMethod === "GET") return;
+    const template = JSON.stringify(buildIncludedParamsPayload(functionImport.parameters, functionParamValues, includedParams), null, 2);
+    if (!requestBodyText.trim() || requestBodyText === lastAutoFilledBodyRef.current) {
+      setRequestBodyText(template);
+      lastAutoFilledBodyRef.current = template;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, httpMethod, functionParamValues, includedParams]);
+
+  // Snapshot of the body actually sent by the most recent call — decoupled from `requestBodyText`
+  // so editing the textarea afterward doesn't retroactively change what "Copy as curl" reports.
+  const lastRequestBodyRef = useRef<unknown>(undefined);
 
   const callApi = useAsync(() => {
     let parsedBody: unknown;
@@ -127,11 +190,15 @@ export function EndpointCard({ kind, name, entityType, functionImport, version, 
         throw new Error("Request body is not valid JSON.");
       }
     }
+    lastRequestBodyRef.current = parsedBody;
 
     const queryParams: Record<string, string> = {};
-    if (kind === "fn") {
-      for (const [key, value] of Object.entries(functionParamValues)) if (value) queryParams[key] = value;
-    } else {
+    if (kind === "fn" && httpMethod === "GET" && functionImport) {
+      // GET-verb function imports are OData-conventional query-string calls — params never go in a body.
+      for (const [key, value] of Object.entries(buildIncludedParamsPayload(functionImport.parameters, functionParamValues, includedParams))) {
+        if (value !== "" && value !== undefined) queryParams[key] = String(value);
+      }
+    } else if (kind === "set") {
       if (selectFields.size) queryParams.$select = Array.from(selectFields).join(",");
       if (expandFields.size) queryParams.$expand = Array.from(expandFields).join(",");
       if (filterText.trim()) queryParams.$filter = filterText.trim();
@@ -163,21 +230,45 @@ export function EndpointCard({ kind, name, entityType, functionImport, version, 
       <div style={{ padding: "0 12px 12px", borderTop: "1px solid var(--border)" }}>
         {kind === "fn" && functionImport && (
           <div className="field" style={{ marginTop: 12 }}>
-            <label>Parameters</label>
+            <label>
+              Parameters {httpMethod === "GET" ? "(click a name to include it as a query param)" : "(click a name to include it in the request body)"}
+            </label>
             {functionImport.parameters.length ? (
               <div className="ts-grid-2">
-                {functionImport.parameters.map((param) => (
-                  <div className="field" key={param.name}>
-                    <label>
-                      {param.name} ({param.type}){param.nullable ? "" : " *"}
-                    </label>
-                    <input
-                      className="input"
-                      value={functionParamValues[param.name] ?? ""}
-                      onChange={(event) => setFunctionParamValues((prev) => ({ ...prev, [param.name]: event.target.value }))}
-                    />
-                  </div>
-                ))}
+                {functionImport.parameters.map((param) => {
+                  const included = includedParams.has(param.name);
+                  return (
+                    <div className="field" key={param.name}>
+                      <button
+                        type="button"
+                        className={`param-toggle-chip${included ? " active" : ""}`}
+                        onClick={() => setIncludedParams((prev) => toggleInSet(prev, param.name))}
+                        title={included ? "Included — click to remove from the request" : "Not sent — click to include in the request"}
+                      >
+                        {included ? "✓ " : ""}
+                        {param.name} ({param.type}){param.nullable ? "" : " *"}
+                      </button>
+                      {param.type === "Edm.Boolean" ? (
+                        <SearchableSelect
+                          value={functionParamValues[param.name] ?? "false"}
+                          onChange={(value) => setFunctionParamValues((prev) => ({ ...prev, [param.name]: value }))}
+                          disabled={!included}
+                          options={[
+                            { value: "true", label: "true" },
+                            { value: "false", label: "false" },
+                          ]}
+                        />
+                      ) : (
+                        <input
+                          className="input"
+                          disabled={!included}
+                          value={functionParamValues[param.name] ?? ""}
+                          onChange={(event) => setFunctionParamValues((prev) => ({ ...prev, [param.name]: event.target.value }))}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="note">No parameters.</div>
@@ -339,7 +430,18 @@ export function EndpointCard({ kind, name, entityType, functionImport, version, 
         {callApi.error && <div className="errbox" style={{ marginTop: 12 }}>{callApi.error}</div>}
         {callApi.data && (
           <div style={{ marginTop: 12 }}>
-            <div className="note">{callApi.data.url}</div>
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+              <div className="note" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{callApi.data.url}</div>
+              <CopyAsCurlButton
+                spec={{
+                  method: httpMethod,
+                  url: callApi.data.url,
+                  headers: { "content-type": "application/json" },
+                  body: lastRequestBodyRef.current,
+                  authorizationPlaceholder: "Bearer <fetched automatically by SimpleMDG Studio>",
+                }}
+              />
+            </div>
             <div className={callApi.data.ok ? "note" : "errbox"} style={{ marginBottom: 8 }}>
               HTTP {callApi.data.status}
             </div>

@@ -2069,6 +2069,33 @@ mark.hl {
    background: var(--bg-3);
 }
 
+/* Check API External's Parameters section — clicking a param's name toggles whether it's sent at
+   all (into the request body for non-GET calls, into the query string for GET/entity calls).
+   Highlighted = currently included; a second click removes that key from the payload entirely. */
+.param-toggle-chip {
+   display: block;
+   width: 100%;
+   text-align: left;
+   background: var(--bg-3);
+   border: 1px solid var(--border);
+   border-radius: 6px;
+   padding: 4px 8px;
+   color: var(--muted);
+   font-size: 12px;
+   cursor: pointer;
+}
+
+.param-toggle-chip:hover {
+   border-color: var(--border-2);
+   color: var(--text);
+}
+
+.param-toggle-chip.active {
+   background: var(--sel);
+   border-color: var(--accent);
+   color: #cfe0ff;
+}
+
 .arow {
    display: flex;
    align-items: center;

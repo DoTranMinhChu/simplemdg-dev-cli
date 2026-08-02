@@ -1,3 +1,5 @@
+import { getCachedOAuthToken } from "./oauth-token-cache";
+
 export type TXsuaaTokenCredential = { clientId: string; clientSecret: string; url: string };
 
 /**
@@ -21,8 +23,7 @@ async function fetchWithTimeout(url: string | URL, init: RequestInit, timeoutMs:
   }
 }
 
-/** Standard XSUAA client-credentials OAuth2 grant. */
-export async function fetchXsuaaAccessToken(credential: TXsuaaTokenCredential, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<string> {
+async function requestXsuaaAccessToken(credential: TXsuaaTokenCredential, timeoutMs: number): Promise<{ token: string; expiresInSeconds?: number }> {
   const tokenUrl = `${credential.url.replace(/\/+$/, "")}/oauth/token`;
   const response = await fetchWithTimeout(
     tokenUrl,
@@ -37,11 +38,16 @@ export async function fetchXsuaaAccessToken(credential: TXsuaaTokenCredential, t
     timeoutMs,
     "XSUAA token request",
   );
-  const json = (await response.json().catch(() => ({}))) as { access_token?: string; error_description?: string };
+  const json = (await response.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error_description?: string };
   if (!response.ok || !json.access_token) {
     throw new Error(json.error_description || `XSUAA token request failed (HTTP ${response.status})`);
   }
-  return json.access_token;
+  return { token: json.access_token, expiresInSeconds: json.expires_in };
+}
+
+/** Standard XSUAA client-credentials OAuth2 grant — cached per (url, clientId) until near expiry. */
+export async function fetchXsuaaAccessToken(credential: TXsuaaTokenCredential, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<string> {
+  return getCachedOAuthToken(`xsuaa|${credential.url}|${credential.clientId}`, () => requestXsuaaAccessToken(credential, timeoutMs));
 }
 
 export type TCallCapApiOptions = {

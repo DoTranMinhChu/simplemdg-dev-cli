@@ -1,19 +1,25 @@
 import type { TDestinationServiceCredential } from "../cf/btp-service-credential-parser";
+import { getCachedOAuthToken } from "./oauth-token-cache";
 
 const DESTINATION_API_PATH = "destination-configuration/v1";
 
-async function fetchDestinationServiceToken(credential: TDestinationServiceCredential): Promise<string> {
+async function requestDestinationServiceToken(credential: TDestinationServiceCredential): Promise<{ token: string; expiresInSeconds?: number }> {
   const auth = Buffer.from(`${credential.clientId}:${credential.clientSecret}`).toString("base64");
   const response = await fetch(`${credential.tokenUrl.replace(/\/+$/, "")}/oauth/token`, {
     method: "POST",
     headers: { authorization: `Basic ${auth}`, "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "client_credentials" }),
   });
-  const json = (await response.json().catch(() => ({}))) as { access_token?: string; error_description?: string };
+  const json = (await response.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error_description?: string };
   if (!response.ok || !json.access_token) {
     throw new Error(json.error_description || `Destination service token request failed (HTTP ${response.status})`);
   }
-  return json.access_token;
+  return { token: json.access_token, expiresInSeconds: json.expires_in };
+}
+
+/** Cached per (tokenUrl, clientId) until near expiry — see oauth-token-cache.ts. */
+async function fetchDestinationServiceToken(credential: TDestinationServiceCredential): Promise<string> {
+  return getCachedOAuthToken(`destination|${credential.tokenUrl}|${credential.clientId}`, () => requestDestinationServiceToken(credential));
 }
 
 export type TDestinationSummary = { name: string; type?: string; url?: string; authentication?: string; proxyType?: string };

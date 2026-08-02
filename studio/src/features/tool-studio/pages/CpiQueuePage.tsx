@@ -10,6 +10,7 @@ import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TCpiMessageProcessingLogEntry, TCpiQueueHealthResult, TQueueHealthInfo, TQueueHealthStatus } from "../api/tool-studio-api-client";
 import type { TCfTargetSummary } from "../../../api/studio-api-types";
 import { EVENT_MESH_TOPIC_OPTIONS, getEventPayloadTemplate } from "../constants/event-mesh-topics";
+import { CopyAsCurlButton } from "../components/CopyAsCurlButton";
 
 type TCpiQueueTab = "monitor" | "cpi-logs" | "send";
 
@@ -251,6 +252,10 @@ export function CpiQueuePage(): React.ReactElement {
 
   const resolvedName = nameValue === "__custom__" ? customName.trim() : kind === "topic" && nameValue && selectedInstance ? `${selectedInstance.namespace}/${nameValue}` : nameValue;
 
+  // Snapshot of the payload actually sent by the most recent publish — see EndpointCard.tsx's
+  // identical pattern for why this can't just re-read `payloadText` at render time.
+  const lastPublishPayloadRef = useRef<unknown>(undefined);
+
   const publish = useAsync(() => {
     let payload: unknown;
     try {
@@ -258,6 +263,7 @@ export function CpiQueuePage(): React.ReactElement {
     } catch {
       throw new Error("Payload is not valid JSON.");
     }
+    lastPublishPayloadRef.current = payload;
     return toolStudioApi.publishEventMeshMessage({ targetKey: cfTarget!.key, appName: appName!, serviceKeyFileName: instanceKey, kind, name: resolvedName, qos, payload });
   });
 
@@ -503,10 +509,23 @@ export function CpiQueuePage(): React.ReactElement {
                   {publish.error && <div className="errbox" style={{ marginTop: 12 }}>{publish.error}</div>}
                   {publish.data && (
                     <div style={{ marginTop: 12 }}>
-                      <div className={publish.data.error || (publish.data.status ?? 0) >= 400 ? "errbox" : "note"}>
-                        {publish.data.error
-                          ? publish.data.error
-                          : `${(publish.data.status ?? 0) < 400 ? "✓ Sent successfully" : "✗ Failed"} — HTTP ${publish.data.status} ${publish.data.statusText ?? ""}`}
+                      <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                        <div className={publish.data.error || (publish.data.status ?? 0) >= 400 ? "errbox" : "note"}>
+                          {publish.data.error
+                            ? publish.data.error
+                            : `${(publish.data.status ?? 0) < 400 ? "✓ Sent successfully" : "✗ Failed"} — HTTP ${publish.data.status} ${publish.data.statusText ?? ""}`}
+                        </div>
+                        {publish.data.url && (
+                          <CopyAsCurlButton
+                            spec={{
+                              method: "POST",
+                              url: publish.data.url,
+                              headers: { "content-type": "application/json", ...(qos ? { "x-qos": qos } : {}) },
+                              body: lastPublishPayloadRef.current,
+                              authorizationPlaceholder: "Bearer <fetched automatically by SimpleMDG Studio>",
+                            }}
+                          />
+                        )}
                       </div>
                       {publish.data.body && (
                         <pre className="cell-pre" style={{ marginTop: 8, maxHeight: 260, overflow: "auto" }}>

@@ -1,3 +1,5 @@
+import { getCachedOAuthToken } from "./oauth-token-cache";
+
 const QUEUE_MANAGEMENT_PATH = "hub/rest/api/v1/management/messaging/queues";
 
 export type TEventMeshPublishCredential = { uri: string; clientId: string; clientSecret: string; tokenEndpoint: string };
@@ -88,7 +90,7 @@ export function detectEventMeshCandidates(vcapServices: unknown): TEventMeshCred
   return candidates;
 }
 
-async function fetchEventMeshToken(credential: Pick<TEventMeshCredentialSet, "clientId" | "clientSecret" | "tokenEndpoint">): Promise<string> {
+async function requestEventMeshToken(credential: Pick<TEventMeshCredentialSet, "clientId" | "clientSecret" | "tokenEndpoint">): Promise<{ token: string; expiresInSeconds?: number }> {
   const response = await fetch(credential.tokenEndpoint, {
     method: "POST",
     headers: {
@@ -97,11 +99,17 @@ async function fetchEventMeshToken(credential: Pick<TEventMeshCredentialSet, "cl
     },
     body: new URLSearchParams({ grant_type: "client_credentials" }),
   });
-  const json = (await response.json().catch(() => ({}))) as { access_token?: string; error_description?: string };
+  const json = (await response.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error_description?: string };
   if (!response.ok || !json.access_token) {
     throw new Error(json.error_description || `Event Mesh token request failed (HTTP ${response.status})`);
   }
-  return json.access_token;
+  return { token: json.access_token, expiresInSeconds: json.expires_in };
+}
+
+/** Cached per (tokenEndpoint, clientId) until near expiry — see oauth-token-cache.ts. Management and
+ * publish credentials have distinct tokenEndpoints/clientIds, so they naturally cache separately. */
+async function fetchEventMeshToken(credential: Pick<TEventMeshCredentialSet, "clientId" | "clientSecret" | "tokenEndpoint">): Promise<string> {
+  return getCachedOAuthToken(`event-mesh|${credential.tokenEndpoint}|${credential.clientId}`, () => requestEventMeshToken(credential));
 }
 
 export type TQueueHealthStatus = "healthy" | "busy" | "stuck" | "failed" | "missing";
@@ -224,7 +232,7 @@ export async function listEventMeshQueues(credential: TEventMeshCredentialSet): 
 
 export type TEventMeshPublishKind = "topic" | "queue";
 
-export type TEventMeshPublishResult = { status: number; statusText: string; body: string };
+export type TEventMeshPublishResult = { status: number; statusText: string; body: string; url: string };
 
 /**
  * Publish a test message straight to the Event Mesh broker's own REST API — confirmed live:
@@ -251,6 +259,6 @@ export async function publishEventMeshMessage(credential: TEventMeshCredentialSe
     body: JSON.stringify(input.payload),
   });
   const body = await response.text();
-  return { status: response.status, statusText: response.statusText, body };
+  return { status: response.status, statusText: response.statusText, body, url };
 }
 

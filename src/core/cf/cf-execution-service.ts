@@ -68,6 +68,18 @@ function getRegionMutex(region: string): Mutex {
   return mutex;
 }
 
+/**
+ * How long a region's login check (`cf orgs`) is trusted before re-checking — confirmed as a real
+ * bottleneck live: every `withCfTarget` call re-ran `cf api` + `cf orgs` + `cf target -o` + `cf
+ * target -s` from scratch (4 sequential CF CLI round trips against the real Cloud Controller API),
+ * even when the previous call had targeted the exact same region/org/space moments earlier. A real
+ * UAA token lasts hours, so re-probing it on literally every call was pure waste — this mirrors the
+ * OAuth-token TTL cache in oauth-token-cache.ts, just for "is this CF_HOME's session still good"
+ * instead of "is this bearer token still good". Kept short (not hours) specifically so a session
+ * that genuinely does go bad self-heals within a few minutes rather than being trusted indefinitely.
+ */
+const LOGIN_CHECK_TTL_MS = 2 * 60 * 1000;
+
 function redactArgsForLog(args: string[]): string {
   // `cf auth <user> <password>` — never log the password.
   if (args[0] === "auth") {
@@ -80,6 +92,13 @@ function redactArgsForLog(args: string[]): string {
 }
 
 export class CfExecutionService {
+  /** Region -> apiEndpoint this region's isolated CF_HOME was last successfully pointed at, so a repeat call with the same apiEndpoint can skip `cf api`. */
+  private lastApiEndpointByRegion = new Map<string, string>();
+  /** Region -> (org, space) this region's isolated CF_HOME was last successfully targeted to, so a repeat call for the same target can skip `cf target -o`/`cf target -s`. */
+  private lastOrgSpaceByRegion = new Map<string, { org: string; space?: string }>();
+  /** Region -> when `cf orgs` last confirmed the session was still logged in — see LOGIN_CHECK_TTL_MS. */
+  private lastConfirmedLoginAt = new Map<string, number>();
+
   /**
    * Run a single `cf` command bound to the context's isolated CF_HOME. Output is
    * captured (never inherited) so background work stays silent unless debug mode
@@ -119,9 +138,13 @@ export class CfExecutionService {
   ): Promise<T> {
     const context: TCfExecutionContext = { region, apiEndpoint, cfHome: getCfHomeForRegion(region) };
     return getRegionMutex(region).runExclusive(async () => {
-      const apiResult = await this.runCf(context, ["api", apiEndpoint], { silent: true });
-      if (apiResult.exitCode !== 0) {
-        throw new Error(`Cannot reach CF API ${apiEndpoint}: ${(apiResult.stderr || apiResult.stdout || "").trim()}`);
+      if (this.lastApiEndpointByRegion.get(region) !== apiEndpoint) {
+        const apiResult = await this.runCf(context, ["api", apiEndpoint], { silent: true });
+        if (apiResult.exitCode !== 0) {
+          this.lastApiEndpointByRegion.delete(region);
+          throw new Error(`Cannot reach CF API ${apiEndpoint}: ${(apiResult.stderr || apiResult.stdout || "").trim()}`);
+        }
+        this.lastApiEndpointByRegion.set(region, apiEndpoint);
       }
       await this.ensureCfLoggedIn(context);
       return action(context);
@@ -143,9 +166,13 @@ export class CfExecutionService {
   ): Promise<T> {
     const context: TCfExecutionContext = { region, apiEndpoint, cfHome: getCfHomeForRegion(region) };
     return getRegionMutex(region).runExclusive(async () => {
-      const apiResult = await this.runCf(context, ["api", apiEndpoint], { silent: true });
-      if (apiResult.exitCode !== 0) {
-        throw new Error(`Cannot reach CF API ${apiEndpoint}: ${(apiResult.stderr || apiResult.stdout || "").trim()}`);
+      if (this.lastApiEndpointByRegion.get(region) !== apiEndpoint) {
+        const apiResult = await this.runCf(context, ["api", apiEndpoint], { silent: true });
+        if (apiResult.exitCode !== 0) {
+          this.lastApiEndpointByRegion.delete(region);
+          throw new Error(`Cannot reach CF API ${apiEndpoint}: ${(apiResult.stderr || apiResult.stdout || "").trim()}`);
+        }
+        this.lastApiEndpointByRegion.set(region, apiEndpoint);
       }
       return action(context);
     });
@@ -172,16 +199,25 @@ export class CfExecutionService {
     }
 
     return this.runInRegion(target.region, target.apiEndpoint, async (context) => {
-      const orgResult = await this.runCf(context, ["target", "-o", target.org], { silent: true });
-      if (orgResult.exitCode !== 0) {
-        throw new Error(`Cannot target CF org ${target.org} in ${target.region}: ${(orgResult.stderr || orgResult.stdout || "").trim()}`);
-      }
-      if (target.space) {
-        const spaceResult = await this.runCf(context, ["target", "-s", target.space], { silent: true });
-        if (spaceResult.exitCode !== 0) {
-          throw new Error(`Cannot target CF space ${target.space} in org ${target.org}: ${(spaceResult.stderr || spaceResult.stdout || "").trim()}`);
+      const lastOrgSpace = this.lastOrgSpaceByRegion.get(target.region);
+      const alreadyTargeted = lastOrgSpace?.org === target.org && lastOrgSpace?.space === target.space;
+
+      if (!alreadyTargeted) {
+        const orgResult = await this.runCf(context, ["target", "-o", target.org], { silent: true });
+        if (orgResult.exitCode !== 0) {
+          this.lastOrgSpaceByRegion.delete(target.region);
+          throw new Error(`Cannot target CF org ${target.org} in ${target.region}: ${(orgResult.stderr || orgResult.stdout || "").trim()}`);
         }
+        if (target.space) {
+          const spaceResult = await this.runCf(context, ["target", "-s", target.space], { silent: true });
+          if (spaceResult.exitCode !== 0) {
+            this.lastOrgSpaceByRegion.delete(target.region);
+            throw new Error(`Cannot target CF space ${target.space} in org ${target.org}: ${(spaceResult.stderr || spaceResult.stdout || "").trim()}`);
+          }
+        }
+        this.lastOrgSpaceByRegion.set(target.region, { org: target.org, space: target.space });
       }
+
       return action(context, target);
     });
   }
@@ -193,8 +229,14 @@ export class CfExecutionService {
    * error when no cached credential works. Never prompts.
    */
   public async ensureCfLoggedIn(context: TCfExecutionContext): Promise<void> {
+    const lastConfirmedAt = this.lastConfirmedLoginAt.get(context.region);
+    if (lastConfirmedAt && Date.now() - lastConfirmedAt < LOGIN_CHECK_TTL_MS) {
+      return;
+    }
+
     const orgsCheck = await this.runCf(context, ["orgs"], { silent: true });
     if (orgsCheck.exitCode === 0) {
+      this.lastConfirmedLoginAt.set(context.region, Date.now());
       return;
     }
 
@@ -226,9 +268,13 @@ export class CfExecutionService {
         lastError = `cf auth failed for ${profile.username}`;
         continue;
       }
+      // `cf auth` resets whatever org/space was previously targeted — drop the memo so
+      // withCfTarget's next call re-runs `cf target -o`/`-s` instead of trusting a stale target.
+      this.lastOrgSpaceByRegion.delete(context.region);
 
       const recheck = await this.runCf(context, ["orgs"], { silent: true });
       if (recheck.exitCode === 0) {
+        this.lastConfirmedLoginAt.set(context.region, Date.now());
         return;
       }
       lastError = recheck.stderr || recheck.stdout || lastError;

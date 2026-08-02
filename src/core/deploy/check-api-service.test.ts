@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { callCapApi, fetchXsuaaAccessToken } from "./check-api-service";
+import { clearAllCachedOAuthTokens } from "./oauth-token-cache";
 
 const realFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = realFetch;
+  // These tests reuse the same credential across cases — without this, a token cached by a later
+  // successful call would make a re-run of this file skip the token fetch tests below expect.
+  clearAllCachedOAuthTokens();
 });
 
 /** Simulates a genuinely hanging request (never resolves on its own) that DOES respect the AbortSignal it's given — exactly like a real `fetch` would, so this exercises the real timeout path without an actual multi-second wait in the test. */
