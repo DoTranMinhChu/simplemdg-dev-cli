@@ -56,7 +56,12 @@ export async function handleProxyLifecycleApi(
       const result = await startProxyEnvironment(env, user, { ports, callbacks: makeStudioCallbacks(envId) });
       sendJson(res, { message: "Environment started.", ...result, userID: user.userID });
     } catch (error) {
-      sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
+      const message = error instanceof Error ? error.message : String(error);
+      // Without this, the status badge stays on whatever in-progress stage it last saw
+      // ("AUTHENTICATING"/"BROWSER AUTH...") forever after a failed start, contradicting the
+      // error box shown right below it — this is the terminal stage a failed attempt needs.
+      emitProxyStage(envId, "failed", message);
+      sendJson(res, { error: message }, 500);
     }
     return true;
   }
@@ -90,7 +95,9 @@ export async function handleProxyLifecycleApi(
       const result = await startProxyEnvironment(env, user, { callbacks: makeStudioCallbacks(envId) });
       sendJson(res, { message: "Environment restarted.", ...result, userID: user.userID });
     } catch (error) {
-      sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
+      const message = error instanceof Error ? error.message : String(error);
+      emitProxyStage(envId, "failed", message);
+      sendJson(res, { error: message }, 500);
     }
     return true;
   }

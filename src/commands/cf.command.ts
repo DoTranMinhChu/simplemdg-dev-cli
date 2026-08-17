@@ -932,6 +932,12 @@ async function selectDebugMode(options: TCloudFoundryDebugOptions): Promise<TClo
  */
 async function selectCloudFoundryTarget(options: { app?: string; target?: boolean; skipTargetSelect?: boolean; message?: string }): Promise<void> {
   if (options.skipTargetSelect || options.app?.trim()) {
+    // An explicit --app skips target-selection UI (and the login self-heal dance below it),
+    // but NOT this: without it, `smdg cf logs --app foo` on a machine with no `cf` CLI at all
+    // went straight to `runCommand("cf", ...)` later and surfaced the OS's raw "'cf' is not
+    // recognized..." text instead of the install-offer flow every other cf-touching command
+    // gets. This check alone is silent (no prompts) when `cf` is already on PATH.
+    await ensureExternalTool("cf");
     return;
   }
 
@@ -1833,6 +1839,11 @@ async function runAppsCacheRefreshCommand(): Promise<void> {
 }
 
 async function runBindCommand(options: TCloudFoundryBindOptions): Promise<void> {
+  // This command's only real dependency on `cds` — every other `cf ...` command in this file
+  // only ever checks `cf`. Without this, a machine with `@sap/cds-dk` not installed only finds
+  // out after selecting a target/app, and the `cds` binary's raw "not recognized"/ENOENT output
+  // prints straight to inherited stdio (below) with no SimpleMDG framing at all.
+  await ensureExternalTool("cds");
   const repositoryPath = await resolveRepositoryPath(options.cwd ?? process.cwd());
   const appName = await resolveTargetAndApp({ app: options.app, refresh: options.refresh, target: options.target, message: "Select app to cds bind" });
   const exitCode = await runCommandInherit("cds", ["bind", "--to-app-services", appName], { cwd: repositoryPath });

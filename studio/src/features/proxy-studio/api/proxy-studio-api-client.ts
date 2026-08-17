@@ -34,8 +34,8 @@ export type TProxyCaptureMode = "auto" | "http" | "browser";
 
 export type TProxyStatusEvent = {
   envId: string;
-  stage: "starting" | "api-attempt" | "playwright-fallback" | "proxy-ready" | "stopped";
-  status: "starting" | "authenticating" | "browser-auth" | "ready" | "stopped";
+  stage: "starting" | "api-attempt" | "playwright-fallback" | "proxy-ready" | "stopped" | "failed";
+  status: "starting" | "authenticating" | "browser-auth" | "ready" | "stopped" | "failed";
   message: string;
   at: string;
 };

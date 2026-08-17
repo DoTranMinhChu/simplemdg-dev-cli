@@ -112,9 +112,11 @@ export class PostgresAdapter implements IDatabaseAdapter {
       const version = String((result.rows[0] as TPgRow | undefined)?.version ?? "PostgreSQL");
       return { success: true, message: "Connection successful", serverVersion: version, durationMs: Date.now() - startedAt };
     } catch (error) {
+      const classified = this.classifyError(error);
       return {
         success: false,
-        message: error instanceof Error ? error.message : String(error),
+        message: classified.message,
+        originalMessage: classified.originalMessage,
         durationMs: Date.now() - startedAt,
       };
     }

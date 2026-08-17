@@ -2,11 +2,32 @@ import { useEffect, useState } from "react";
 import { Modal } from "../common/Modal";
 import { Button } from "../common/Button";
 import { studioApi } from "../../api/studio-api-client";
-import { useStudioStore } from "../../state/studio-store";
-import type { TCfLoginResponse, TCfRegionEndpoint } from "../../api/studio-api-types";
+import type { TCfAuthStatus, TCfLoginResponse, TCfRegionEndpoint } from "../../api/studio-api-types";
 
-export function CfLoginModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (result: TCfLoginResponse) => void }): React.ReactElement {
-  const { toast, refreshCfStatus, setCfOfflineMode, cfStatus } = useStudioStore();
+/** DB Studio's own `/api/cf/*` routes (`src/core/cf/*`'s route module, mounted by every studio
+ * backend — DB Studio's, Tool Studio's, etc.) always answer relative to whichever studio served
+ * the current page, so `studioApi`'s plain `fetch("/api/cf/...")` calls below work correctly from
+ * any studio's bundle, not just DB Studio's. The one thing that WAS DB-Studio-only was reading
+ * `useStudioStore()` directly for state — pulled out into this required prop instead, so each
+ * studio supplies its own (DB Studio's real store for `AppShell.tsx`, Tool Studio's lightweight
+ * `useCfStatus()` for `ToolStudioApp.tsx`) without a conditional hook call inside this component. */
+export type TCfLoginModalHooks = {
+  cfStatus: TCfAuthStatus | null;
+  refreshCfStatus: () => Promise<void>;
+  setCfOfflineMode: (value: boolean) => void;
+  toast?: (message: string, kind?: "ok" | "err" | "warn") => void;
+};
+
+export function CfLoginModal({
+  onClose,
+  onSuccess,
+  hooks,
+}: {
+  onClose: () => void;
+  onSuccess: (result: TCfLoginResponse) => void;
+  hooks: TCfLoginModalHooks;
+}): React.ReactElement {
+  const { toast, refreshCfStatus, setCfOfflineMode, cfStatus } = hooks;
   const [tab, setTab] = useState<"password" | "sso">("password");
   const [regions, setRegions] = useState<TCfRegionEndpoint[]>([]);
   const [regionsLoading, setRegionsLoading] = useState(true);
@@ -44,7 +65,7 @@ export function CfLoginModal({ onClose, onSuccess }: { onClose: () => void; onSu
       if (result.success) {
         setCfOfflineMode(false);
         await refreshCfStatus();
-        toast(`Connected to Cloud Foundry as ${result.username} (${result.region}). Refreshing BTP targets…`);
+        toast?.(`Connected to Cloud Foundry as ${result.username} (${result.region}). Refreshing BTP targets…`);
         onSuccess(result);
       } else {
         setError(result.error ?? "Login failed.");
@@ -63,7 +84,7 @@ export function CfLoginModal({ onClose, onSuccess }: { onClose: () => void; onSu
       const status = await studioApi.getCfAuthStatus();
       if (status.isLoggedIn) {
         await refreshCfStatus();
-        toast("Cloud Foundry session detected. Refreshing BTP targets…");
+        toast?.("Cloud Foundry session detected. Refreshing BTP targets…");
         studioApi.refreshBtpTargets().catch(() => undefined);
         onSuccess({ success: true, username: status.cachedUsername, apiEndpoint: status.currentTarget?.apiEndpoint, region: status.currentTarget?.region });
       } else {

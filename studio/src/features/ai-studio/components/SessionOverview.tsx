@@ -25,7 +25,7 @@ function verificationIcon(status: string): React.ReactElement {
   if (status === "pass") return <span style={{ color: "var(--green)" }}>✓</span>;
   if (status === "fail") return <span style={{ color: "var(--red)" }}>✗</span>;
   if (status === "partial") return <span style={{ color: "var(--amber)" }}>⚠</span>;
-  return <span style={{ color: "var(--faint)" }}>?</span>;
+  return <span style={{ color: "var(--muted)" }}>?</span>;
 }
 
 export function SessionOverview({

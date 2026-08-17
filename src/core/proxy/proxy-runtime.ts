@@ -40,6 +40,8 @@ async function bindProxyPort(
     getSession: () => getActiveSession(env.id),
     ensureFreshSession: (reason) => refreshSession(env.id, reason, callbacks),
     onLog: (message) => callbacks.onLog?.(message),
+    envLabel: env.displayName,
+    reloginHint: `Check the saved username/password for this environment, or run "smdg proxy login ${env.id}" to sign in manually, then retry.`,
   });
 
   const server = http.createServer(handler);

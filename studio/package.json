@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint:css": "stylelint \"src/**/*.css\" --max-warnings 265"
   },
   "dependencies": {
     "@fortune-sheet/core": "^1.0.4",
@@ -31,6 +32,8 @@
     "@types/react-dom": "^18.3.1",
     "@types/wicg-file-system-access": "^2023.10.7",
     "@vitejs/plugin-react": "^4.3.4",
+    "stylelint": "^17.14.1",
+    "stylelint-declaration-strict-value": "^1.11.1",
     "typescript": "^5.5.3",
     "vite": "^5.4.11"
   }

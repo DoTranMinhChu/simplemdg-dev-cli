@@ -75,9 +75,9 @@ export type TCapturedSession = {
   capturedAt: string;
 };
 
-export type TProxyRuntimeStatus = "starting" | "authenticating" | "browser-auth" | "ready" | "stopped";
+export type TProxyRuntimeStatus = "starting" | "authenticating" | "browser-auth" | "ready" | "stopped" | "failed";
 
-export type TProxyStatusEventStage = "starting" | "api-attempt" | "playwright-fallback" | "proxy-ready" | "stopped";
+export type TProxyStatusEventStage = "starting" | "api-attempt" | "playwright-fallback" | "proxy-ready" | "stopped" | "failed";
 
 export type TProxyStatusEvent = {
   envId: string;

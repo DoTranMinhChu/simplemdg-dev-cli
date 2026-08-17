@@ -9,6 +9,7 @@ import { Command } from "commander";
 import { searchableSelectChoice } from "../core/prompts";
 import { openBrowser } from "../core/studio-shared/studio-server-kit";
 import { formatRelativeTime } from "../core/cache/smart-cache";
+import { ensureExternalTool } from "../core/tooling";
 import {
   listProjects as listProjectsFromClient,
   listRootGroups as listRootGroupsFromClient,
@@ -189,6 +190,13 @@ async function parallelRun<T>(items: T[], concurrency: number, worker: (item: T,
 }
 
 async function runSync(options: { refresh?: boolean }): Promise<void> {
+  // Every step below eventually shells out to `git` (via runGit) — check it's on PATH before
+  // asking for GitLab credentials/picking a group, the same "checked before an interactive
+  // flow" pattern `git.command.ts` already uses. Without this, a machine with no `git`
+  // installed only finds out after answering every prompt, and the failure is the OS's raw
+  // "'git' is not recognized..." text instead of the install-offer flow this gives instead.
+  await ensureExternalTool("git");
+
   const auth = await askAuth();
   const mode = await searchableSelectChoice({
     message: "What do you want to pull/clone?",

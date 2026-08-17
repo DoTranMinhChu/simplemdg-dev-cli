@@ -304,7 +304,16 @@ export async function handleCheckApiApi(req: http.IncomingMessage, res: http.Ser
 
     try {
       const resolved = await resolveServicesForLiveApp(auth, group, appName, { refresh });
-      sendJson(res, { ...resolved.data, source: "gitlab", fromCache: resolved.fromCache, updatedAt: resolved.updatedAt });
+      // Unlike live-index/known-pattern (both verified against the actual running app), this
+      // scans the GitLab repo's default branch — whatever was last committed, not necessarily
+      // what was last deployed. A commit merged after the last `cf push` (or a deploy that's
+      // simply pending) makes this silently wrong with no way for the response shape alone to
+      // tell the caller. Surface that risk explicitly instead of presenting it with the same
+      // confidence as a live-verified result.
+      const warning = resolved.data.matched
+        ? `Discovered by scanning ${resolved.data.pathWithNamespace ?? "the GitLab repo"}'s "${resolved.data.defaultBranch ?? "default"}" branch — this reflects the latest committed source, not necessarily what's currently deployed on the server. Verify against $metadata before relying on it, especially if a deploy may be pending.`
+        : undefined;
+      sendJson(res, { ...resolved.data, source: "gitlab", warning, fromCache: resolved.fromCache, updatedAt: resolved.updatedAt });
     } catch (error) {
       sendJson(res, { matched: false, services: [], error: error instanceof Error ? error.message : String(error) });
     }

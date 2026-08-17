@@ -1,4 +1,4 @@
-import { getCachedOAuthToken } from "./oauth-token-cache";
+import { clearCachedOAuthToken, getCachedOAuthToken } from "./oauth-token-cache";
 
 export type TXsuaaTokenCredential = { clientId: string; clientSecret: string; url: string };
 
@@ -45,9 +45,13 @@ async function requestXsuaaAccessToken(credential: TXsuaaTokenCredential, timeou
   return { token: json.access_token, expiresInSeconds: json.expires_in };
 }
 
+function xsuaaCacheKey(credential: TXsuaaTokenCredential): string {
+  return `xsuaa|${credential.url}|${credential.clientId}`;
+}
+
 /** Standard XSUAA client-credentials OAuth2 grant — cached per (url, clientId) until near expiry. */
 export async function fetchXsuaaAccessToken(credential: TXsuaaTokenCredential, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<string> {
-  return getCachedOAuthToken(`xsuaa|${credential.url}|${credential.clientId}`, () => requestXsuaaAccessToken(credential, timeoutMs));
+  return getCachedOAuthToken(xsuaaCacheKey(credential), () => requestXsuaaAccessToken(credential, timeoutMs));
 }
 
 export type TCallCapApiOptions = {
@@ -70,42 +74,69 @@ const CALL_CAP_API_TIMEOUT_MS = 90_000;
 /** Proxies the actual authenticated call server-side, avoiding CORS from the browser (same reason the legacy tool did this server-side). */
 export async function callCapApi(options: TCallCapApiOptions): Promise<TCallCapApiResult> {
   const timeoutMs = options.timeoutMs ?? CALL_CAP_API_TIMEOUT_MS;
-  const token = await fetchXsuaaAccessToken(options.credential, timeoutMs);
   const base = options.baseUrl.replace(/\/+$/, "");
   const url = new URL(`${base}${options.path.startsWith("/") ? "" : "/"}${options.path}`);
   for (const [key, value] of Object.entries(options.queryParams ?? {})) {
     if (value) url.searchParams.set(key, value);
   }
 
-  const response = await fetchWithTimeout(
-    url,
-    {
-      method: options.method ?? "GET",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    },
-    timeoutMs,
-    `${options.method ?? "GET"} ${options.path}`,
-  );
+  const attempt = async (): Promise<TCallCapApiResult> => {
+    const token = await fetchXsuaaAccessToken(options.credential, timeoutMs);
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: options.method ?? "GET",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      },
+      timeoutMs,
+      `${options.method ?? "GET"} ${options.path}`,
+    );
 
-  const text = await response.text();
-  let body: unknown = text;
-  try {
-    body = text ? JSON.parse(text) : undefined;
-  } catch {
-    body = text;
-  }
+    const text = await response.text();
+    let body: unknown = text;
+    try {
+      body = text ? JSON.parse(text) : undefined;
+    } catch {
+      body = text;
+    }
 
-  return { status: response.status, ok: response.ok, body, url: url.toString() };
+    return { status: response.status, ok: response.ok, body, url: url.toString() };
+  };
+
+  const result = await attempt();
+  if (result.status !== 401) return result;
+
+  // A cached-but-now-stale token (the saved BTP credential was rotated/revoked, or clock skew
+  // slipped past our TTL margin) used to keep getting handed out until its self-reported TTL
+  // elapsed — every call in between failed with a bare 401 and no hint why. Drop it and retry
+  // once with a freshly fetched token before giving up.
+  clearCachedOAuthToken(xsuaaCacheKey(options.credential));
+  return attempt();
 }
 
 /** Fetches the raw `$metadata` EDMX document for a resolved CAP service — parsed by odata-metadata-parser.ts into entity sets/types/function imports. */
 export async function fetchODataMetadataXml(options: { credential: TXsuaaTokenCredential; baseUrl: string; path: string }): Promise<string> {
-  const token = await fetchXsuaaAccessToken(options.credential);
   const base = options.baseUrl.replace(/\/+$/, "");
   const servicePath = options.path.startsWith("/") ? options.path : `/${options.path}`;
-  const response = await fetchWithTimeout(`${base}${servicePath}/$metadata`, { headers: { authorization: `Bearer ${token}` } }, DEFAULT_REQUEST_TIMEOUT_MS, "$metadata request");
-  if (!response.ok) throw new Error(`$metadata request failed (HTTP ${response.status})`);
+  const metadataUrl = `${base}${servicePath}/$metadata`;
+
+  const attempt = async (): Promise<Response> => {
+    const token = await fetchXsuaaAccessToken(options.credential);
+    return fetchWithTimeout(metadataUrl, { headers: { authorization: `Bearer ${token}` } }, DEFAULT_REQUEST_TIMEOUT_MS, "$metadata request");
+  };
+
+  let response = await attempt();
+  if (response.status === 401) {
+    clearCachedOAuthToken(xsuaaCacheKey(options.credential));
+    response = await attempt();
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("$metadata request failed (HTTP 401) — the saved BTP credential for this app may be stale. Remove and re-import it from the BTP Credentials page.");
+    }
+    throw new Error(`$metadata request failed (HTTP ${response.status})`);
+  }
   return await response.text();
 }
 

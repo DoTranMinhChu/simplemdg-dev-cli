@@ -45,7 +45,27 @@ export async function findNextFreeProxyPort(reservedPorts: Iterable<number> = []
   throw new Error(`No free port found between ${PORT_SCAN_START} and ${PORT_SCAN_END}.`);
 }
 
-/** Best-effort EADDRINUSE recovery: find and kill whatever OS process is holding `port`. */
+/** Best-effort "what is this PID" lookup, purely for the log line below — a bare PID tells the
+ * user nothing about whether they're about to kill their IDE, another dev server, or something
+ * unrelated. Never throws; an empty string just means the process name couldn't be determined. */
+function describeProcess(pid: number): string {
+  try {
+    if (process.platform === "win32") {
+      const output = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: "utf8" }).trim();
+      // CSV row looks like: "node.exe","12345","Console","1","50,000 K"
+      const name = output.split(",")[0]?.replace(/^"|"$/g, "");
+      return name ? ` (${name})` : "";
+    }
+    const name = execSync(`ps -p ${pid} -o comm=`, { encoding: "utf8" }).trim();
+    return name ? ` (${name})` : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Best-effort EADDRINUSE recovery: find and kill whatever OS process is holding `port`. Always
+ * names the process (not just its PID) in the log first, since this runs unattended — the log is
+ * the only record of what got killed on the user's behalf. */
 export function killProcessUsingPort(port: number, onLog?: (line: string) => void): void {
   const log = onLog ?? ((): void => undefined);
 
@@ -69,7 +89,7 @@ export function killProcessUsingPort(port: number, onLog?: (line: string) => voi
       }
 
       for (const pid of pids) {
-        log(`Port ${port} is busy. Killing PID ${pid}...`);
+        log(`Port ${port} is busy. Killing PID ${pid}${describeProcess(pid)}...`);
         try {
           execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
         } catch {
@@ -85,7 +105,7 @@ export function killProcessUsingPort(port: number, onLog?: (line: string) => voi
       for (const pidLine of pidText.split(/\r?\n/)) {
         const pid = Number(pidLine.trim());
         if (!Number.isNaN(pid) && pid > 0) {
-          log(`Port ${port} is busy. Killing PID ${pid}...`);
+          log(`Port ${port} is busy. Killing PID ${pid}${describeProcess(pid)}...`);
           try {
             process.kill(pid, "SIGKILL");
           } catch {

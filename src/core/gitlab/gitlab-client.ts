@@ -84,7 +84,16 @@ export async function gitlabFetch<T>(auth: TGitLabAuth, apiPath: string, search?
     for (const [key, value] of search.entries()) url.searchParams.set(key, value);
   }
   const response = await fetch(url, { headers: { "PRIVATE-TOKEN": auth.token } });
-  if (!response.ok) throw new Error(`GitLab API failed ${response.status}: ${await response.text()}`);
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      // A revoked/expired Personal Access Token used to surface as a raw
+      // `GitLab API failed 401: {"message":"401 Unauthorized"}` blob everywhere this function is
+      // used (4+ Tool Studio pages) — one fix here reaches all of them, the same "route through
+      // one place" pattern the CF layer already uses.
+      throw new Error("Your GitLab token has expired or was revoked. Run: smdg gitlab login");
+    }
+    throw new Error(`GitLab API failed ${response.status}: ${await response.text()}`);
+  }
   return await response.json() as T;
 }
 

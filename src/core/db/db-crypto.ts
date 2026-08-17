@@ -44,7 +44,11 @@ export function decryptSecret(storedValue: string): string {
 
     return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
   } catch {
-    throw new Error("Cannot decrypt cached credential. It may have been created on another machine or user account. Re-import the connection.");
+    // Shared by every secret this CLI encrypts at rest (DB connections, BTP service credentials,
+    // CF/GitLab logins — see the consumers of encryptSecret/decryptSecret) — kept generic rather
+    // than naming one of them ("re-import the connection") so it reads correctly no matter which
+    // caller hit it; each caller's own error-handling can still add its own specific next step.
+    throw new Error("Cannot decrypt cached credential. It may have been created on another machine or user account. Remove and re-add/re-import it.");
   }
 }
 

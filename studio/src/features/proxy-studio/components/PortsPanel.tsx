@@ -9,6 +9,7 @@ import { useProxyEvents } from "../hooks/useProxyEvents";
 export function PortsPanel(): React.ReactElement {
   const ports = useAsync(() => proxyStudioApi.listPorts());
   const [expanded, setExpanded] = useState(false);
+  const [killError, setKillError] = useState("");
 
   useEffect(() => {
     void ports.run();
@@ -43,6 +44,8 @@ export function PortsPanel(): React.ReactElement {
         </div>
       </div>
 
+      {killError ? <div className="errbox" style={{ marginTop: 8 }}>{killError}</div> : null}
+
       {rows.length === 0 ? (
         <p className="note" style={{ marginTop: 8 }}>Nothing bound right now.</p>
       ) : (
@@ -55,8 +58,16 @@ export function PortsPanel(): React.ReactElement {
                 className="port-chip-stop"
                 title={`Stop port ${row.port}`}
                 onClick={async () => {
-                  await proxyStudioApi.killPort(row.port);
-                  void ports.run();
+                  setKillError("");
+                  try {
+                    await proxyStudioApi.killPort(row.port);
+                    void ports.run();
+                  } catch (error) {
+                    // Previously unhandled — a race (two tabs, or the process already exited
+                    // between the list refresh and this click) threw an uncaught rejection with
+                    // zero visible feedback; the button just silently did nothing.
+                    setKillError(error instanceof Error ? error.message : String(error));
+                  }
                 }}
               >
                 ✕

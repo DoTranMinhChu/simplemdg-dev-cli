@@ -8,7 +8,7 @@ import type { TAiDoctorReport } from "../../../api/ai-studio-api-types";
 function severityIcon(severity: string): React.ReactElement {
   if (severity === "error") return <span style={{ color: "var(--red)" }}>✗</span>;
   if (severity === "warning") return <span style={{ color: "var(--amber)" }}>⚠</span>;
-  return <span style={{ color: "var(--faint)" }}>i</span>;
+  return <span style={{ color: "var(--muted)" }}>i</span>;
 }
 
 /** Ingestion status, parser health, and storage location — the browser equivalent of `smdg ai doctor`. */

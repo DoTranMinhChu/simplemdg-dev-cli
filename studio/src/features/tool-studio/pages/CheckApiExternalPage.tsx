@@ -279,6 +279,11 @@ export function CheckApiExternalPage(): React.ReactElement {
                 {appServices.loading ? <Spinner /> : "⟳ Rescan"}
               </Button>
             </div>
+            {appServices.data?.warning ? (
+              <div className="warnbox" style={{ marginBottom: 8 }}>
+                ⚠ {appServices.data.warning}
+              </div>
+            ) : null}
             {appServices.loading ? (
               <EmptyState>
                 <Spinner /> resolving OData path(s) for {selectedAppName}...

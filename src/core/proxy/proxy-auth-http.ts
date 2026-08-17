@@ -261,7 +261,12 @@ export async function captureHeadersWithHttpRequests(
   }
 
   if (!matchedUrl) {
-    throw new Error(`HTTP auth flow for ${env.displayName} completed login but no probe request came back as a genuinely authenticated response.`);
+    // Same root cause as the browser-flow equivalent in proxy-auth-browser.ts: the login form
+    // posted without an explicit rejection, but nothing ever came back authenticated — usually
+    // MFA/SSO the plain-HTTP flow can't complete, not a broken integration.
+    throw new Error(
+      `Login for ${selectedUser.userID} on ${env.displayName} didn't complete over plain HTTP — this page may require MFA/a second factor or a JS-rendered SSO step. Run "smdg proxy login ${env.id}" to sign in manually in a visible browser window, then retry.`,
+    );
   }
 
   onLog("Header retrieval completed through HTTP flow.");

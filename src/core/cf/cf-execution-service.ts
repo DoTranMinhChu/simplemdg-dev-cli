@@ -4,7 +4,7 @@ import fs from "fs-extra";
 import { runCommand } from "../process";
 import { readCache } from "../cache";
 import { inferCloudFoundryRegionFromApiEndpoint } from "../cf";
-import { decryptCfPassword } from "./cf-auth-service";
+import { decryptCfPassword, isCfCliAvailable } from "./cf-auth-service";
 import type { TCfTarget } from "./cf-target.types";
 
 export type TCfExecutionContext = {
@@ -232,6 +232,15 @@ export class CfExecutionService {
     const lastConfirmedAt = this.lastConfirmedLoginAt.get(context.region);
     if (lastConfirmedAt && Date.now() - lastConfirmedAt < LOGIN_CHECK_TTL_MS) {
       return;
+    }
+
+    // Without this, a machine with no `cf` CLI at all got "Cloud Foundry login is required" below
+    // (from `cf orgs` failing) — true but misleading, since the real fix is installing `cf`, not
+    // running `smdg cf login` against a binary that doesn't exist. `ensureCloudFoundrySession()` in
+    // db-btp.ts already gets this right for the non-cross-region path; this is the isolated-CF_HOME
+    // path (`withCfTarget`, used by the BTP Import wizard's "App" step and Tool Studio) that didn't.
+    if (!(await isCfCliAvailable())) {
+      throw new Error("Cloud Foundry CLI 'cf' is not installed or not on PATH. Install it, then run: smdg cf login");
     }
 
     const orgsCheck = await this.runCf(context, ["orgs"], { silent: true });

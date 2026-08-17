@@ -33,9 +33,15 @@ export async function testConnectionProfile(
     await adapter.connect();
     return await adapter.testConnection();
   } catch (error) {
+    // Previously returned the raw driver message verbatim (e.g. a bare `connect ECONNREFUSED
+    // 10.1.2.3:5432` or a raw HANA RTE string) — every OTHER path that can fail this way
+    // (catalog/query, via StudioConnectionPool) already runs through this same classifier and
+    // gets a plain-language message; "Test connection" was the one place that didn't.
+    const classified = classifyDatabaseError(error, connection.type);
     return {
       success: false,
-      message: error instanceof Error ? error.message : String(error),
+      message: classified.message,
+      originalMessage: classified.originalMessage,
       durationMs: 0,
     };
   } finally {

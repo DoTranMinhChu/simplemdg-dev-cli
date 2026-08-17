@@ -108,7 +108,16 @@ export async function readJsonBody(req: http.IncomingMessage): Promise<TJsonBody
   for await (const chunk of req) chunks.push(Buffer.from(chunk));
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   if (!raw) return {};
-  return JSON.parse(raw) as TJsonBody;
+  try {
+    return JSON.parse(raw) as TJsonBody;
+  } catch {
+    // A malformed body previously threw a raw `SyntaxError: Unexpected token ... in JSON at
+    // position N`, shipped to the client verbatim by the outer route-handler catch-all. The
+    // shipped frontend always sends valid JSON, so this only bites someone scripting the local
+    // API directly — but it's the same "raw exception leaks to the caller" shape as everywhere
+    // else in this file, worth failing the same way as a normal bad-request instead.
+    throw new Error("Request body is not valid JSON.");
+  }
 }
 
 /** Read a raw (non-JSON) request body, for single-file uploads. Bounded by `maxBytes`. */

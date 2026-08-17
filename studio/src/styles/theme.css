@@ -1,22 +1,53 @@
+/* Color-contrast contract (UI audit, 2026-08) — pick the token by what the pixel's role needs, not
+ * by which one merely "looks quiet enough":
+ *   - Real content (labels, values, timestamps, messages, badge text) -> --text or --muted.
+ *     --muted is verified >=4.5:1 (WCAG AA, normal text) against every surface below, including
+ *     --chip. Never --faint for this role, and never a fresh literal hex — every past regression
+ *     here was exactly one of those two mistakes.
+ *   - Purely decorative icons/dots/separators (chevrons already promoted to --muted for this
+ *     reason) -> --faint is fine; it clears the lighter 3:1 non-text threshold on every surface
+ *     except --chip.
+ *   - Structural dividers that only need to read as a quiet hairline (panel/tab edges) -> --border
+ *     or --border-2.
+ *   - Structural lines a user must actually parse (JSON tree nesting, anything conveying
+ *     hierarchy) -> --guide, the one border-family token that clears 3:1 everywhere including
+ *     --chip.
+ * Verify any new pairing with WCAG relative-luminance contrast, not by eye against one theme.
+ */
 :root {
   --bg: #0b0f17;
   --bg-2: #0e1420;
   --bg-3: #121a28;
   --panel: #0d131e;
   --elev: #16203250;
-  --border: #1f2c44;
-  --border-2: #27374f;
+  /* --border/--border-2 raised 2026-08: originals (#1f2c44 / #27374f) sat at 1.06-1.59:1 against
+     every surface below — essentially invisible. New values keep the same hue family (a UI-audit
+     finding, not a rebrand) but read as an actual hairline. Still below the 3:1 WCAG non-text
+     threshold on purpose — reserved for --guide, the one place perceiving the line is functional
+     (JSON tree nesting), not just decorative. */
+  --border: #38496c;
+  --border-2: #495e84;
   --text: #dce6f5;
   --muted: #8295b5;
   --faint: #5b6c8a;
+  --guide: #5b7aa8; /* structural hierarchy lines (JsonView indent guide) — >=3:1 on every surface, incl. --chip */
+  --border-strong: var(--guide); /* same value, read at call sites as "this border IS the only way to
+    see the control" — text inputs/selects/buttons, where WCAG 1.4.11 non-text contrast applies and
+    --bg/--bg-2/--bg-3/--panel are too close in luminance (~1.0-1.1:1 apart) for a fill alone to do it */
   --accent: #3b82f6;
-  --accent-2: #1d4ed8;
+  --accent-2: #4a6ce8; /* was #1d4ed8 — 2.60-2.86:1 everywhere, below even the 3:1 non-text floor it
+    needs as a border-left kind marker (AI Studio graph "assistant" nodes) and focus-style border */
+  /* Filled-button variant of --accent: white text directly on --accent is only 3.68:1 (fails 4.5:1
+     AA). Kept as a separate token instead of darkening --accent itself, because --accent is used
+     59x as *text* on dark surfaces (4.7-5.2:1 there, already fine) and only 14x as a solid button
+     fill — darkening the shared token to fix the fill would have broken the far more common case. */
+  --accent-solid: #2b64d6;
   --green: #22c55e;
   --red: #ef4444;
   --yellow: #f59e0b;
   --amber: #fbbf24;
   --chip: #1a2840;
-  --sel: #16243d;
+  --sel: #101c30; /* darkened from #16243d so --accent text on it clears 4.5:1 (was 4.22:1) */
   --editbg: #3a2f08;
   --delbg: #3a1414;
   --insbg: #0f2e18;

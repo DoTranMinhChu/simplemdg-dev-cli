@@ -1,4 +1,4 @@
-import type { TDatabaseColumn, TDatabaseQueryResult } from "../../../api/studio-api-types";
+import type { TCfAuthStatus, TCfLoginRequest, TCfLoginResponse, TCfRegionEndpoint, TDatabaseColumn, TDatabaseQueryResult } from "../../../api/studio-api-types";
 
 // --- Audit Log Monitor ------------------------------------------------------
 // Mirrors src/core/audit-log/*.ts on the backend. Kept in sync by hand (same
@@ -300,6 +300,10 @@ export type TResolvedAppServices = {
   scanError?: string;
   /** `"live-index"` when discovered directly from the app's own root index; `"known-pattern"` when that failed but the app's "-srv-<abbrev>" suffix matched a known object type's CommonService path (verified live before being trusted — see object-type-service-map.ts); `"gitlab"` when neither worked and the fallback source-scan was used instead. */
   source?: "live-index" | "known-pattern" | "gitlab";
+  /** Only set for `source: "gitlab"` — that path reads the repo's default branch, which can be
+   * ahead of (or otherwise different from) whatever's actually deployed right now. The other two
+   * sources are verified live against the running app, so they never carry this. */
+  warning?: string;
   fromCache?: boolean;
   updatedAt?: string;
   error?: string;
@@ -426,6 +430,14 @@ export type TCustomModelSaveResult = {
 };
 
 export const toolStudioApi = {
+  // Same `/api/cf/*` route module every studio backend mounts (Tool Studio's own
+  // `tool-studio-server.ts` included) — see CfLoginModal.tsx for why the same modal component
+  // can be reused here as-is instead of needing a Tool-Studio-specific copy.
+  getCfAuthStatus: () => get<TCfAuthStatus>("/api/cf/auth-status"),
+  loginCf: (input: TCfLoginRequest) => post<TCfLoginResponse>("/api/cf/login", input),
+  getCfRegions: () => get<{ regions: TCfRegionEndpoint[] }>("/api/cf/regions"),
+  refreshBtpTargets: () => post<{ ok: boolean; started: boolean }>("/api/btp/targets/refresh"),
+
   getGitlabAuthStatus: () => get<{ isLoggedIn: boolean; username?: string; name?: string; baseUrl?: string; expiresAt?: string | null }>("/api/tool/gitlab/auth-status"),
   loginGitlab: (baseUrl: string, token: string) =>
     post<{ username?: string; name?: string; baseUrl?: string; expiresAt?: string | null; error?: string }>("/api/tool/gitlab/login", { baseUrl, token }),

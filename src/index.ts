@@ -33,6 +33,7 @@ import { registerToolCommands } from "./commands/tool.command";
 import { registerProxyCommands } from "./commands/proxy.command";
 import { enableInteractiveNavigation } from "./core/navigator";
 import { launchInteractiveShell } from "./terminal/services/terminal-launcher";
+import { installTerminalCrashGuard } from "./terminal/services/terminal-crash-guard";
 import type { TInstallCommandOptions, TKeyValueMap } from "./types-local";
 
 // node:sqlite (used intentionally by AI Studio's session store) is an
@@ -499,6 +500,13 @@ async function runCli(): Promise<void> {
     await launchInteractiveShell(program, readCliVersion());
     return;
   }
+
+  // Plain-command mode (everything below) had no crash safety net at all: the interactive
+  // shell installs its own guard on launch, but a synchronous throw from an event-driven
+  // callback outside the initial action's await chain (e.g. a `child.stdout.on("data", ...)`
+  // handler during `smdg cf logs --follow`) would previously dump a raw Node stack trace
+  // instead of the shell's friendly message, and never write a `~/.simplemdg/logs/crash-*.log`.
+  installTerminalCrashGuard("cli");
 
   const isRootHelp = process.argv.length <= 3 && ["--help", "-h"].includes(process.argv[2] ?? "");
 

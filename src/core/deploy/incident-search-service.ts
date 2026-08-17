@@ -14,11 +14,21 @@ export type TIncidentSearchResult = Record<string, unknown> & { jira_ticket?: st
 const EMBEDDING_MODEL = "qwen3-embedding:0.6b";
 
 async function embedQuery(ollamaUrl: string, text: string): Promise<number[]> {
-  const response = await fetch(`${ollamaUrl.replace(/\/+$/, "")}/api/embed`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ model: EMBEDDING_MODEL, input: text }),
-  });
+  const trimmedOllamaUrl = ollamaUrl.replace(/\/+$/, "");
+  let response: Response;
+  try {
+    response = await fetch(`${trimmedOllamaUrl}/api/embed`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: EMBEDDING_MODEL, input: text }),
+    });
+  } catch (error) {
+    // The HTTP-error-response case just below already gives a friendly message; a
+    // connection-level failure (nobody listening at all, the realistic first-run state since
+    // Ollama is a separate install this page defaults to localhost:11434 for) previously threw
+    // Node's raw `TypeError: fetch failed` straight through to the UI instead.
+    throw new Error(`Could not reach Ollama at ${trimmedOllamaUrl}. Is Ollama running with the '${EMBEDDING_MODEL}' model pulled? (${error instanceof Error ? error.message : String(error)})`);
+  }
   const json = (await response.json().catch(() => ({}))) as { embeddings?: number[][]; embedding?: number[] };
   if (!response.ok) throw new Error(`Ollama embedding request failed (HTTP ${response.status}). Is Ollama running with the '${EMBEDDING_MODEL}' model pulled?`);
   const embedding = json.embeddings?.[0] ?? json.embedding;

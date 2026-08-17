@@ -11,7 +11,7 @@ smdg -V
 
 ## Building from source
 
-Requires **Node.js 22.5+** (the interactive shell and AI Studio's session store both rely on runtime features only available from that version onward).
+Building from source requires **Node.js 22.5+**. At runtime this is only a hard requirement for `smdg ai studio`'s local SQLite store (the built-in `node:sqlite` module) — every other `smdg` command, including the interactive shell, keeps working on older Node versions; see [USER_GUIDE.md](USER_GUIDE.md#ai-studio) for details.
 
 The CLI backend (`src/`) and the CF DB Studio frontend (`studio/`, a standalone React + Vite + TypeScript project) build separately but are wired together by the root scripts:
 
@@ -104,6 +104,7 @@ smdg gitlab clone
 smdg gitlab pull
 smdg cf db studio
 smdg proxy studio
+smdg tool studio
 smdg git move-code
 ```
 
@@ -245,6 +246,17 @@ smdg proxy quick --auto <url>              # credential-free: open a browser, lo
 - **Port management**: each environment gets its own port(s) (default `3000`/`3001`,
   customizable per environment), with `smdg proxy status`/the Studio's "Running now" panel
   (kept near the top, not buried at the bottom) showing what's bound and a one-click stop.
+
+## Tool Studio
+
+A local, browser-based home for MDG deploy tooling ported from the legacy GitLab API tool — deploy model changes via merge request, bulk CDS version upgrades, live OData service inspection, CPI/Event Mesh queue health, CF log/restart, audit log monitoring, and a few one-off connectivity/config utilities.
+
+```powershell
+smdg tool studio    # open the local browser Studio
+smdg tool doctor    # check CF login, GitLab login, saved BTP service credentials, and deploy targets in one shot
+```
+
+Deploy Model, Object Types, CDS Bulk Upgrade, Custom Model, and npmrc Registry need GitLab access; Check API External, CPI Queue, and CF Log/Restart need Cloud Foundry/BTP. Both logins can be done right from the Studio (a connection status pill for each sits at the top of the sidebar, and turns clickable — opening an in-app login — whenever it isn't connected) or from the terminal (`smdg cf login`, `smdg gitlab login`). `smdg tool doctor` is the fastest way to see the full picture — including saved BTP service credentials and deploy targets, which the Studio's pills don't cover — without opening a browser.
 
 ## AI Studio
 

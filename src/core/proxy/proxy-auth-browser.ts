@@ -28,19 +28,39 @@ async function getSharedBrowser(playwrightModule: TPlaywrightModule, headless: b
   const current = cacheRef === "sharedHeadlessBrowserPromise" ? sharedHeadlessBrowserPromise : sharedHeadedBrowserPromise;
 
   if (current) {
-    const existing = await current;
-    if (existing.isConnected()) {
-      return existing;
+    try {
+      const existing = await current;
+      if (existing.isConnected()) {
+        return existing;
+      }
+    } catch {
+      // A previous launch attempt failed (e.g. Chromium binaries not yet downloaded) — fall
+      // through and retry below instead of remembering that as a permanent failure, so
+      // running `npx playwright install chromium` mid-session is enough to recover without
+      // restarting the proxy.
     }
   }
 
-  const launched = playwrightModule.chromium.launch({ headless });
+  const launched = launchChromium(playwrightModule, headless);
   if (cacheRef === "sharedHeadlessBrowserPromise") {
     sharedHeadlessBrowserPromise = launched;
   } else {
     sharedHeadedBrowserPromise = launched;
   }
   return launched;
+}
+
+/** The `playwright` npm package can be installed with its browser binaries never downloaded —
+ * the realistic first-run failure, since `npm install` doesn't run `playwright install` for you.
+ * Playwright's own launch error already mentions the fix, but as a multi-line boxed message
+ * inconsistent with this module's other one-line errors (see loadPlaywright() above) — normalize
+ * it so a missing browser binary reads the same way as a missing package. */
+async function launchChromium(playwrightModule: TPlaywrightModule, headless: boolean): Promise<any> {
+  try {
+    return await playwrightModule.chromium.launch({ headless });
+  } catch (error) {
+    throw new Error(`Chromium browser binaries are missing or failed to launch. Run "npx playwright install chromium" to enable browser-based login capture. ${String(error)}`);
+  }
 }
 
 const PLAYWRIGHT_DEBUG = String(process.env.SMDG_PROXY_PLAYWRIGHT_DEBUG ?? "false").toLowerCase() === "true";
@@ -408,7 +428,14 @@ export async function captureHeadersWithPlaywright(
     }
 
     if (!captured) {
-      throw new Error(`Browser login flow completed but no matching request/probe succeeded for ${env.displayName}.`);
+      // The login form was submitted and no "still visible, wrong password" error fired above,
+      // yet nothing recognizably authenticated ever came back — the most common real cause is a
+      // second factor (MFA/OTP) or SSO step the automated flow can't push through, not a broken
+      // integration. Point at the one flow that always works: a real, visible browser the person
+      // can finish the login in themselves.
+      throw new Error(
+        `Login for ${selectedUser.userID} on ${env.displayName} didn't complete automatically — this page may require MFA/a second factor the automated flow can't handle. Run "smdg proxy login ${env.id}" to sign in manually in a visible browser window, then retry.`,
+      );
     }
 
     return captured;
@@ -560,7 +587,7 @@ export async function openLoggedInBrowserWindow(env: TResolvedProxyEnvironment, 
   }
 
   const playwrightModule = await loadPlaywright();
-  const browser = await playwrightModule.chromium.launch({ headless: false });
+  const browser = await launchChromium(playwrightModule, false);
   const context = await browser.newContext({ locale: env.capture.acceptLanguage ?? "en-US" });
   const page = await context.newPage();
 

@@ -18,7 +18,7 @@ import { useWorkspaceStore } from "../../state/workspace-store";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 
 export function AppShell(): React.ReactElement {
-  const { connections, activeConnectionId, loadConnections, refreshCfStatus } = useStudioStore();
+  const { connections, activeConnectionId, loadConnections, refreshCfStatus, cfStatus, setCfOfflineMode, toast } = useStudioStore();
   const { tabs, activeTabId, layout, setSidebarWidth, setSidebarCollapsed, openTab } = useWorkspaceStore();
   const [connectionSearch, setConnectionSearch] = useState("");
   const [showBtpWizard, setShowBtpWizard] = useState(false);
@@ -79,7 +79,13 @@ export function AppShell(): React.ReactElement {
       <StatusBar />
       <ToastStack />
       {showBtpWizard ? <BtpImportWizard onClose={() => setShowBtpWizard(false)} onImported={() => undefined} /> : null}
-      {showCfLogin ? <CfLoginModal onClose={() => setShowCfLogin(false)} onSuccess={() => setShowCfLogin(false)} /> : null}
+      {showCfLogin ? (
+        <CfLoginModal
+          onClose={() => setShowCfLogin(false)}
+          onSuccess={() => setShowCfLogin(false)}
+          hooks={{ cfStatus, refreshCfStatus, setCfOfflineMode, toast }}
+        />
+      ) : null}
       {showNewConnection ? <NewConnectionModal onClose={() => setShowNewConnection(false)} onCreated={() => loadConnections()} /> : null}
       {showSettings ? <SettingsModal onClose={() => setShowSettings(false)} /> : null}
     </div>

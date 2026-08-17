@@ -37,7 +37,7 @@ export type TCfLoginResult = {
   error?: string;
 };
 
-async function isCfCliAvailable(): Promise<boolean> {
+export async function isCfCliAvailable(): Promise<boolean> {
   const result = await runCommand("cf", ["--version"]).catch(() => undefined);
   return Boolean(result && result.exitCode === 0);
 }

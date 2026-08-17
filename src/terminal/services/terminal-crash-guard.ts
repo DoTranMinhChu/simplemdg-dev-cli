@@ -36,23 +36,31 @@ function writeCrashReport(error: unknown): void {
 let installed = false;
 
 /**
- * Installed once for the whole `smdg` process while the persistent shell is
- * active. Covers the class of bug behind the reported "Mark this target as
- * favorite?" crash: a synchronous exception thrown from inside a raw
- * 'keypress' event handler (e.g. a third-party prompt library indexing into
- * `undefined`) is not something any `try`/`catch` around an `await` can ever
- * catch — it surfaces here or not at all. Without this handler, Node's
- * default behavior is to dump a raw stack trace and exit with the cursor
- * potentially left hidden and stdin left in raw mode.
+ * Installed once for the whole `smdg` process. Covers the class of bug behind the reported
+ * "Mark this target as favorite?" crash: a synchronous exception thrown from inside a raw
+ * 'keypress' event handler (e.g. a third-party prompt library indexing into `undefined`) is
+ * not something any `try`/`catch` around an `await` can ever catch — it surfaces here or not
+ * at all. Without this handler, Node's default behavior is to dump a raw stack trace and exit
+ * with the cursor potentially left hidden and stdin left in raw mode.
+ *
+ * `context` only changes the printed message — `restoreTerminalForCrash()` already no-ops
+ * outside a real TTY, so calling this from a plain (non-shell) `smdg <command>` invocation is
+ * safe even when piped/CI. Idempotent: the interactive shell also calls this on launch, and the
+ * second call here is a no-op (`installed` guard) rather than a duplicate handler.
  */
-export function installTerminalCrashGuard(): void {
+export function installTerminalCrashGuard(context: "shell" | "cli" = "shell"): void {
   if (installed) return;
   installed = true;
+
+  const message =
+    context === "shell"
+      ? "The SimpleMDG Developer Console hit an unexpected error and needs to close."
+      : "smdg hit an unexpected error and had to stop.";
 
   const handleFatal = (error: unknown) => {
     restoreTerminalForCrash();
     console.error("");
-    console.error("The SimpleMDG Developer Console hit an unexpected error and needs to close.");
+    console.error(message);
     writeCrashReport(error);
     process.exit(1);
   };

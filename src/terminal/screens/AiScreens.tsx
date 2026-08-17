@@ -36,7 +36,7 @@ function labelOutcome(outcome: string): string {
 async function openStoreOrNotify(service: InkInteractionService): Promise<AiSessionStore | undefined> {
   const store = await AiSessionStore.open();
   if (!store) {
-    service.notify({ level: "error", message: "AI Studio requires Node.js 22.5+ for its local SQLite store (node:sqlite)." });
+    service.notify({ level: "error", message: `AI Studio requires Node.js 22.5+ for its local SQLite store (node:sqlite). You are running ${process.version}. Upgrade Node.js and try again.` });
     return undefined;
   }
   return store;

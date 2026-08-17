@@ -76,12 +76,29 @@ function sendJsonError(res: http.ServerResponse, status: number, error: string):
   res.end(JSON.stringify({ error }));
 }
 
+/** Names the environment and points at the actual fix instead of the old generic "Restart the
+ * proxy" — restarting just retries the same broken credentials/session and fails identically,
+ * so it wasn't a fix at all, just a delay before the same message reappeared. */
+function sessionFailureMessage(options: TProxyForwarderOptions, situation: string): string {
+  const label = options.envLabel ? `${options.envLabel}'s` : "This proxy's";
+  const fix = options.reloginHint ?? "Check the saved username/password, or sign in manually and retry.";
+  return `${label} session ${situation}. ${fix}`;
+}
+
 export type TProxyForwarderOptions = {
   /** Returns the currently held session, or null if none has been captured yet. */
   getSession: () => TCapturedSession | null;
   /** Captures/refreshes the session (reason is for logging) and returns the new one, or null on failure. */
   ensureFreshSession: (reason: string) => Promise<TCapturedSession | null>;
   onLog?: (message: string) => void;
+  /** Environment display name (or the target URL for a quick/credential-free proxy) — named in every
+   * error response below instead of a generic "the proxy", so a person staring at a failed request
+   * in their own app knows which of several running environments actually broke. */
+  envLabel?: string;
+  /** The exact next step to recover this specific proxy's session — a saved environment points at
+   * `smdg proxy login <env>`; a quick/credential-free proxy has no saved login to retry, so it
+   * points at re-running `smdg proxy quick` instead. Falls back to generic advice if omitted. */
+  reloginHint?: string;
 };
 
 /**
@@ -96,7 +113,24 @@ export function createProxyRequestHandler(options: TProxyForwarderOptions): http
   const onLog = options.onLog ?? ((): void => undefined);
 
   return (req, res) => {
-    void handleProxyRequest(req, res, options, onLog);
+    handleProxyRequest(req, res, options, onLog).catch((error) => {
+      // handleProxyRequest can throw before any response is written — e.g. the client aborts
+      // the request body mid-stream (ERR_STREAM_PREMATURE_CLOSE), routine on a tab navigating
+      // away or a canceled fetch. Without this .catch(), that becomes an unhandled promise
+      // rejection: Node has no listener for it here, so it can crash the whole proxy process
+      // (killing every running environment's forwarding at once) instead of just failing this
+      // one request.
+      onLog(`Unhandled proxy request error: ${error instanceof Error ? error.message : String(error)}`);
+      try {
+        if (!res.headersSent) {
+          sendJsonError(res, 502, "The proxy hit an unexpected error handling this request. See the Studio's log for details.");
+        } else if (!res.writableEnded) {
+          res.end();
+        }
+      } catch {
+        // The response socket may already be gone (client disconnected) — nothing more to do.
+      }
+    });
   };
 }
 
@@ -122,7 +156,7 @@ async function handleProxyRequest(
   if (!session) {
     session = await options.ensureFreshSession("No session captured yet.");
     if (!session) {
-      sendJsonError(res, 503, "No proxy session available.");
+      sendJsonError(res, 503, sessionFailureMessage(options, "could not be established"));
       return;
     }
   }
@@ -134,13 +168,14 @@ async function handleProxyRequest(
     onLog(`Missing/invalid Referer in session headers. Attempting refresh... ${String(error)}`);
     session = await options.ensureFreshSession("Missing Referer header.");
     if (!session) {
-      sendJsonError(res, 503, "Session refresh failed. Restart the proxy.");
+      sendJsonError(res, 503, sessionFailureMessage(options, "could not be refreshed (missing Referer header)"));
       return;
     }
     try {
       serviceOrigin = getServiceOrigin(session.headers);
     } catch {
-      sendJsonError(res, 503, "No valid proxy session headers found after refresh.");
+      const label = options.envLabel ? `${options.envLabel}'s` : "This proxy's";
+      sendJsonError(res, 503, `${label} refreshed session is still missing required headers — this environment's login capture may be misconfigured.`);
       return;
     }
   }
@@ -169,7 +204,7 @@ async function handleProxyRequest(
     onLog(`Session expired (status ${response.status}). Refreshing...`);
     const freshSession = await options.ensureFreshSession(`Session expired (HTTP ${response.status})`);
     if (!freshSession) {
-      sendJsonError(res, 503, "Session refresh failed. Restart the proxy.");
+      sendJsonError(res, 503, sessionFailureMessage(options, "expired and could not be renewed"));
       return;
     }
 
@@ -177,7 +212,8 @@ async function handleProxyRequest(
     try {
       freshOrigin = getServiceOrigin(freshSession.headers);
     } catch {
-      sendJsonError(res, 503, "Refreshed session headers are missing Referer.");
+      const label = options.envLabel ? `${options.envLabel}'s` : "This proxy's";
+      sendJsonError(res, 503, `${label} refreshed session is missing a Referer header — this environment's login capture may be misconfigured.`);
       return;
     }
 

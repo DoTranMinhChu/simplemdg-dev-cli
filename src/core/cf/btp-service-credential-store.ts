@@ -65,7 +65,7 @@ export async function findBtpServiceCredential(id: string): Promise<TBtpServiceC
 
 export async function getResolvedBtpServiceCredential(id: string): Promise<TResolvedBtpServiceCredential> {
   const profile = await findBtpServiceCredential(id);
-  if (!profile) throw new Error(`BTP service credential not found: ${id}`);
+  if (!profile) throw new Error(`BTP service credential not found: ${id}. It may have been removed — re-import it from the Check API External / BTP Credentials page.`);
   const { encryptedClientSecret, ...rest } = profile;
   return { ...rest, clientSecret: decryptSecret(encryptedClientSecret) };
 }

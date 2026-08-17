@@ -1,4 +1,4 @@
-import { getCachedOAuthToken } from "./oauth-token-cache";
+import { clearCachedOAuthToken, getCachedOAuthToken } from "./oauth-token-cache";
 
 const QUEUE_MANAGEMENT_PATH = "hub/rest/api/v1/management/messaging/queues";
 
@@ -106,10 +106,14 @@ async function requestEventMeshToken(credential: Pick<TEventMeshCredentialSet, "
   return { token: json.access_token, expiresInSeconds: json.expires_in };
 }
 
+function eventMeshCacheKey(credential: Pick<TEventMeshCredentialSet, "clientId" | "tokenEndpoint">): string {
+  return `event-mesh|${credential.tokenEndpoint}|${credential.clientId}`;
+}
+
 /** Cached per (tokenEndpoint, clientId) until near expiry — see oauth-token-cache.ts. Management and
  * publish credentials have distinct tokenEndpoints/clientIds, so they naturally cache separately. */
 async function fetchEventMeshToken(credential: Pick<TEventMeshCredentialSet, "clientId" | "clientSecret" | "tokenEndpoint">): Promise<string> {
-  return getCachedOAuthToken(`event-mesh|${credential.tokenEndpoint}|${credential.clientId}`, () => requestEventMeshToken(credential));
+  return getCachedOAuthToken(eventMeshCacheKey(credential), () => requestEventMeshToken(credential));
 }
 
 export type TQueueHealthStatus = "healthy" | "busy" | "stuck" | "failed" | "missing";
@@ -156,11 +160,26 @@ function rawQueueNumber(value: unknown): number | undefined {
  * CPI-integration-flow names this module used to hardcode) — this is the only reliable source.
  */
 async function fetchRawQueueList(credential: TEventMeshCredentialSet): Promise<TRawQueueEntry[]> {
-  const token = await fetchEventMeshToken(credential);
   const baseUrl = credential.managementUri.replace(/\/+$/, "");
-  const response = await fetch(`${baseUrl}/${QUEUE_MANAGEMENT_PATH}`, { headers: { authorization: `Bearer ${token}` } });
+  const requestUrl = `${baseUrl}/${QUEUE_MANAGEMENT_PATH}`;
+
+  const attempt = async (): Promise<Response> => {
+    const token = await fetchEventMeshToken(credential);
+    return fetch(requestUrl, { headers: { authorization: `Bearer ${token}` } });
+  };
+
+  let response = await attempt();
+  if (response.status === 401) {
+    // Same stale-cached-token class of bug as check-api-service.ts's XSUAA tokens: drop it and
+    // retry once with a fresh one before reporting a failure.
+    clearCachedOAuthToken(eventMeshCacheKey(credential));
+    response = await attempt();
+  }
   if (!response.ok) {
     const text = await response.text().catch(() => "");
+    if (response.status === 401) {
+      throw new Error("Listing queues failed (HTTP 401) — the saved Event Mesh credential for this app may be stale. Remove and re-import it.");
+    }
     throw new Error(`Listing queues failed (HTTP ${response.status})${text ? `: ${text.slice(0, 300)}` : ""}`);
   }
   const json = (await response.json().catch(() => undefined)) as unknown;

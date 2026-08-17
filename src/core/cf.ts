@@ -1,6 +1,31 @@
 import type { TCloudFoundryApp, TCloudFoundryOrgEntry, TCloudFoundryTarget } from "./types";
 import { runCommand } from "./process";
 
+/**
+ * `cf api`/`cf auth` failures previously just forwarded the raw `cf` CLI stdout/stderr with no
+ * SimpleMDG-level summary — accurate, but easy to miss the actual cause in among `cf`'s own
+ * verbose output (tips, deprecation notices, etc.). This adds one short, plain-language line on
+ * top of the raw output for the handful of failure shapes that are common enough to name
+ * outright; anything unrecognized still shows the ORIGINAL `cf` text and nothing else, rather
+ * than a made-up guess.
+ */
+function describeCfFailure(combinedOutput: string): string | null {
+  const text = combinedOutput.toLowerCase();
+  if (/unable to establish|could not resolve|enotfound|econnrefused|network is unreachable|no such host/.test(text)) {
+    return "Could not reach that Cloud Foundry API endpoint — check your network connection (VPN?) and that the URL is correct.";
+  }
+  if (/\btimed? ?out\b/.test(text)) {
+    return "The request to Cloud Foundry timed out — check your network connection and try again.";
+  }
+  if (/credentials were rejected|bad credentials|invalid username or password|authentication failed/.test(text)) {
+    return "Cloud Foundry rejected the username/password — double-check them and try again.";
+  }
+  if (/api endpoint.{0,30}(not found|invalid)|invalid api endpoint|no api endpoint/.test(text)) {
+    return "That doesn't look like a valid Cloud Foundry API endpoint — double-check the region/URL.";
+  }
+  return null;
+}
+
 export function buildCloudFoundryTargetKey(target: TCloudFoundryTarget): string {
   return [
     target.apiEndpoint ?? "unknown-api",
@@ -38,6 +63,10 @@ export async function setCloudFoundryApiEndpoint(apiEndpoint: string): Promise<n
 
   if (result.stdout) console.log(result.stdout);
   if (result.stderr) console.error(result.stderr);
+  if (result.exitCode !== 0) {
+    const hint = describeCfFailure(`${result.stdout}\n${result.stderr}`);
+    if (hint) console.error(hint);
+  }
 
   return result.exitCode;
 }
@@ -50,6 +79,10 @@ export async function authenticateCloudFoundry(options: {
 
   if (result.stdout) console.log(result.stdout);
   if (result.stderr) console.error(result.stderr);
+  if (result.exitCode !== 0) {
+    const hint = describeCfFailure(`${result.stdout}\n${result.stderr}`);
+    if (hint) console.error(hint);
+  }
 
   return result.exitCode;
 }

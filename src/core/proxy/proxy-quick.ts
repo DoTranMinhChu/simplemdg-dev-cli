@@ -168,6 +168,8 @@ export async function startQuickProxy(
     getSession: () => quickProxies.get(id)?.session ?? null,
     ensureFreshSession: async () => quickProxies.get(id)?.session ?? null,
     onLog,
+    envLabel: webUrl,
+    reloginHint: `This quick proxy has no saved credentials to refresh with — run "smdg proxy quick --auto ${webUrl}" again to capture a fresh session.`,
   });
 
   const server = http.createServer(handler);

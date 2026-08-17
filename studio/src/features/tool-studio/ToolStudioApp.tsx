@@ -3,6 +3,8 @@ import { EmptyState } from "../../components/common/EmptyState";
 import { StudioMark } from "../../components/common/StudioMark";
 import { Spinner } from "../../components/common/Spinner";
 import { IconButton } from "../../components/common/IconButton";
+import { ConnectionStatusRow } from "./components/ConnectionStatusRow";
+import { ToolAuthStatusProvider } from "./state/tool-auth-status";
 import { TestConfigPage } from "./pages/TestConfigPage";
 import { CfLogRestartPage } from "./pages/CfLogRestartPage";
 import { CheckApiExternalPage } from "./pages/CheckApiExternalPage";
@@ -116,6 +118,7 @@ export function ToolStudioApp(): React.ReactElement {
   }, []);
 
   return (
+    <ToolAuthStatusProvider>
     <div className={`ts-shell${navCollapsed ? " nav-collapsed" : ""}`}>
       <nav className="ts-nav">
         <IconButton
@@ -130,6 +133,7 @@ export function ToolStudioApp(): React.ReactElement {
               <StudioMark studio="tool" />
               SimpleMDG Tool Studio
             </div>
+            <ConnectionStatusRow />
             <div className="ts-nav-group">MDG Deploy</div>
             {NAV_ITEMS.slice(0, 3).map((item) => (
               <NavButton key={item.id} item={item} active={section === item.id} />
@@ -165,6 +169,7 @@ export function ToolStudioApp(): React.ReactElement {
         </Suspense>
       </main>
     </div>
+    </ToolAuthStatusProvider>
   );
 }
 

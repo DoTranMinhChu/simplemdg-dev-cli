@@ -115,7 +115,7 @@ svg.ic {
 }
 
 .brand .b2 {
-   color: var(--faint);
+   color: var(--muted);
    font-weight: 600;
 }
 
@@ -185,12 +185,12 @@ svg.ic {
 
 .iconbtn:hover {
    color: #cfe0ff;
-   border-color: var(--border-2);
+   border-color: var(--border-strong);
    background: var(--bg-3);
 }
 
 .iconbtn.primary {
-   background: var(--accent);
+   background: var(--accent-solid);
    border-color: var(--accent-2);
    color: #fff;
 }
@@ -356,7 +356,7 @@ body.resizing-sidebar * {
 
 .side-head .h-count {
    font-size: 11px;
-   color: var(--faint);
+   color: var(--muted);
    font-weight: 400;
    text-transform: none;
    letter-spacing: 0;
@@ -409,7 +409,7 @@ body.resizing-sidebar * {
    align-items: center;
    gap: 6px;
    background: var(--bg-3);
-   border: 1px solid var(--border);
+   border: 1px solid var(--border-strong);
    border-radius: 8px;
    padding: 5px 8px;
    margin-bottom: 7px;
@@ -428,7 +428,7 @@ body.resizing-sidebar * {
 }
 
 .searchbox .sbclr {
-   color: var(--faint);
+   color: var(--muted);
    cursor: pointer;
    display: none;
    flex: 0 0 auto;
@@ -446,7 +446,7 @@ body.resizing-sidebar * {
 
 /* buttons + inputs */
 .btn {
-   background: var(--accent);
+   background: var(--accent-solid);
    border: 1px solid var(--accent-2);
    color: #fff;
    border-radius: 8px;
@@ -460,7 +460,7 @@ body.resizing-sidebar * {
 
 .btn.sec {
    background: #22304a;
-   border-color: var(--border-2);
+   border-color: var(--border-strong);
    color: #cfe0ff;
 }
 
@@ -491,7 +491,7 @@ body.resizing-sidebar * {
 .select {
    width: 100%;
    background: var(--bg-3);
-   border: 1px solid var(--border);
+   border: 1px solid var(--border-strong);
    border-radius: 8px;
    padding: 7px 9px;
    color: var(--text);
@@ -515,7 +515,7 @@ body.resizing-sidebar * {
 }
 
 .faint {
-   color: var(--faint);
+   color: var(--muted);
 }
 
 .row {
@@ -626,7 +626,7 @@ body.resizing-sidebar * {
 
 .conn-item .ci-type {
    font-size: 10px;
-   color: var(--faint);
+   color: var(--muted);
    flex: 0 0 auto;
 }
 
@@ -655,11 +655,11 @@ body.resizing-sidebar * {
 
 .ci-env.SANDBOX {
    background: #1e293b;
-   color: #64748b;
+   color: #94a3b8; /* was #64748b — 3.07:1 on this bg, below AA; matches .ci-state.disconnected's tone below */
 }
 
 .conn-item .ci-state {
-   font-size: 9px;
+   font-size: 10px;
    font-weight: 700;
    padding: 0 5px;
    border-radius: 8px;
@@ -725,7 +725,7 @@ body.resizing-sidebar * {
 
 .tchev {
    width: 13px;
-   color: var(--faint);
+   color: var(--muted);
    flex: 0 0 auto;
    text-align: center;
    transition: transform .12s;
@@ -786,7 +786,7 @@ body.resizing-sidebar * {
 }
 
 .tbadge {
-   color: var(--faint);
+   color: var(--muted);
    font-size: 11px;
 }
 
@@ -797,8 +797,8 @@ body.resizing-sidebar * {
 }
 
 .tnote {
-   color: var(--faint);
-   font-size: 11.5px;
+   color: var(--muted);
+   font-size: 12px;
    padding: 3px 6px;
 }
 
@@ -870,7 +870,7 @@ body.resizing-sidebar * {
 }
 
 .tab-overflow-item:hover {
-   background: var(--accent);
+   background: var(--accent-solid);
    color: #fff;
 }
 
@@ -919,7 +919,7 @@ body.resizing-sidebar * {
 }
 
 .wtab .x {
-   color: var(--faint);
+   color: var(--muted);
    border-radius: 4px;
    padding: 0 3px;
    background: none;
@@ -1233,7 +1233,7 @@ table.grid th.rowhdr,
 table.grid td.rowhdr {
    width: 54px;
    text-align: right;
-   color: var(--faint);
+   color: var(--muted);
    background: #15203550;
    cursor: pointer;
    position: sticky;
@@ -1432,7 +1432,7 @@ table.grid td.cell-err {
    min-width: 80px;
    text-align: center;
    font-size: 11px;
-   color: var(--faint);
+   color: var(--muted);
    padding: 6px 4px;
    border-radius: 8px;
    background: var(--bg-3);
@@ -1490,7 +1490,7 @@ table.grid td.cell-err {
 }
 
 .ctxitem:hover {
-   background: var(--accent);
+   background: var(--accent-solid);
    color: #fff;
 }
 
@@ -1557,7 +1557,7 @@ table.grid td.cell-err {
 }
 
 .empty {
-   color: var(--faint);
+   color: var(--muted);
    padding: 16px;
    text-align: center;
 }
@@ -1607,7 +1607,7 @@ mark.hl {
 .gutter {
    padding: 11px 8px;
    text-align: right;
-   color: var(--faint);
+   color: var(--muted);
    font-family: Consolas, "Cascadia Code", monospace;
    font-size: 13px;
    line-height: 1.5;
@@ -1654,7 +1654,7 @@ mark.hl {
    flex: 1;
    min-width: 120px;
    background: var(--bg-3);
-   border: 1px solid var(--border);
+   border: 1px solid var(--border-strong);
    border-radius: 8px;
    padding: 4px 9px;
 }
@@ -1674,7 +1674,7 @@ mark.hl {
 }
 
 .wherebox .clr {
-   color: var(--faint);
+   color: var(--muted);
    cursor: pointer;
    visibility: hidden;
    flex: 0 0 auto;
@@ -1697,7 +1697,7 @@ mark.hl {
    align-items: center;
    justify-content: center;
    background: #22304a;
-   border: 1px solid var(--border);
+   border: 1px solid var(--border-strong);
    border-radius: 8px;
    color: #cfe0ff;
    cursor: pointer;
@@ -1758,7 +1758,7 @@ mark.hl {
 
 .gridfoot select {
    background: var(--bg-3);
-   border: 1px solid var(--border);
+   border: 1px solid var(--border-strong);
    border-radius: 7px;
    color: var(--text);
    padding: 3px 7px;
@@ -1841,7 +1841,7 @@ mark.hl {
 .wiz-section-hdr .wiz-count {
    font-size: 11px;
    font-weight: 400;
-   color: var(--faint);
+   color: var(--muted);
 }
 
 .wiz-breadcrumb {
@@ -1909,7 +1909,7 @@ mark.hl {
 }
 
 .trow .trow-meta {
-   font-size: 11px;
+   font-size: 12px;
    color: var(--muted);
 }
 
@@ -1948,7 +1948,7 @@ mark.hl {
 
 .region-hdr {
    font-size: 11px;
-   color: var(--faint);
+   color: var(--muted);
    padding: 4px 6px 2px;
    font-weight: 600;
    letter-spacing: .04em;
@@ -2007,7 +2007,7 @@ mark.hl {
 
 .cbadge.missing {
    background: #1e293b;
-   color: #64748b;
+   color: #94a3b8; /* was #64748b — 3.07:1 on this bg, below AA */
 }
 
 .cbadge.refreshing {
@@ -2077,7 +2077,7 @@ mark.hl {
    width: 100%;
    text-align: left;
    background: var(--bg-3);
-   border: 1px solid var(--border);
+   border: 1px solid var(--border-strong);
    border-radius: 6px;
    padding: 4px 8px;
    color: var(--muted);
@@ -2130,7 +2130,7 @@ mark.hl {
 }
 
 .arow .arow-meta {
-   font-size: 11px;
+   font-size: 12px;
    color: var(--muted);
 }
 
@@ -2259,7 +2259,7 @@ td.cell-active {
 }
 
 .cell-inspector .cell-sub {
-   font-size: 11.5px;
+   font-size: 12px;
    color: var(--muted);
 }
 
@@ -2344,7 +2344,7 @@ td.cell-active {
 
 .cell-null {
    font-style: italic;
-   color: var(--faint);
+   color: var(--muted);
    font-size: 14px;
 }
 
@@ -2407,16 +2407,19 @@ td.cell-active {
    width: 8px;
    height: 8px;
    border-radius: 50%;
-   background: var(--faint);
+   background: var(--muted);
    flex: none;
 }
 
 .ai-row-status.successful { background: var(--green); }
 .ai-row-status.failed { background: var(--red); }
 .ai-row-status.partially-successful { background: var(--amber); }
+/* unverified/unknown/cancelled read as one "not a clear pass/fail" bucket by design (grouped in
+   one selector, unlike the graph-node kinds below) — kept that way, just moved off --faint since
+   a status dot at 2.78-3.61:1 didn't clear even the 3:1 non-text floor on --chip surfaces. */
 .ai-row-status.unverified,
 .ai-row-status.unknown,
-.ai-row-status.cancelled { background: var(--faint); }
+.ai-row-status.cancelled { background: var(--muted); }
 
 .ai-row-title {
    grid-column: 2;
@@ -2493,7 +2496,7 @@ td.cell-active {
    gap: 6px;
    height: 30px;
    padding: 0 var(--space-2);
-   border: 1px solid var(--border);
+   border: 1px solid var(--border-strong);
    border-radius: var(--radius-sm);
    background: var(--bg-2);
    color: var(--text);
@@ -2502,7 +2505,7 @@ td.cell-active {
    max-width: 100%;
 }
 
-.ai-project-picker-trigger:hover { border-color: var(--border-2); background: var(--bg-3); }
+.ai-project-picker-trigger:hover { border-color: var(--border-strong); background: var(--bg-3); }
 
 .ai-project-picker-trigger-label {
    overflow: hidden;
@@ -2540,7 +2543,7 @@ td.cell-active {
 
 .ai-project-picker-item:hover { background: var(--bg-3); }
 .ai-project-picker-item.active { background: var(--sel); color: var(--accent); }
-.ai-project-picker-item-count { color: var(--faint); font-size: var(--font-size-xs); flex: none; }
+.ai-project-picker-item-count { color: var(--muted); font-size: var(--font-size-xs); flex: none; }
 
 /* --- Baseline responsive floors (the full 4-breakpoint system lives in its own section below) --- */
 @media (max-width: 1023px) {
@@ -2817,7 +2820,7 @@ td.cell-active {
 .ai-graph-node.kind-user,
 .ai-graph-node.kind-command { border-left-color: var(--accent); }
 .ai-graph-node.kind-assistant { border-left-color: var(--accent-2); }
-.ai-graph-node.kind-tool-call { border-left-color: var(--faint); }
+.ai-graph-node.kind-tool-call { border-left-color: var(--muted); } /* was --faint: 2.78-3.61:1, failed the 3:1 non-text floor on --chip-family surfaces; kept neutral on purpose (see legend-dot rule below) rather than assigned a 10th kind hue — every other slot in the palette is already claimed by a different kind */
 .ai-graph-node.kind-shell-command { border-left-color: var(--green); }
 .ai-graph-node.kind-skill { border-left-color: var(--amber); }
 .ai-graph-node.kind-reasoning { border-left-color: var(--violet); }
@@ -2827,7 +2830,7 @@ td.cell-active {
 
 .ai-graph-legend-dot.kind-user, .ai-graph-legend-dot.kind-command { color: var(--accent); }
 .ai-graph-legend-dot.kind-assistant { color: var(--accent-2); }
-.ai-graph-legend-dot.kind-tool-call { color: var(--faint); }
+.ai-graph-legend-dot.kind-tool-call { color: var(--muted); }
 .ai-graph-legend-dot.kind-shell-command { color: var(--green); }
 .ai-graph-legend-dot.kind-skill { color: var(--amber); }
 .ai-graph-legend-dot.kind-reasoning { color: var(--violet); }
@@ -3032,7 +3035,7 @@ td.cell-active {
    border-radius: var(--radius-sm);
    border: none;
    background: none;
-   color: var(--faint);
+   color: var(--muted);
    cursor: pointer;
    font-size: var(--font-size-xs);
    white-space: nowrap;
@@ -3251,7 +3254,7 @@ td.cell-active {
 
 .ai-palette-hint-btn {
    background: var(--bg-2);
-   border: 1px solid var(--border);
+   border: 1px solid var(--border-strong);
    border-radius: var(--radius-sm);
    color: var(--muted);
    font-size: var(--font-size-xs);
@@ -4014,7 +4017,7 @@ td.cell-active {
    display: flex;
    justify-content: space-between;
    font-size: 10px;
-   color: var(--faint);
+   color: var(--muted);
 }
 
 /* ==========================================================================
@@ -4079,7 +4082,7 @@ td.cell-active {
 .conv-toolbar button,
 .files-view button {
    background: var(--bg-3);
-   border: 1px solid var(--border);
+   border: 1px solid var(--border-strong);
    border-radius: var(--radius-sm);
    color: var(--text);
    padding: 4px 10px;
@@ -4088,7 +4091,7 @@ td.cell-active {
 
 .conv-toolbar button:hover,
 .files-view button:hover {
-   border-color: var(--border-2);
+   border-color: var(--border-strong);
    background: var(--bg-2);
 }
 
@@ -4097,7 +4100,7 @@ td.cell-active {
 .files-view input,
 .commands-view input {
    background: var(--bg-3);
-   border: 1px solid var(--border);
+   border: 1px solid var(--border-strong);
    border-radius: var(--radius-sm);
    color: var(--text);
    padding: 4px 8px;
@@ -4456,7 +4459,7 @@ td.cell-active {
    flex: 0 0 auto;
    padding: var(--space-2) 6px;
    text-align: right;
-   color: var(--faint);
+   color: var(--muted);
    font-family: Consolas, "Cascadia Code", monospace;
    font-size: 12.5px;
    line-height: 1.55;
@@ -4490,7 +4493,7 @@ td.cell-active {
 
 /* highlight.js token colors, hand-mapped to this theme's palette (no bundled hljs theme file) */
 .hljs { color: var(--text); background: transparent; }
-.hljs-comment, .hljs-quote { color: var(--faint); font-style: italic; }
+.hljs-comment, .hljs-quote { color: var(--muted); font-style: italic; }
 .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-tag { color: #f472b6; }
 .hljs-string, .hljs-attr, .hljs-template-tag, .hljs-addition { color: #86efac; }
 .hljs-number, .hljs-built_in, .hljs-type, .hljs-symbol { color: #fbbf24; }
@@ -4505,12 +4508,15 @@ td.cell-active {
 .jsonview {
    font-family: Consolas, "Cascadia Code", monospace;
    font-size: 12.5px;
+   color: var(--text);
 }
 
 .jsonview-toolbar {
    display: flex;
    gap: var(--space-2);
    margin-bottom: var(--space-2);
+   flex-wrap: wrap;
+   align-items: center;
 }
 
 .jsonview-filter {
@@ -4534,10 +4540,44 @@ td.cell-active {
 
 .jsonview-toolbar .jsonview-filter {
    flex: 1;
+   min-width: 120px;
+}
+
+/* Live count of keys/values matched by the filter — pairs with highlightMatch() so a search
+   started with nothing on-screen (deep, collapsed match) still tells you it exists. */
+.jsonview-match-count {
+   color: var(--muted);
+   font-size: var(--font-size-xs);
+   white-space: nowrap;
+   padding: 0 2px;
+}
+
+.jsonview-toolbar-btn {
+   background: var(--chip);
+   border: 1px solid var(--border-strong);
+   border-radius: 6px;
+   color: var(--muted);
+   font-size: var(--font-size-xs);
+   padding: 6px 10px;
+   cursor: pointer;
+   font-family: inherit;
+   white-space: nowrap;
+}
+
+.jsonview-toolbar-btn:hover {
+   color: var(--text);
+   border-color: var(--accent);
+   background: var(--bg-3);
 }
 
 .jsonview-row {
-   padding: 1px 0;
+   padding: 2px 4px;
+   margin: 0 -4px;
+   border-radius: 4px;
+}
+
+.jsonview-row:hover {
+   background: var(--chip);
 }
 
 .jsonview-toggle {
@@ -4557,8 +4597,10 @@ td.cell-active {
    transform: rotate(90deg);
 }
 
+/* Reuses the existing hljs-title cyan (see highlight.js token colors above) so an object key
+   reads the same whether it's inside a code block or the JSON tree — one syntax palette, not two. */
 .jsonview-key {
-   color: var(--muted);
+   color: #7dd3fc;
 }
 
 .collapsible-head {
@@ -4590,33 +4632,74 @@ td.cell-active {
 }
 
 .jsonview-brace {
-   color: var(--faint);
+   color: var(--muted);
 }
 
+/* Type-based coloring — reuses the same hljs-* palette as code blocks (string/number already
+   matched; boolean borrows --violet, the graph-view accent, since hljs has no boolean token).
+   Falls back to --text for the (unreachable in practice) case value has no matched kind. */
 .jsonview-value {
+   color: var(--text);
+}
+
+.jsonview-value--string {
    color: #86efac;
+}
+
+.jsonview-value--number {
+   color: #fbbf24;
+}
+
+.jsonview-value--boolean {
+   color: var(--violet);
+}
+
+.jsonview-value--null {
+   color: var(--muted);
+   font-style: italic;
 }
 
 .jsonview-children {
    margin-left: 16px;
-   border-left: 1px solid var(--border);
+   border-left: 1px solid var(--guide);
    padding-left: 8px;
 }
 
 .jsonview-copy {
    margin-left: 8px;
    background: transparent;
-   border: 1px solid var(--border);
-   border-radius: 4px;
-   color: var(--faint);
-   font-size: 10px;
-   padding: 0 5px;
+   border: 1px solid var(--border-2);
+   border-radius: 5px;
+   color: var(--muted);
+   font-size: 11px;
+   padding: 1px 6px;
    cursor: pointer;
+   font-family: inherit;
 }
 
 .jsonview-copy:hover {
    color: var(--text);
-   border-color: var(--border-2);
+   border-color: var(--accent);
+}
+
+/* Progressive reveal for very large arrays/objects (e.g. AI Studio tool-call payloads) — caps the
+   DOM at PAGE_SIZE rendered siblings (see JsonView.tsx) instead of mounting thousands of rows at once. */
+.jsonview-more {
+   display: inline-block;
+   background: transparent;
+   border: 1px dashed var(--border-2);
+   border-radius: 6px;
+   color: var(--muted);
+   font-size: var(--font-size-xs);
+   padding: 4px 10px;
+   margin: 2px 0;
+   cursor: pointer;
+   font-family: inherit;
+}
+
+.jsonview-more:hover {
+   color: var(--text);
+   border-color: var(--accent);
 }
 
 /* ---- CF Log viewer (color-coded, searchable `cf logs --recent` output) ---- */
@@ -4664,7 +4747,7 @@ td.cell-active {
    padding: 0 5px;
    border-radius: var(--radius-full);
    background: var(--chip);
-   color: var(--faint);
+   color: var(--muted);
    font-size: var(--font-size-xs);
    font-weight: 600;
    text-align: center;
@@ -4732,8 +4815,8 @@ td.cell-active {
 }
 
 .cflog-chip.level-debug.active {
-   border-color: var(--faint);
-   color: var(--faint);
+   border-color: var(--muted);
+   color: var(--muted);
 }
 
 .cflog-scroll {
@@ -4788,7 +4871,7 @@ td.cell-active {
 }
 
 .cflog-chev {
-   color: var(--faint);
+   color: var(--muted);
    flex-shrink: 0;
    width: 10px;
    display: inline-block;
@@ -4804,7 +4887,7 @@ td.cell-active {
 }
 
 .cflog-ts {
-   color: var(--faint);
+   color: var(--muted);
    white-space: nowrap;
    flex-shrink: 0;
 }
@@ -4818,7 +4901,7 @@ td.cell-active {
 .cflog-stream {
    flex-shrink: 0;
    font-weight: 600;
-   color: var(--faint);
+   color: var(--muted);
 }
 
 .cflog-stream.stream-err {
@@ -4842,7 +4925,7 @@ td.cell-active {
 }
 
 .cflog-line.level-debug .cflog-msg {
-   color: var(--faint);
+   color: var(--muted);
 }
 
 .cflog-line-detail {
@@ -5303,7 +5386,7 @@ td.cell-active {
 }
 
 .reader-toolbar-actions button {
-   background: var(--accent);
+   background: var(--accent-solid);
    border: 1px solid var(--accent-2);
    border-radius: var(--radius-sm);
    color: #fff;
@@ -5509,8 +5592,55 @@ td.cell-active {
    color: var(--text);
 }
 
+/* Always-visible CF/GitLab connection state — see ConnectionStatusRow.tsx. Disconnected pills are
+   real buttons (clickable, open the in-app login); connected ones are inert status, not a toggle. */
+.ts-conn-status {
+   display: flex;
+   flex-direction: column;
+   gap: 6px;
+   padding: 0 var(--space-3) var(--space-4);
+}
+
+.ts-conn-pill {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   width: 100%;
+   background: var(--bg-3);
+   border: 1px solid var(--border);
+   border-radius: 999px;
+   padding: 5px 10px;
+   font-size: var(--font-size-xs);
+   color: var(--muted);
+   font-family: inherit;
+   text-align: left;
+   cursor: pointer;
+}
+
+.ts-conn-pill.ok {
+   color: var(--text);
+   cursor: default;
+}
+
+.ts-conn-pill:not(.ok):hover {
+   border-color: var(--border-strong);
+   color: var(--text);
+}
+
+.ts-conn-dot {
+   width: 7px;
+   height: 7px;
+   border-radius: 50%;
+   background: var(--red);
+   flex: none;
+}
+
+.ts-conn-pill.ok .ts-conn-dot {
+   background: var(--green);
+}
+
 .ts-nav-group {
-   color: var(--faint);
+   color: var(--muted);
    font-size: var(--font-size-xs);
    text-transform: uppercase;
    letter-spacing: 0.04em;
@@ -5555,7 +5685,7 @@ td.cell-active {
 .ts-badge-soon {
    margin-left: auto;
    font-size: 10px;
-   color: var(--faint);
+   color: var(--muted);
    border: 1px solid var(--border);
    border-radius: var(--radius-full);
    padding: 1px 6px;
@@ -5658,7 +5788,7 @@ td.cell-active {
 .ts-step-row.skipped .ts-step-icon { color: var(--faint); }
 
 .ts-step-detail {
-   color: var(--faint);
+   color: var(--muted);
    font-size: var(--font-size-xs);
    margin-top: 2px;
    word-break: break-word;
@@ -5718,8 +5848,8 @@ td.cell-active {
 }
 
 .dm-step.done .dm-step-num {
-   background: var(--accent);
-   border-color: var(--accent);
+   background: var(--accent-solid);
+   border-color: var(--accent-solid);
    color: #fff;
 }
 
@@ -5730,7 +5860,7 @@ td.cell-active {
 }
 
 .dm-step-sub {
-   color: var(--faint);
+   color: var(--muted);
    font-size: var(--font-size-xs);
    margin-left: auto;
 }
@@ -5843,13 +5973,13 @@ td.cell-active {
 
 .dm-diff-badge.create { background: var(--insbg); color: var(--green); }
 .dm-diff-badge.update { background: var(--editbg); color: var(--amber); }
-.dm-diff-badge.no-change { background: var(--bg-2); color: var(--faint); }
+.dm-diff-badge.no-change { background: var(--bg-2); color: var(--muted); }
 
-.dm-diff-file-stats { flex: none; font-size: var(--font-size-xs); color: var(--faint); }
+.dm-diff-file-stats { flex: none; font-size: var(--font-size-xs); color: var(--muted); }
 .dm-diff-file-stats .add { color: var(--green); }
 .dm-diff-file-stats .del { color: var(--red); }
 
-.dm-diff-caret { flex: none; color: var(--faint); font-size: 10px; width: 10px; }
+.dm-diff-caret { flex: none; color: var(--muted); font-size: 10px; width: 10px; }
 
 .diffview {
    font-family: Consolas, "Cascadia Code", monospace;
@@ -5872,7 +6002,7 @@ td.cell-active {
    width: 20px;
    text-align: center;
    user-select: none;
-   color: var(--faint);
+   color: var(--muted);
 }
 
 .diffline .diffline-text { flex: 1; }
@@ -5884,7 +6014,7 @@ td.cell-active {
 
 .diffline.collapsed {
    justify-content: center;
-   color: var(--faint);
+   color: var(--muted);
    background: var(--bg-3);
    padding: 3px 0;
    font-family: inherit;
@@ -5950,12 +6080,12 @@ td.cell-active {
 }
 
 .ssel-trigger-label.placeholder {
-   color: var(--faint);
+   color: var(--muted);
 }
 
 .ssel-chevron {
    flex: none;
-   color: var(--faint);
+   color: var(--muted);
    font-size: 10px;
 }
 
@@ -5999,11 +6129,11 @@ td.cell-active {
 
 .ssel-item:hover { background: var(--bg-3); }
 .ssel-item.active { background: var(--sel); color: var(--accent); }
-.ssel-item-meta { color: var(--faint); font-size: var(--font-size-xs); }
+.ssel-item-meta { color: var(--muted); font-size: var(--font-size-xs); }
 
 .ssel-empty {
    padding: 10px;
-   color: var(--faint);
+   color: var(--muted);
    font-size: var(--font-size-sm);
    text-align: center;
 }
@@ -6089,7 +6219,7 @@ td.cell-active {
 .audit-stat-tables-toggle {
    background: transparent;
    border: none;
-   color: var(--faint);
+   color: var(--muted);
    font-size: var(--font-size-xs);
    cursor: pointer;
    padding: 0;
@@ -6123,7 +6253,7 @@ td.cell-active {
    justify-content: space-between;
    gap: 10px;
    font-size: var(--font-size-xs);
-   color: var(--faint);
+   color: var(--muted);
 }
 
 .audit-stat-table-list li span:first-child {
@@ -6180,14 +6310,14 @@ td.cell-active {
 
 .audit-stat-bar-count {
    font-size: var(--font-size-xs);
-   color: var(--faint);
+   color: var(--muted);
    text-align: right;
 }
 
 .audit-stat-more {
    background: transparent;
    border: none;
-   color: var(--faint);
+   color: var(--muted);
    font-size: var(--font-size-xs);
    text-align: left;
    cursor: pointer;
@@ -6218,7 +6348,7 @@ td.cell-active {
    align-items: center;
    gap: 6px;
    margin-left: auto;
-   color: var(--faint);
+   color: var(--muted);
    font-size: var(--font-size-sm);
 }
 
@@ -6241,7 +6371,7 @@ td.cell-active {
 .proxy-ports-pill:hover { border-color: var(--border-2); color: var(--text); }
 
 .proxy-env-meta {
-   color: var(--faint);
+   color: var(--muted);
    font-size: var(--font-size-xs);
    margin-bottom: var(--space-2);
 }
@@ -6261,7 +6391,7 @@ td.cell-active {
 }
 
 .proxy-pagination-label {
-   color: var(--faint);
+   color: var(--muted);
    font-size: var(--font-size-sm);
    min-width: 100px;
    text-align: center;
@@ -6303,7 +6433,7 @@ td.cell-active {
 .proxy-env-head-main { flex: 1; min-width: 0; }
 
 .proxy-env-title { font-weight: 600; font-size: var(--font-size-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.proxy-env-url { color: var(--faint); font-size: var(--font-size-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proxy-env-url { color: var(--muted); font-size: var(--font-size-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .status-badge {
    display: inline-flex;
@@ -6325,7 +6455,7 @@ td.cell-active {
 .status-badge.authenticating { background: rgba(59, 130, 246, .18); color: var(--accent); }
 .status-badge.browser-auth { background: rgba(251, 191, 36, .18); color: var(--amber); }
 .status-badge.ready { background: rgba(34, 197, 94, .18); color: var(--green); }
-.status-badge.stopped { background: var(--chip); color: var(--faint); }
+.status-badge.stopped { background: var(--chip); color: var(--muted); }
 
 .proxy-port-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
@@ -6355,7 +6485,7 @@ td.cell-active {
 .port-chip-stop {
    border: none;
    background: transparent;
-   color: var(--faint);
+   color: var(--muted);
    cursor: pointer;
    font-size: var(--font-size-xs);
    line-height: 1;
@@ -6441,7 +6571,7 @@ td.cell-active {
    font-size: var(--font-size-sm);
 }
 
-.status-badge.needs-analysis { background: var(--chip); color: var(--faint); }
+.status-badge.needs-analysis { background: var(--chip); color: var(--muted); }
 .status-badge.out-of-date { background: rgba(251, 191, 36, .18); color: var(--amber); }
 .status-badge.analyzing { background: rgba(59, 130, 246, .18); color: var(--accent); }
 .status-badge.failed { background: rgba(239, 68, 68, .18); color: var(--red); }
@@ -6502,7 +6632,7 @@ td.cell-active {
 .nexus-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: var(--space-3); }
 .nexus-stat-tile { text-align: center; padding: var(--space-2); background: var(--bg-3); border-radius: var(--radius-md); }
 .nexus-stat-value { font-size: var(--font-size-xl); font-weight: 700; }
-.nexus-stat-label { font-size: var(--font-size-xs); color: var(--faint); margin-top: 2px; }
+.nexus-stat-label { font-size: var(--font-size-xs); color: var(--muted); margin-top: 2px; }
 
 .nexus-flow-card h3 { font-size: var(--font-size-sm); }
 .nexus-flow-steps { display: flex; flex-direction: column; gap: 4px; }
@@ -6565,7 +6695,7 @@ td.cell-active {
    background: transparent;
    border: none;
    border-bottom: 2px solid transparent;
-   color: var(--faint);
+   color: var(--muted);
    cursor: pointer;
    font-size: var(--font-size-sm);
 }
@@ -6599,7 +6729,7 @@ td.cell-active {
    .ai-nexus-layout:not(.has-selection) .workspace { display: none; }
    .ai-nexus-layout.has-selection .ai-mobile-back { display: flex; }
 }
-.log-line.dim { color: var(--faint); }
+.log-line.dim { color: var(--muted); }
 
 /* --- File Editor: drop zone + spreadsheet/document editor chrome --- */
 

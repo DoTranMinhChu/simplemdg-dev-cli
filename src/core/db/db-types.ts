@@ -154,6 +154,10 @@ export type TSqlSafetyAnalysis = {
 export type TConnectionTestResult = {
   success: boolean;
   message: string;
+  /** The raw driver/OS error this was classified from, when `message` is a translated
+   * friendly version of it (e.g. "Could not reach the database server..." from an
+   * `ECONNREFUSED`) — kept around for anyone who wants the underlying detail. */
+  originalMessage?: string;
   serverVersion?: string;
   durationMs: number;
 };
@@ -174,6 +178,7 @@ export type TDatabaseErrorCode =
   | "DB_PERMISSION_DENIED"
   | "DB_QUERY_FAILED"
   | "DB_TIMEOUT"
+  | "DB_STALE_CREDENTIAL"
   | "DB_UNKNOWN_ERROR";
 
 export type TDatabaseErrorInfo = {

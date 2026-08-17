@@ -1217,7 +1217,21 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
     });
   });
 
-  await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
+  await new Promise<void>((resolve, reject) => {
+    // Without this, a listen()-time failure (e.g. a TOCTOU race — findAvailablePort checked the
+    // port a moment ago, something else grabbed it since) emits 'error' on `server` with no
+    // listener attached, which is one of the few EventEmitter events Node treats as fatal by
+    // default: an uncaught exception that could take down the whole studio process instead of
+    // just failing this one startup attempt with a normal rejected promise the caller can catch.
+    server.once("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "EADDRINUSE") {
+        reject(new Error(`Port ${port} is already in use — something grabbed it after it was checked as free. Try again, or pass --port to pick a different one.`));
+        return;
+      }
+      reject(error);
+    });
+    server.listen(port, "127.0.0.1", resolve);
+  });
 
   const url = `http://127.0.0.1:${port}`;
 

@@ -100,7 +100,7 @@ function SaveStep({
 }
 
 export function BtpImportWizard({ onClose, onImported }: { onClose: () => void; onImported: (connectionId: string) => void }): React.ReactElement {
-  const { cfStatus, cfOfflineMode, setCfOfflineMode, toast, setActiveConnectionId, loadConnections } = useStudioStore();
+  const { cfStatus, cfOfflineMode, setCfOfflineMode, refreshCfStatus, toast, setActiveConnectionId, loadConnections } = useStudioStore();
   const gated = !cfOfflineMode && cfStatus != null && !cfStatus.isLoggedIn && !cfStatus.hasCachedCredentials;
 
   const [showLogin, setShowLogin] = useState(false);
@@ -136,7 +136,13 @@ export function BtpImportWizard({ onClose, onImported }: { onClose: () => void; 
   }
 
   if (showLogin) {
-    return <CfLoginModal onClose={() => setShowLogin(false)} onSuccess={() => setShowLogin(false)} />;
+    return (
+      <CfLoginModal
+        onClose={() => setShowLogin(false)}
+        onSuccess={() => setShowLogin(false)}
+        hooks={{ cfStatus, refreshCfStatus, setCfOfflineMode, toast }}
+      />
+    );
   }
 
   const finalizeImport = async (name: string, environment: string, color: string, favorite: boolean): Promise<void> => {

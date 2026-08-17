@@ -64,6 +64,12 @@ const SYNTAX_PATTERNS = [
   "42p01", // pg undefined_table
 ];
 
+/** The exact wording db-crypto.ts's decryptSecret() throws when a `db-connections.json` copied
+ * from another machine/user can't be decrypted (the AES key is derived from machine+user, by
+ * design — see db-crypto.ts). Checked by substring, not equality, since other layers may wrap it
+ * (e.g. "Failed to connect: Cannot decrypt cached credential..."). */
+const STALE_CREDENTIAL_PATTERNS = ["cannot decrypt cached credential"];
+
 function toMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -91,6 +97,21 @@ function matchesAny(haystack: string, patterns: string[]): boolean {
 export function classifyDatabaseError(error: unknown, type: TDatabaseType): TDatabaseErrorInfo {
   const originalMessage = toMessage(error);
   const haystack = originalMessage.toLowerCase();
+
+  if (matchesAny(haystack, STALE_CREDENTIAL_PATTERNS)) {
+    // Previously fell through to the generic "unknown" bucket, which maps to Retry/Close-connection
+    // recovery actions (db-studio-server.ts) — "Retry" is a no-op here, since retrying can never
+    // decrypt a password encrypted on a different machine. "stale-credential" already has the
+    // right recovery actions (Reconnect/Refresh from BTP/Close) wired up; this was the missing
+    // piece that actually produces that kind.
+    return {
+      kind: "stale-credential",
+      code: "DB_STALE_CREDENTIAL",
+      message: "This connection's saved password can't be used here — it was created on another machine or user account. Refresh it from BTP, or remove and re-add the connection.",
+      originalMessage,
+      retryable: false,
+    };
+  }
 
   if (matchesAny(haystack, SOCKET_CLOSED_PATTERNS)) {
     const code: TDatabaseErrorCode = "DB_SOCKET_CLOSED";
