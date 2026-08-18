@@ -1,0 +1,12 @@
+{
+  "id": "smdg-task-implementer",
+  "version": "1.0.0",
+  "displayName": "Task Implementation Discipline",
+  "description": "General-purpose discipline for implementing ANY task in the SimpleMDG multi-repo CAP codebase — a new action/endpoint, a UI feature, a config-driven engine change, a schema change, a fix beyond bug triage. Verifies every claim (design docs, ticket descriptions, your own assumption about how a shared helper behaves) against the real current source before building on it, scopes the task across whichever repos it actually touches, implements per the target module's own real conventions, verifies empirically per module (never a stale node_modules/generated-model assumption), uses correct git discipline, and knows how to find the real evidence (DB log tables, service logs, browser console, CI output — whichever fits the task) when something breaks instead of guessing. Accumulates durable, code-verified landmines in .claude/knowledge/cds-gotchas.md (append-only, same discipline as repo-map.md) so the next task benefits, regardless of what kind of task it is. Use whenever the user wants something built, changed, or fixed in this codebase — not for investigating an existing bug report from scratch (see smdg-jira-fix-issue for that) or mapping/documenting existing flows (see smdg-build-knowledge/smdg-feature-cartographer for that).",
+  "kind": "skill",
+  "dependsOn": [],
+  "components": {
+    "skillDir": "skill"
+  },
+  "usageFile": "USAGE.md"
+}
