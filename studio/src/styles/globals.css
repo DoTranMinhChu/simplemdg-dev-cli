@@ -497,6 +497,18 @@ body.resizing-sidebar * {
    color: var(--text);
 }
 
+/* SqlAutocompleteTextarea's own positioning wrapper + base textarea look — deliberately declared
+   before .editor/.wherebox below so those win the font-family cascade tie when a caller layers
+   its own textareaClassName on top (see SqlEditor.tsx / DataGridToolbar.tsx). */
+.sqlac-wrap {
+   position: relative;
+}
+
+.sqlac-textarea {
+   width: 100%;
+   font-family: var(--font-mono, monospace);
+}
+
 .field {
    display: flex;
    flex-direction: column;
@@ -1420,6 +1432,23 @@ table.grid td.cell-err {
    margin: 0 0 14px;
 }
 
+/* A code/SQL snippet quoted inside a confirm dialog (see dialog-service.tsx) — reuses the same
+   monospace-on-raised-surface look as .codeblock instead of inheriting the dialog's prose font. */
+.dialog-code {
+   background: var(--bg-3);
+   border: 1px solid var(--border);
+   border-radius: 8px;
+   padding: 9px 11px;
+   margin: 8px 0 0;
+   font-family: Consolas, "Cascadia Code", monospace;
+   font-size: 12.5px;
+   color: var(--text);
+   white-space: pre-wrap;
+   word-break: break-word;
+   max-height: 160px;
+   overflow: auto;
+}
+
 .steps {
    display: flex;
    gap: 6px;
@@ -1619,11 +1648,19 @@ mark.hl {
    overflow: hidden;
 }
 
-.editwrap .editor {
-   border: 0;
-   border-radius: 0;
+/* The editor textarea sits one level deeper now (inside SqlAutocompleteTextarea's .sqlac-wrap),
+   so the wrapper — not the textarea — is the actual flex item that needs to grow. */
+.editwrap .sqlac-wrap {
    flex: 1;
    height: 100%;
+   min-width: 0;
+}
+
+.editwrap .editor {
+   width: 100%;
+   height: 100%;
+   border: 0;
+   border-radius: 0;
    line-height: 1.5;
    resize: none;
 }
@@ -1664,12 +1701,31 @@ mark.hl {
    flex: 0 0 auto;
 }
 
-.wherebox input {
+.wherebox input,
+.wherebox textarea.sqlac-textarea {
    flex: 1;
    background: transparent;
    border: 0;
    color: var(--text);
    font-family: Consolas, monospace;
+   min-width: 0;
+}
+
+.wherebox .sqlac-wrap {
+   flex: 1;
+   min-width: 0;
+}
+
+/* Keeps the WHERE box a single visual line even though it's a <textarea> underneath (needed for
+   the autocomplete popover) — no wrap, no vertical growth, scrolls horizontally like a real input. */
+.wherebox textarea.sqlac-textarea {
+   height: 20px;
+   line-height: 20px;
+   padding: 0;
+   resize: none;
+   white-space: pre;
+   overflow-x: auto;
+   overflow-y: hidden;
    min-width: 0;
 }
 
@@ -6154,6 +6210,9 @@ td.cell-active {
 }
 
 .sqlac-item {
+   display: flex;
+   align-items: center;
+   gap: 8px;
    padding: 6px var(--space-2);
    border-radius: var(--radius-sm);
    font-size: var(--font-size-sm);
@@ -6163,6 +6222,39 @@ td.cell-active {
 
 .sqlac-item:hover,
 .sqlac-item.active { background: var(--sel); color: var(--accent); }
+
+.sqlac-text {
+   flex: 1;
+   min-width: 0;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.sqlac-detail {
+   flex: 0 0 auto;
+   color: var(--muted);
+   font-size: 11px;
+}
+
+/* Kind badge — a short pill telling keyword/table/column apart at a glance, the way an IDE's
+   IntelliSense icon does. Colors are decorative only; the 2-3 letter label carries the meaning. */
+.sqlac-kind {
+   flex: 0 0 auto;
+   width: 28px;
+   text-align: center;
+   border-radius: 4px;
+   padding: 1px 0;
+   font-size: 10px;
+   font-weight: 600;
+   text-transform: uppercase;
+   letter-spacing: .02em;
+}
+
+.sqlac-kind-column,
+.sqlac-kind-alias { background: var(--chip); color: var(--accent); }
+.sqlac-kind-table { background: var(--insbg); color: var(--green); }
+.sqlac-kind-keyword { background: var(--chip); color: var(--muted); }
 
 .audit-advanced-where {
    border: 1px solid var(--border-2);

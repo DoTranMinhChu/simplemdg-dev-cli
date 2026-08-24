@@ -93,9 +93,9 @@ export type TStudioServerOptions = {
 const __dirname = getDirname(import.meta.url);
 
 const STUDIO_NOT_BUILT_HTML =
-  "<!doctype html><html><body style=\"font-family:sans-serif;padding:40px;color:#334\"><h2>CF DB Studio UI is not built</h2>" +
-  "<p>Run <code>npm run build:studio</code> (or <code>npm run build</code>) from the repository root, then restart <code>smdg cf db studio</code>.</p>" +
-  "<p>For frontend development, run <code>smdg cf db studio --dev-ui</code> and follow the printed instructions.</p></body></html>";
+  "<!doctype html><html><body style=\"font-family:sans-serif;padding:40px;color:#334\"><h2>DB Studio UI is not built</h2>" +
+  "<p>Run <code>npm run build:studio</code> (or <code>npm run build</code>) from the repository root, then restart <code>smdg db studio</code>.</p>" +
+  "<p>For frontend development, run <code>smdg db studio --dev-ui</code> and follow the printed instructions.</p></body></html>";
 
 /** Serve the built React Studio (SPA fallback: unknown paths without a file extension resolve to index.html). */
 async function serveStudioAsset(pathname: string, res: http.ServerResponse): Promise<void> {
@@ -1236,13 +1236,13 @@ export async function startStudioServer(options: TStudioServerOptions = {}): Pro
   const url = `http://127.0.0.1:${port}`;
 
   if (options.apiOnly) {
-    reportStudioStartupLine(options.onLog, `SimpleMDG CF DB Studio API: ${url}`, chalk.green);
+    reportStudioStartupLine(options.onLog, `SimpleMDG DB Studio API: ${url}`, chalk.green);
     reportStudioStartupLine(options.onLog, "Running in --api-only mode (no UI is served here).", chalk.gray);
     reportStudioStartupLine(options.onLog, "In another terminal, run:", chalk.gray);
     reportStudioStartupLine(options.onLog, "  cd studio && npm run dev", chalk.cyan);
     reportStudioStartupLine(options.onLog, `Vite will proxy /api/* to ${url}.`, chalk.gray);
   } else {
-    reportStudioStartupLine(options.onLog, `SimpleMDG CF DB Studio: ${url}`, chalk.green);
+    reportStudioStartupLine(options.onLog, `SimpleMDG DB Studio: ${url}`, chalk.green);
   }
 
   if (serverReadOnlyDefault) {

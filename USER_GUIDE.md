@@ -31,7 +31,7 @@ Quick actions
 ❯ /git move-code
 ❯ /ai resume
 ❯ /cf apps
-❯ /cf db studio
+❯ /db studio
 
 ❯
 / Commands   Ctrl+K Palette   Ctrl+R History   Ctrl+P Recent   Ctrl+C Exit
@@ -41,7 +41,7 @@ The header only ever shows facts it actually detected (project name, current git
 
 ### Command palette
 
-Press `/` at any time (even mid-word — it only triggers as the very first character typed) to open a fuzzy-searchable palette across every command group: `cf`, `cds`, `gitlab`, `git`, `npmrc`, `ai`. Keep typing to filter by name, description, category, or natural-language keyword (e.g. typing `move code` or `open db` finds `/git move-code` / `/cf db studio` even if you don't remember the exact subcommand name). Arrow keys navigate, `Enter` runs the highlighted command, `Esc` closes the palette without doing anything.
+Press `/` at any time (even mid-word — it only triggers as the very first character typed) to open a fuzzy-searchable palette across every command group: `cf`, `cds`, `gitlab`, `git`, `npmrc`, `ai`. Keep typing to filter by name, description, category, or natural-language keyword (e.g. typing `move code` or `open db` finds `/git move-code` / `/db studio` even if you don't remember the exact subcommand name). Arrow keys navigate, `Enter` runs the highlighted command, `Esc` closes the palette without doing anything.
 
 Only `git move-code` and `cf org` currently have a bespoke in-shell screen (below) — they run in-process, through the shared interaction service, with no external prompt library involved. Every other command still runs when you pick it, but via **external-process mode**: the shell cleanly unmounts, prints `→ smdg cf apps (external process mode)`, runs the real command as its own child process with the terminal handed to it directly, waits for it to finish, then remounts the shell. This is deliberately different from an earlier version of the shell, which tried to run a not-yet-migrated command's interactive prompts while the shell itself stayed involved — that let two different terminal-input systems fight over stdin at once and crashed (the "Mark this target as favorite?" crash was exactly this). External-process mode never has that conflict: only one process owns the terminal at a time, and the shell resumes cleanly afterward — press Enter at the "Press Enter to return to the console..." prompt to come back.
 
@@ -161,14 +161,14 @@ The flow is split clearly:
 
 Then select root group, destination folder, sync action, and parallel jobs.
 
-## CF DB Studio
+## DB Studio
 
 A local database explorer for SAP HANA and PostgreSQL, with one-click import of credentials from BTP apps. The studio runs a web server bound to `127.0.0.1` only and opens your browser. The UI is a React + Vite frontend (`studio/`) served as static assets by the local backend; the browser only ever sees connection/target ids, never passwords or tokens.
 
 ### Recommended flow
 
 1. Run `smdg cf login` (once; you can save the password for auto re-login)
-2. Run `smdg cf db studio`
+2. Run `smdg db studio`
 3. Open the **BTP Import** tab → **Load CF apps**
 4. Select an app → its `cf env` is read and database services are detected
 5. Click **Save+Use** on a detected service → the connection is tested and activated
@@ -211,11 +211,11 @@ Toggle **Read-only** in the top bar to block INSERT/UPDATE/DELETE/DROP/TRUNCATE/
 ### Terminal alternatives
 
 ```powershell
-smdg cf db add           # add a direct connection manually (host/port/user/password)
-smdg cf db import        # interactive import from a BTP app
-smdg cf db connections   # manage cached connections
-smdg cf db query         # run one SQL query and print/export the result
-smdg cf db console        # interactive SQL REPL
+smdg db add           # add a direct connection manually (host/port/user/password)
+smdg db import        # interactive import from a BTP app
+smdg db connections   # manage cached connections
+smdg db query         # run one SQL query and print/export the result
+smdg db console        # interactive SQL REPL
 ```
 
 ### Direct connections (no CF app)
@@ -223,7 +223,7 @@ smdg cf db console        # interactive SQL REPL
 Not every database is behind a Cloud Foundry app (for example a Neon PostgreSQL or a standalone HANA Cloud). Add those directly:
 
 - In the Studio: click **+ New** in the Connections sidebar, fill in type/host/port/database/schema/user/password, click **Test**, then **Save & use**.
-- In the terminal: `smdg cf db add`.
+- In the terminal: `smdg db add`.
 
 Direct connections are cached and encrypted exactly like imported ones, so they reappear next time you open the Studio.
 

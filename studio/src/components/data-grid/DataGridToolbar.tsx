@@ -1,5 +1,8 @@
 import { Icon } from "../common/Icon";
 import { Spinner } from "../common/Spinner";
+import { SqlAutocompleteTextarea, type TSqlSuggestionItem } from "../common/SqlAutocompleteTextarea";
+import { WHERE_CLAUSE_KEYWORDS } from "../../lib/sql-keywords";
+import type { TDatabaseColumn } from "../../api/studio-api-types";
 
 export function DataGridToolbar({
   where,
@@ -12,6 +15,7 @@ export function DataGridToolbar({
   canEdit,
   onOpenStructure,
   onExport,
+  columns,
 }: {
   where: string;
   onWhereChange: (value: string) => void;
@@ -23,15 +27,27 @@ export function DataGridToolbar({
   canEdit: boolean;
   onOpenStructure: () => void;
   onExport: () => void;
+  /** The current table's columns, offered as autocomplete while typing the WHERE clause. */
+  columns?: TDatabaseColumn[];
 }): React.ReactElement {
+  const suggestions: TSqlSuggestionItem[] = [
+    ...(columns ?? []).map((column) => ({ text: column.name, kind: "column" as const, detail: column.dataType })),
+    ...WHERE_CLAUSE_KEYWORDS.map((text) => ({ text, kind: "keyword" as const })),
+  ];
+
   return (
     <div className="gtoolbar">
       <div className={`wherebox${where ? " has" : ""}`}>
         <Icon name="filter" />
-        <input
+        <SqlAutocompleteTextarea
           value={where}
+          // A pasted multi-line WHERE would otherwise grow this into a multi-row box (it's a
+          // <textarea> underneath, for the autocomplete popover) and wreck the toolbar's height.
+          onChange={(value) => onWhereChange(value.replace(/\r?\n/g, " "))}
+          suggestions={suggestions}
           placeholder="WHERE clause, e.g. STATUS = 'A'"
-          onChange={(event) => onWhereChange(event.target.value)}
+          rows={1}
+          resize="none"
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();

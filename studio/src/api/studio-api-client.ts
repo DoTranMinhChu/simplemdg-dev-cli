@@ -30,7 +30,21 @@ import type {
   TTableDataResponse,
 } from "./studio-api-types";
 
-class ApiError extends Error {}
+// The server classifies DB errors (kind, message, recoveryActions — see db-error.ts /
+// db-studio-server.ts's buildAdapterError) and ships that classification in the error body
+// alongside the non-2xx status. Carrying it on ApiError (instead of collapsing everything to
+// a bare message) lets callers tell "your SQL has a typo" apart from "the connection is dead"
+// instead of defaulting every failure to the same full-blown reconnect/refresh-credentials UI.
+class ApiError extends Error {
+  info?: TDatabaseErrorInfo;
+  recoveryActions?: TRecoveryAction[];
+
+  constructor(message: string, info?: TDatabaseErrorInfo, recoveryActions?: TRecoveryAction[]) {
+    super(message);
+    this.info = info;
+    this.recoveryActions = recoveryActions;
+  }
+}
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -47,8 +61,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const message = (json as { error?: string })?.error ?? `HTTP ${response.status}`;
-    throw new ApiError(message);
+    const body = json as { error?: string; errorInfo?: TDatabaseErrorInfo; recoveryActions?: TRecoveryAction[] };
+    throw new ApiError(body?.error ?? `HTTP ${response.status}`, body?.errorInfo, body?.recoveryActions);
   }
 
   return json as T;

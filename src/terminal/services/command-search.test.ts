@@ -20,11 +20,11 @@ function makeCommand(overrides: Partial<TInteractiveCommandDefinition>): TIntera
 describe("searchCommands", () => {
   const moveCode = makeCommand({});
   const dbStudio = makeCommand({
-    id: "cf.db.studio",
-    path: ["cf", "db", "studio"],
-    title: "cf db studio",
+    id: "db.studio",
+    path: ["db", "studio"],
+    title: "db studio",
     description: "Open SimpleMDG Database Studio",
-    category: "Cloud Foundry",
+    category: "Database",
     aliases: [],
     keywords: ["open db", "database studio", "hana"],
   });

@@ -33,7 +33,7 @@ describe("CommandPalette", () => {
   it("lists every command when no query has been typed yet", () => {
     const commands = [
       makeCommand("git.move-code", ["git", "move-code"], "Guided workflow", "Git", ["move code"]),
-      makeCommand("cf.db.studio", ["cf", "db", "studio"], "Open Database Studio", "Cloud Foundry", ["open db"]),
+      makeCommand("db.studio", ["db", "studio"], "Open Database Studio", "Database", ["open db"]),
     ];
 
     const { lastFrame } = render(
@@ -44,13 +44,13 @@ describe("CommandPalette", () => {
 
     const frame = lastFrame() ?? "";
     expect(frame).toContain("git move-code");
-    expect(frame).toContain("cf db studio");
+    expect(frame).toContain("db studio");
   });
 
   it("fuzzy-filters commands as the user types", async () => {
     const commands = [
       makeCommand("git.move-code", ["git", "move-code"], "Guided workflow", "Git", ["move code"]),
-      makeCommand("cf.db.studio", ["cf", "db", "studio"], "Open Database Studio", "Cloud Foundry", ["open db"]),
+      makeCommand("db.studio", ["db", "studio"], "Open Database Studio", "Database", ["open db"]),
     ];
 
     const { lastFrame, stdin } = render(
@@ -67,7 +67,7 @@ describe("CommandPalette", () => {
     await wait(50);
 
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("cf db studio");
+    expect(frame).toContain("db studio");
     expect(frame).not.toContain("git move-code");
   });
 

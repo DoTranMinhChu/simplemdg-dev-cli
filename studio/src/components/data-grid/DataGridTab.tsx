@@ -9,9 +9,10 @@ import { sqlLiteral } from "./cell-value-detection";
 import { EmptyState } from "../common/EmptyState";
 import { ErrorPanel } from "../common/ErrorPanel";
 import { ContextMenu, type TContextMenuState } from "../common/ContextMenu";
-import { studioApi } from "../../api/studio-api-client";
+import { studioApi, ApiError } from "../../api/studio-api-client";
 import { useStudioStore } from "../../state/studio-store";
 import { useWorkspaceStore, type TWorkspaceTab } from "../../state/workspace-store";
+import { confirmDialog } from "../../lib/dialog-service";
 import type { TDatabaseColumn, TDatabaseErrorInfo, TRecoveryAction } from "../../api/studio-api-types";
 
 function rowKeyOf(pk: string[], row: Record<string, unknown>): string {
@@ -135,7 +136,12 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
       setStatusBar({ duration: `${response.result.durationMs}ms`, rows: total != null ? `${total} total` : `${response.result.rowCount} rows` });
       return true;
     } catch (fetchError) {
-      setError({ message: fetchError instanceof Error ? fetchError.message : String(fetchError) });
+      // ApiError (thrown for any non-2xx response) carries the server's classification —
+      // preserve it instead of collapsing to a bare message, so a plain SQL/filter typo
+      // (kind: "syntax", recoveryActions: []) doesn't get treated the same as a dead connection.
+      const info = fetchError instanceof ApiError ? fetchError.info : undefined;
+      const recoveryActions = fetchError instanceof ApiError ? fetchError.recoveryActions : undefined;
+      setError({ message: fetchError instanceof Error ? fetchError.message : String(fetchError), info, recoveryActions });
       return false;
     } finally {
       setLoading(false);
@@ -209,7 +215,7 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
     });
   };
 
-  const toggleDeleteSelected = (): void => {
+  const toggleDeleteSelected = async (): Promise<void> => {
     const keys = Object.keys(selected);
     if (!keys.length) return toast("Select one or more rows (click the row number).", "warn");
     if (keys.every((key) => deletes[key])) {
@@ -220,7 +226,12 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
       });
       return;
     }
-    if (keys.length > 1 && !window.confirm(`Mark ${keys.length} selected rows for deletion? They will not be deleted until you Save Changes.`)) return;
+    if (
+      keys.length > 1 &&
+      !(await confirmDialog("They won't actually be deleted until you Save Changes.", { title: `Mark ${keys.length} selected rows for deletion?`, confirmLabel: "Mark for deletion", danger: true }))
+    ) {
+      return;
+    }
     setDeletes((prev) => ({ ...prev, ...Object.fromEntries(keys.map((key) => [key, true as const])) }));
     setSelected({});
   };
@@ -278,7 +289,11 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
 
     const totalChanges = updatePayload.length + deletePayload.length + insertPayload.length;
     if (!totalChanges) return toast("No changes to save.", "warn");
-    if (!window.confirm(`Save changes?\n\nUpdates: ${updatePayload.length}\nInserts: ${insertPayload.length}\nDeletes: ${deletePayload.length}`)) return;
+    const breakdown: React.ReactNode[] = [];
+    if (updatePayload.length) breakdown.push(<div key="u" className="cnt-u">{updatePayload.length} update{updatePayload.length === 1 ? "" : "s"}</div>);
+    if (insertPayload.length) breakdown.push(<div key="i" className="cnt-i">{insertPayload.length} insert{insertPayload.length === 1 ? "" : "s"}</div>);
+    if (deletePayload.length) breakdown.push(<div key="d" className="cnt-d">{deletePayload.length} delete{deletePayload.length === 1 ? "" : "s"}</div>);
+    if (!(await confirmDialog(<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{breakdown}</div>, { title: "Save changes?", confirmLabel: "Save" }))) return;
 
     try {
       const response = await studioApi.saveTableChanges({ connectionId, schema, table, primaryKeyColumns: pk, updates: updatePayload, inserts: insertPayload, deletes: deletePayload });
@@ -371,7 +386,16 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
       });
   };
 
-  if (error) {
+  // The server only hands back an empty recoveryActions list when nothing on the connection
+  // side would fix things — right now that's exactly a SQL/filter syntax mistake (see
+  // recoveryActionsForErrorKind in db-studio-server.ts). Everything else (dead connection, bad
+  // credentials, no permission, or a failure we couldn't classify at all — recoveryActions
+  // undefined) still takes over the pane below, since nothing in the toolbar or grid would work
+  // anyway. A syntax slip, though, doesn't need to nuke the whole tab: keep the toolbar (and the
+  // WHERE box) mounted so the user can fix their filter in place instead of losing it.
+  const isBlockingError = error ? error.recoveryActions === undefined || error.recoveryActions.length > 0 : false;
+
+  if (error && isBlockingError) {
     return (
       <div className="tabpane">
         <div className="crumbs">
@@ -409,6 +433,7 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
         onInsertRow={addInsertRow}
         onDeleteSelected={toggleDeleteSelected}
         canEdit={editable}
+        columns={columns}
         onOpenStructure={() =>
           openTab({ key: `struct:${connectionId}:${schema}.${table}`, kind: "metadata", title: `Structure: ${table}`, connectionId, schema, objectName: table, objectType: tab.objectType })
         }
@@ -416,7 +441,15 @@ export function DataGridTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement
       />
       <PendingChangesBar updates={Object.keys(edits).length} inserts={inserts.length} deletes={Object.keys(deletes).length} onSave={saveChanges} onRevert={revertAll} />
       <div className="gridwrap">
-        {loading ? (
+        {error ? (
+          <div className="warnbox" style={{ margin: 10 }}>
+            <div style={{ fontWeight: 600 }}>Cannot load data from {table}</div>
+            <div style={{ marginTop: 4 }}>{error.message}</div>
+            {error.info?.originalMessage && error.info.originalMessage !== error.message ? (
+              <pre className="cell-pre wrap" style={{ marginTop: 8 }}>{error.info.originalMessage}</pre>
+            ) : null}
+          </div>
+        ) : loading ? (
           <EmptyState>
             <span className="spin" /> loading data...
           </EmptyState>

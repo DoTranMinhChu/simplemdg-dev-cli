@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "../../../components/common/Button";
 import { Icon } from "../../../components/common/Icon";
 import { Markdown } from "../../../components/common/Markdown";
+import { confirmDialog } from "../../../lib/dialog-service";
 import { pluginsApi } from "../../../api/plugins-api-client";
 import { useAiStudioStore } from "../../ai-studio/state/ai-studio-store";
 import { EvidenceExplorerPanel } from "../components/EvidenceExplorerPanel";
@@ -40,7 +41,12 @@ export function PluginDetailPanel({
       const result = await pluginsApi.remove(entry.manifest.id, projectRoot || undefined, forceCascade);
       if ("blockedBy" in result) {
         setBusy(false);
-        if (window.confirm(`Other installed plugins still depend on this one: ${result.blockedBy.join(", ")}.\n\nRemove them all together?`)) {
+        const proceed = await confirmDialog(`Other installed plugins still depend on this one: ${result.blockedBy.join(", ")}.\n\nRemove them all together?`, {
+          title: "Remove dependent plugins too?",
+          confirmLabel: "Remove all",
+          danger: true,
+        });
+        if (proceed) {
           await onRemove(true);
         }
         return;

@@ -488,8 +488,8 @@ program
     await launchInteractiveShell(program, readCliVersion());
   });
 
-// Turn every group command (cf, cf db, cds, npmrc, gitlab, ...) into an
-// interactive menu so a partial command like `smdg cf` or `smdg cf db` lists
+// Turn every group command (cf, db, cds, npmrc, gitlab, ...) into an
+// interactive menu so a partial command like `smdg cf` or `smdg db` lists
 // its subcommands to pick from instead of printing help.
 enableInteractiveNavigation(program);
 

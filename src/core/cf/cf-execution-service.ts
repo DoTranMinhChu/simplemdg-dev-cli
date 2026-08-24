@@ -23,7 +23,7 @@ const CF_HOME_ROOT = path.join(os.homedir(), ".simplemdg", "cf-home");
 
 let debugCf = false;
 
-/** Toggle verbose CF execution logging (enabled by `smdg cf db studio --debug-cf`). */
+/** Toggle verbose CF execution logging (enabled by `smdg db studio --debug-cf`). */
 export function setCfDebug(enabled: boolean): void {
   debugCf = enabled;
 }

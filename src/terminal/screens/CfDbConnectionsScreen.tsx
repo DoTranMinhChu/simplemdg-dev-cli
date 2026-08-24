@@ -12,7 +12,7 @@ type TAction = "list" | "test" | "info" | "rename" | "duplicate" | "remove";
 type TStep = { kind: "menu" } | { kind: "pick-connection"; action: TAction } | { kind: "rename-input"; connectionId: string } | { kind: "remove-confirm"; connectionId: string };
 
 /**
- * Native `cf db connections`: the traditional handler is a `for(;;)` menu
+ * Native `db connections`: the traditional handler is a `for(;;)` menu
  * loop — reproduced here as an explicit step state machine instead
  * (menu -> pick connection -> act -> back to menu), since Ink has no
  * blocking loop construct. `list`/`info` are read-only; `test` connects to
@@ -67,7 +67,7 @@ export function CfDbConnectionsScreen(props: TScreenProps) {
   if (step.kind === "menu") {
     if (!connections) return <Text dimColor>Loading connections…</Text>;
     if (connections.length === 0) {
-      return <Text color="yellow">No DB connections cached. Run `cf db import` first. Press Enter to dismiss.</Text>;
+      return <Text color="yellow">No DB connections cached. Run `db import` first. Press Enter to dismiss.</Text>;
     }
 
     return (

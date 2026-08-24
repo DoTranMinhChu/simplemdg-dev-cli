@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "../common/Icon";
 import { ContextMenu, type TContextMenuState } from "../common/ContextMenu";
 import { useWorkspaceStore, type TWorkspaceTab } from "../../state/workspace-store";
+import { promptDialog } from "../../lib/dialog-service";
 
 const TAB_ICONS: Record<string, string> = { welcome: "home", sql: "sql", "data-grid": "table2", metadata: "col" };
 
@@ -86,8 +87,8 @@ export function WorkspaceTabs(): React.ReactElement {
             {
               label: "Rename Tab",
               icon: "gear",
-              onClick: () => {
-                const name = window.prompt("New tab name", contextMenu.tab.title);
+              onClick: async () => {
+                const name = await promptDialog("Tab name", contextMenu.tab.title, { title: "Rename tab", confirmLabel: "Rename" });
                 if (name) updateTab(contextMenu.tab.id, { title: name });
               },
             },

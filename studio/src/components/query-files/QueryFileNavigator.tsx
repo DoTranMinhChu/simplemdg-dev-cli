@@ -6,6 +6,7 @@ import { studioApi } from "../../api/studio-api-client";
 import { useWorkspaceStore } from "../../state/workspace-store";
 import { useStudioStore } from "../../state/studio-store";
 import { highlightMatch } from "../../lib/highlight-match";
+import { confirmDialog, promptDialog } from "../../lib/dialog-service";
 import type { TSavedQuery } from "../../api/studio-api-types";
 
 export function QueryFileNavigator(): React.ReactElement {
@@ -31,14 +32,14 @@ export function QueryFileNavigator(): React.ReactElement {
   };
 
   const renameQuery = async (query: TSavedQuery): Promise<void> => {
-    const name = window.prompt("New name", query.name);
+    const name = await promptDialog("Query name", query.name, { title: "Rename query", confirmLabel: "Rename" });
     if (!name || name === query.name) return;
     await studioApi.updateSavedQuery(query.id, { name });
     load();
   };
 
   const deleteQuery = async (query: TSavedQuery): Promise<void> => {
-    if (!window.confirm(`Delete '${query.name}'?`)) return;
+    if (!(await confirmDialog(`This can't be undone.`, { title: `Delete '${query.name}'?`, confirmLabel: "Delete", danger: true }))) return;
     await studioApi.deleteSavedQuery(query.id);
     toast(`Deleted ${query.name}`);
     load();

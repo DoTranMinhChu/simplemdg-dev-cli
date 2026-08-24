@@ -6,12 +6,14 @@ import { CellValueInspector } from "../data-grid/CellValueInspector";
 import { studioApi } from "../../api/studio-api-client";
 import { useStudioStore } from "../../state/studio-store";
 import { useWorkspaceStore, type TWorkspaceTab } from "../../state/workspace-store";
+import { confirmDialog, promptDialog } from "../../lib/dialog-service";
+import { useSqlSuggestions } from "../../lib/use-sql-suggestions";
 import type { TDatabaseQueryResult } from "../../api/studio-api-types";
 
 const DANGEROUS = /\b(drop|truncate|alter|grant|revoke)\b/i;
 
 export function SqlConsoleTab({ tab }: { tab: TWorkspaceTab }): React.ReactElement {
-  const { activeConnectionId, activeConnection, toast, setStatusBar } = useStudioStore();
+  const { activeConnectionId, activeConnection, activeSchema, toast, setStatusBar } = useStudioStore();
   const { updateTab, setTabDirty, layout } = useWorkspaceStore();
   const [sql, setSql] = useState(tab.sql ?? "select * from DUMMY");
   const [limit, setLimit] = useState("100");
@@ -25,6 +27,7 @@ export function SqlConsoleTab({ tab }: { tab: TWorkspaceTab }): React.ReactEleme
   const draggingRef = useRef(false);
 
   const connectionId = tab.connectionId || activeConnectionId;
+  const suggestions = useSqlSuggestions(connectionId, activeSchema, sql);
 
   const DEFAULT_EDITOR_HEIGHT = 220;
   const MIN_EDITOR_HEIGHT = 90;
@@ -68,7 +71,16 @@ export function SqlConsoleTab({ tab }: { tab: TWorkspaceTab }): React.ReactEleme
       toast("Select a connection first.", "warn");
       return;
     }
-    if (DANGEROUS.test(sql) && !window.confirm(`This statement may modify or drop data:\n\n${sql.slice(0, 160)}\n\nRun anyway?`)) {
+    if (
+      DANGEROUS.test(sql) &&
+      !(await confirmDialog(
+        <>
+          This statement may modify or drop data:
+          <pre className="dialog-code">{sql.slice(0, 160)}</pre>
+        </>,
+        { title: "Run this statement?", confirmLabel: "Run anyway", danger: true },
+      ))
+    ) {
       return;
     }
 
@@ -122,7 +134,7 @@ export function SqlConsoleTab({ tab }: { tab: TWorkspaceTab }): React.ReactEleme
       return;
     }
 
-    const name = window.prompt("Save query as", `Query ${new Date().toLocaleString()}`);
+    const name = await promptDialog("Query name", `Query ${new Date().toLocaleString()}`, { title: "Save query as", confirmLabel: "Save" });
     if (!name) return;
     const response = await studioApi.saveQuery({ name, sql: trimmed, connectionId, connectionType: activeConnection?.type });
     updateTab(tab.id, { queryId: response.query.id, title: `SQL: ${name}` });
@@ -151,7 +163,7 @@ export function SqlConsoleTab({ tab }: { tab: TWorkspaceTab }): React.ReactEleme
       <SqlToolbar running={running} limit={limit} onLimitChange={setLimit} onRun={run} onFormat={format} onSave={save} onExport={exportResult} meta={meta} />
       <div className="pane-body sql-split" ref={splitRef} style={{ overflow: "hidden" }}>
         <div style={{ height: editorHeight, flex: "0 0 auto", overflow: "auto", minHeight: 0 }}>
-          <SqlEditor value={sql} onChange={onChange} onRunSelected={run} onRunAll={run} onSave={save} />
+          <SqlEditor value={sql} onChange={onChange} onRunSelected={run} onRunAll={run} onSave={save} suggestions={suggestions} />
         </div>
         <div
           className="hresizer"

@@ -3,6 +3,7 @@ import { Button } from "../../../components/common/Button";
 import { proxyStudioApi, type TProxyEnvironmentSummary } from "../api/proxy-studio-api-client";
 import { UserDialog, type TUserDialogMode } from "./UserDialog";
 import { EditEnvironmentModal } from "./EditEnvironmentModal";
+import { confirmDialog } from "../../../lib/dialog-service";
 
 const STATUS_LABELS: Record<string, string> = {
   starting: "STARTING",
@@ -111,7 +112,7 @@ export function EnvironmentCard({
   const extraRunningPorts = env.runningPorts.filter((port) => !env.ports.includes(port));
 
   const remove = async (): Promise<void> => {
-    if (!window.confirm(`Remove ${env.displayName}?`)) return;
+    if (!(await confirmDialog("Its saved users/credentials and captured session are removed too.", { title: `Remove ${env.displayName}?`, confirmLabel: "Remove", danger: true }))) return;
     await proxyStudioApi.deleteEnvironment(env.id);
     onChanged();
   };

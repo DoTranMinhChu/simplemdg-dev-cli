@@ -3969,7 +3969,8 @@ export function registerCloudFoundryCommands(program: Command): void {
     .description("Refresh cached cf apps for current target. Internal command used by smdg cf apps.")
     .action(runAppsCacheRefreshCommand);
 
-  registerCloudFoundryDbCommands(cfCommand);
+  // Top-level `smdg db ...` now, not nested under `cf` — see registerCloudFoundryDbCommands's doc.
+  registerCloudFoundryDbCommands(program);
 
   cfCommand.command("cache").description("Print cached Cloud Foundry values").action(runCacheCommand);
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { SqlAutocompleteTextarea, type TSqlSuggestionItem } from "../common/SqlAutocompleteTextarea";
 
 export type TSqlEditorProps = {
   value: string;
@@ -6,15 +7,16 @@ export type TSqlEditorProps = {
   onRunSelected?: () => void;
   onRunAll?: () => void;
   onSave?: () => void;
+  /** Keyword/table/column suggestions offered while typing — see useSqlSuggestions. */
+  suggestions?: TSqlSuggestionItem[];
 };
 
 /**
- * Textarea-based SQL editor with a line-number gutter. Isolated behind this
- * component so a richer editor (Monaco/CodeMirror) can replace the internals
- * later without touching SqlConsoleTab.
+ * SQL editor with a line-number gutter and an anchored-under-caret autocomplete popover (via
+ * SqlAutocompleteTextarea). Isolated behind this component so a richer editor (Monaco/CodeMirror)
+ * can replace the internals later without touching SqlConsoleTab.
  */
-export function SqlEditor({ value, onChange, onRunSelected, onRunAll, onSave }: TSqlEditorProps): React.ReactElement {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+export function SqlEditor({ value, onChange, onRunSelected, onRunAll, onSave, suggestions = [] }: TSqlEditorProps): React.ReactElement {
   const gutterRef = useRef<HTMLDivElement>(null);
 
   const lineCount = value.split("\n").length;
@@ -24,20 +26,19 @@ export function SqlEditor({ value, onChange, onRunSelected, onRunAll, onSave }: 
     if (gutter) gutter.textContent = Array.from({ length: lineCount }, (_, index) => index + 1).join("\n");
   }, [lineCount]);
 
-  const syncScroll = (): void => {
-    if (gutterRef.current && textareaRef.current) gutterRef.current.scrollTop = textareaRef.current.scrollTop;
-  };
-
   return (
     <div className="editwrap">
       <div className="gutter" ref={gutterRef} />
-      <textarea
-        ref={textareaRef}
-        className="editor"
-        spellCheck={false}
+      <SqlAutocompleteTextarea
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onScroll={syncScroll}
+        onChange={onChange}
+        suggestions={suggestions}
+        textareaClassName="editor"
+        resize="none"
+        spellCheck={false}
+        onScroll={(event) => {
+          if (gutterRef.current) gutterRef.current.scrollTop = event.currentTarget.scrollTop;
+        }}
         onKeyDown={(event) => {
           if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
             event.preventDefault();

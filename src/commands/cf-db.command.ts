@@ -66,7 +66,7 @@ async function chooseConnectionId(message: string): Promise<string> {
   const connections = await listPublicConnections();
 
   if (connections.length === 0) {
-    throw new Error("No DB connections cached. Run: smdg cf db import");
+    throw new Error("No DB connections cached. Run: smdg db import");
   }
 
   return searchableSelectChoice({
@@ -283,7 +283,7 @@ async function runConnectionsCommand(): Promise<void> {
     const connections = await listPublicConnections();
 
     if (connections.length === 0) {
-      console.log(chalk.yellow("No DB connections cached. Run: smdg cf db import"));
+      console.log(chalk.yellow("No DB connections cached. Run: smdg db import"));
       return;
     }
 
@@ -611,14 +611,16 @@ async function runAddConnectionCommand(): Promise<void> {
   console.log(chalk.gray("Password is encrypted in ~/.simplemdg/db-connections.json"));
 }
 
-export function registerCloudFoundryDbCommands(cfCommand: Command): void {
-  const db = cfCommand
+/** Top-level `smdg db ...` (moved off `smdg cf db ...` — the BTP import step is just one of
+ * several ways to get a connection here now, and it never really belonged under `cf`). */
+export function registerCloudFoundryDbCommands(program: Command): void {
+  const db = program
     .command("db")
-    .description("BTP database explorer: import connections, browse schemas, run SQL, and open DB Studio");
+    .description("Database explorer: import connections from BTP, browse schemas, run SQL, and open DB Studio");
 
   db
     .command("studio")
-    .description("Open the local SimpleMDG CF DB Studio (browser UI for HANA/PostgreSQL)")
+    .description("Open the local SimpleMDG DB Studio (browser UI for HANA/PostgreSQL)")
     .option("--port <port>", "Preferred local port (auto-falls back if busy)", "45888")
     .option("--read-only", "Start in read-only mode (blocks write/DDL statements)")
     .option("--timeout <ms>", "Query timeout in milliseconds", "30000")

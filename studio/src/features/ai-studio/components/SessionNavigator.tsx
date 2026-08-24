@@ -10,6 +10,7 @@ import { useVirtualList } from "../use-virtual-list";
 import { LaunchConfirmModal } from "./LaunchConfirmModal";
 import { SessionRow } from "./SessionRow";
 import { ProjectPicker } from "./ProjectPicker";
+import { promptDialog } from "../../../lib/dialog-service";
 import type { TAiSession } from "../../../api/ai-studio-api-types";
 
 type TDisplayRow = { kind: "session"; session: TAiSession; nested: boolean } | { kind: "loading"; parentId: string };
@@ -93,7 +94,7 @@ export function SessionNavigator(): React.ReactElement {
   };
 
   const renameSession = async (session: TAiSession): Promise<void> => {
-    const name = window.prompt("Rename session (leave blank to reset to the auto-detected name)", session.title);
+    const name = await promptDialog("Leave blank to reset to the auto-detected name.", session.title, { title: "Rename session", confirmLabel: "Rename" });
     if (name === null) return;
     try {
       await aiStudioApi.renameSession(session.id, name);

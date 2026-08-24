@@ -140,7 +140,7 @@ export async function runGroupNavigator(startGroup: Command): Promise<void> {
 
 /**
  * Attach the interactive navigator to every group command in the tree. After
- * this, invoking a group without a subcommand (e.g. `smdg cf` or `smdg cf db`)
+ * this, invoking a group without a subcommand (e.g. `smdg cf` or `smdg db`)
  * opens a searchable menu of its subcommands instead of printing help.
  *
  * Leaf commands keep their own action handlers untouched. Existing default

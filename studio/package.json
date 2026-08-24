@@ -2,7 +2,7 @@
   "name": "simplemdg-cf-db-studio-ui",
   "private": true,
   "version": "1.0.0",
-  "description": "React/Vite frontend for SimpleMDG CF DB Studio (built assets are served by the CLI's local backend).",
+  "description": "React/Vite frontend for SimpleMDG DB Studio (built assets are served by the CLI's local backend).",
   "type": "module",
   "scripts": {
     "dev": "vite",

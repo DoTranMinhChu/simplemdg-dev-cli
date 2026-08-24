@@ -13,7 +13,7 @@ smdg -V
 
 Building from source requires **Node.js 22.5+**. At runtime this is only a hard requirement for `smdg ai studio`'s local SQLite store (the built-in `node:sqlite` module) — every other `smdg` command, including the interactive shell, keeps working on older Node versions; see [USER_GUIDE.md](USER_GUIDE.md#ai-studio) for details.
 
-The CLI backend (`src/`) and the CF DB Studio frontend (`studio/`, a standalone React + Vite + TypeScript project) build separately but are wired together by the root scripts:
+The CLI backend (`src/`) and the DB Studio frontend (`studio/`, a standalone React + Vite + TypeScript project) build separately but are wired together by the root scripts:
 
 ```powershell
 npm run build          # builds studio/ (Vite -> dist/core/db/studio-dist) then the CLI (tsup -> dist/)
@@ -24,7 +24,7 @@ npm run dev:studio     # Vite dev server for the Studio UI (hot reload)
 npm test               # vitest — fuzzy matching, command registry, interaction bridge, shell components
 ```
 
-`npm pack` / `npm install -g` run `prepack`, which runs the full `build`, so the packaged CLI always ships with a built Studio UI. See `smdg cf db studio --dev-ui` below for the frontend dev workflow.
+`npm pack` / `npm install -g` run `prepack`, which runs the full `build`, so the packaged CLI always ships with a built Studio UI. See `smdg db studio --dev-ui` below for the frontend dev workflow.
 
 ## Interactive shell — SimpleMDG Developer Console
 
@@ -102,7 +102,7 @@ smdg cf request-trace
 smdg gitlab login
 smdg gitlab clone
 smdg gitlab pull
-smdg cf db studio
+smdg db studio
 smdg proxy studio
 smdg tool studio
 smdg git move-code
@@ -136,13 +136,13 @@ The clone/pull flow separates:
 
 It uses GitLab API and native `git`, so `ghorg` is not required. Pulling can run multiple repositories in parallel and skips invalid branch refs such as `origin` and `origin/HEAD`.
 
-## CF DB Studio
+## DB Studio
 
 A local, browser-based database explorer (HANA / PostgreSQL) styled after SAP HANA Database Explorer and DBeaver, with deep BTP/Cloud Foundry integration.
 
 ```powershell
 smdg cf login
-smdg cf db studio
+smdg db studio
 ```
 
 Studio starts a local web server bound to `127.0.0.1` only (auto-selects a free port), serves a React + Vite frontend (`studio/`) as static assets, and opens your browser. The backend is a plain Node HTTP server exposing a local JSON/SSE API (`src/core/db/db-studio-server.ts`); the React app never receives database/CF/GitLab passwords or tokens — only connection/target/tab ids, with the backend decrypting secrets internally. It is a DBeaver / SAP HANA Database Explorer–style IDE:
@@ -177,17 +177,17 @@ Not yet ported from the previous build (tracked as follow-up, not lost — just 
 ### Commands
 
 ```powershell
-smdg cf db studio        # open the local browser studio
-smdg cf db add           # add a direct connection manually (host/port/user/password)
-smdg cf db import        # import a connection from a BTP app's cf env
-smdg cf db connections   # list/test/rename/duplicate/remove cached connections
-smdg cf db query         # run one SQL query against a cached connection
-smdg cf db console        # interactive terminal SQL console (/help for commands)
+smdg db studio        # open the local browser studio
+smdg db add           # add a direct connection manually (host/port/user/password)
+smdg db import        # import a connection from a BTP app's cf env
+smdg db connections   # list/test/rename/duplicate/remove cached connections
+smdg db query         # run one SQL query against a cached connection
+smdg db console        # interactive terminal SQL console (/help for commands)
 ```
 
 In the Studio, click **+ New** in the Connections sidebar to add a direct connection without leaving the browser.
 
-`smdg cf db studio` options: `--port <port>` (preferred port), `--read-only`, `--timeout <ms>`, `--debug-cf`.
+`smdg db studio` options: `--port <port>` (preferred port), `--read-only`, `--timeout <ms>`, `--debug-cf`.
 
 Frontend development: `--dev-ui` starts the backend in API-only mode and prints instructions to run the Vite dev server (`cd studio && npm run dev`) separately, which proxies `/api/*` to the backend so hot reload works without CORS. `--api-only` starts just the JSON/SSE API with no UI and no browser — useful for scripting or when working on `studio/` against an already-running backend.
 

@@ -6,6 +6,7 @@ import { studioApi } from "../../api/studio-api-client";
 import { useWorkspaceStore } from "../../state/workspace-store";
 import { useStudioStore } from "../../state/studio-store";
 import { highlightMatch } from "../../lib/highlight-match";
+import { confirmDialog } from "../../lib/dialog-service";
 import type { TQueryHistoryItem } from "../../api/studio-api-types";
 
 export function QueryHistoryPanel(): React.ReactElement {
@@ -35,7 +36,7 @@ export function QueryHistoryPanel(): React.ReactElement {
   };
 
   const clear = async (): Promise<void> => {
-    if (!window.confirm("Clear all query history?")) return;
+    if (!(await confirmDialog("This removes every saved query history entry. It can't be undone.", { title: "Clear all query history?", confirmLabel: "Clear", danger: true }))) return;
     await studioApi.clearHistory();
     load();
     toast("History cleared.");

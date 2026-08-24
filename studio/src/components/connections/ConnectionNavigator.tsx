@@ -9,6 +9,7 @@ import type { TPublicDatabaseConnection } from "../../api/studio-api-types";
 import { NewConnectionModal } from "./NewConnectionModal";
 import { EditConnectionModal } from "./EditConnectionModal";
 import { highlightMatch } from "../../lib/highlight-match";
+import { confirmDialog } from "../../lib/dialog-service";
 
 const ENV_ORDER = ["PROD", "QAS", "DEV", "SANDBOX", "CUSTOM", "OTHER"];
 const ENV_COLORS: Record<string, string> = { DEV: "#22c55e", QAS: "#f59e0b", PROD: "#ef4444", SANDBOX: "#6366f1", CUSTOM: "#3b82f6" };
@@ -188,7 +189,8 @@ export function ConnectionNavigator({
   }
 
   async function removeWithConfirm(connection: TPublicDatabaseConnection): Promise<void> {
-    if (!window.confirm(`Remove connection '${connection.name}'?`)) return;
+    if (!(await confirmDialog("This only removes the saved connection — it doesn't affect the database itself.", { title: `Remove connection '${connection.name}'?`, confirmLabel: "Remove", danger: true })))
+      return;
     await removeConnection(connection.id);
     toast("Removed.");
   }

@@ -3,6 +3,7 @@ import { Icon } from "../common/Icon";
 import { useStudioStore } from "../../state/studio-store";
 import { useWorkspaceStore } from "../../state/workspace-store";
 import { studioApi } from "../../api/studio-api-client";
+import { confirmDialog } from "../../lib/dialog-service";
 import type { TSavedQuery } from "../../api/studio-api-types";
 
 function WelcomeCard({ icon, title, description, onClick }: { icon: string; title: string; description: string; onClick: () => void }): React.ReactElement {
@@ -43,7 +44,7 @@ export function WelcomePage({
   const showConnected = cfStatus?.isLoggedIn && cfStatus.currentTarget;
 
   const disconnectCf = async (): Promise<void> => {
-    if (!window.confirm("Disconnect from Cloud Foundry?")) return;
+    if (!(await confirmDialog("You can reconnect any time from this page.", { title: "Disconnect from Cloud Foundry?", confirmLabel: "Disconnect" }))) return;
     try {
       await studioApi.logoutCf(false);
       await refreshCfStatus();
@@ -55,7 +56,7 @@ export function WelcomePage({
 
   return (
     <div className="welcome">
-      <h1>SimpleMDG CF DB Studio</h1>
+      <h1>SimpleMDG DB Studio</h1>
       <div className="lede">A local HANA / PostgreSQL explorer with BTP credential import. Local only · 127.0.0.1</div>
 
       {showCfBanner ? (
