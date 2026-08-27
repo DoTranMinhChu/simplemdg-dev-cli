@@ -82,8 +82,19 @@ export function buildGitLabProjectsKey(baseUrl: string, groupId: string | number
   return `${sanitize(baseUrl)}::${sanitize(String(groupId))}`;
 }
 
-export function buildGitLabBranchesKey(baseUrl: string, projectId: string | number): string {
-  return `${sanitize(baseUrl)}::${sanitize(String(projectId))}`;
+/**
+ * `search` MUST be folded into the key, not just the fetch params — `listBranches` (see
+ * `gitlab-write-client.ts`) is called two very different ways against the SAME project: Deploy
+ * Model's existing-branch check passes a narrow `search` term (one specific branch name) with
+ * `refresh: true`, while Move Model's branch picker wants the FULL unfiltered list. Confirmed as a
+ * real bug: without `search` in the key, Deploy Model's narrow, refreshed write (via `refreshCache`)
+ * silently overwrote the shared cache entry with its filtered (often near-empty) result, so Move
+ * Model's later unfiltered read got that stale, truncated list back — the branch pickers rendered
+ * "No options match" even though the project has real branches.
+ */
+export function buildGitLabBranchesKey(baseUrl: string, projectId: string | number, search?: string): string {
+  const base = `${sanitize(baseUrl)}::${sanitize(String(projectId))}`;
+  return search ? `${base}::search:${sanitize(search)}` : base;
 }
 
 export function formatRelativeTime(iso: string | undefined): string {

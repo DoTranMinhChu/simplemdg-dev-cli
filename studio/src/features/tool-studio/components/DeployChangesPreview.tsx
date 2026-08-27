@@ -3,7 +3,7 @@ import { Collapsible } from "../../../components/common/Collapsible";
 import type { TDeployPreviewResult } from "../api/tool-studio-api-client";
 import { DiffFileView } from "./DiffFileView";
 
-const CHANGE_LABEL: Record<string, string> = { create: "new", update: "changed", "no-change": "no change" };
+const CHANGE_LABEL: Record<string, string> = { create: "new", update: "changed", delete: "removed", "no-change": "no change" };
 
 function FileRow({ filePath, changeType, additions, deletions, lines }: TDeployPreviewResult["repos"][number]["files"][number]): React.ReactElement {
   const [open, setOpen] = useState(false);

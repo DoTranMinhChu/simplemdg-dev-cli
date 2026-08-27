@@ -19,6 +19,9 @@ import { buildI18nActions } from "./csn-i18n";
 import { resolveCdsDkCli } from "./cds-dk-version-resolver";
 import { extractCustomModelAttachments, mergeCustomModelPreservation, parseCustomModelEntityNames } from "./custom-model-preserver";
 import type { TCustomModelPreservationForTier } from "./custom-model-preserver";
+import { accumulateCdsEntities, diffCdsEntities } from "./cds-entity-diff";
+import type { TCdsEntityChange } from "./cds-entity-diff";
+import type { TCdsModelEntity } from "./cds-model-reader";
 
 const UPLOAD_ROOT = path.join(os.tmpdir(), "smdg-tool-studio", "deploy-model-uploads");
 
@@ -212,13 +215,20 @@ export type TDeployDiffLine = { type: "add" | "remove" | "context" | "collapsed"
 
 export type TDeployFileDiff = {
   filePath: string;
-  changeType: "create" | "update" | "no-change";
+  /** `"delete"` never happens in a Deploy Model preview (it only ever creates/updates files) — it's here for `move-model-job.ts`'s preview, which reads two real branches and can find a file removed entirely between them. */
+  changeType: "create" | "update" | "delete" | "no-change";
   additions: number;
   deletions: number;
   lines: TDeployDiffLine[];
 };
 
-export type TDeployRepoPreview = { role: string; pathWithNamespace: string; files: TDeployFileDiff[] };
+export type TDeployRepoPreview = {
+  role: string;
+  pathWithNamespace: string;
+  files: TDeployFileDiff[];
+  /** Field-level report — see `diffCdsEntities` — built only from the `.cds` files among this repo's changed files. Empty for a repo/object type that generates no `.cds` (e.g. the F4 flow, which only writes `db/external/*.csn`+`.xml`). */
+  entityChanges: TCdsEntityChange[];
+};
 
 export type TDeployPreviewResult = { entityName: string; cdsDkVersion?: string; repos: TDeployRepoPreview[]; renamedEntities: TEntityRenameRisk[]; customModelWarnings: TCustomModelWarning[] };
 
@@ -521,6 +531,8 @@ export async function previewDeployModelChanges(options: Pick<TDeployModelOption
   for (const repo of targetRepos) {
     const { actions } = buildRepoActions({ isF4, repo, imported, dbModel, xmlExtension });
     const files: TDeployFileDiff[] = [];
+    const oldEntities: TCdsModelEntity[] = [];
+    const newEntities: TCdsModelEntity[] = [];
     for (const action of actions) {
       const oldContent = await fetchRawFile(options.auth, repo.projectId, action.file_path, repo.defaultBranch).catch(() => undefined);
       const newContent = action.content ?? "";
@@ -531,8 +543,10 @@ export async function previewDeployModelChanges(options: Pick<TDeployModelOption
       }
       const { lines, additions, deletions } = buildFileDiff(oldContent ?? "", newContent);
       files.push({ filePath: action.file_path, changeType, additions, deletions, lines });
+      accumulateCdsEntities(oldEntities, action.file_path, oldContent);
+      accumulateCdsEntities(newEntities, action.file_path, newContent);
     }
-    repoPreviews.push({ role: repo.role, pathWithNamespace: repo.pathWithNamespace, files });
+    repoPreviews.push({ role: repo.role, pathWithNamespace: repo.pathWithNamespace, files, entityChanges: diffCdsEntities(oldEntities, newEntities) });
   }
 
   return { entityName: imported.entityName, cdsDkVersion, repos: repoPreviews, renamedEntities, customModelWarnings: dbModel?.customModelWarnings ?? [] };

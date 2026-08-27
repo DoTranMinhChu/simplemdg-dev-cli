@@ -5921,6 +5921,35 @@ td.cell-active {
    margin-left: auto;
 }
 
+/* --- Deploy target summary row (DeployTargetInfo.tsx) --- */
+
+.dt-info-row {
+   display: flex;
+   flex-wrap: wrap;
+   gap: var(--space-2);
+   margin-top: var(--space-3);
+}
+
+.dt-info-chip {
+   display: inline-flex;
+   align-items: center;
+   gap: 5px;
+   padding: 3px 10px;
+   border-radius: var(--radius-full);
+   background: var(--bg-3);
+   border: 1px solid var(--border);
+   font-size: var(--font-size-xs);
+   color: var(--text);
+}
+
+.dt-info-label {
+   color: var(--muted);
+   text-transform: uppercase;
+   font-size: 10px;
+   font-weight: 700;
+   letter-spacing: 0.03em;
+}
+
 .dm-risk-list {
    display: flex;
    flex-direction: column;
@@ -6029,6 +6058,7 @@ td.cell-active {
 
 .dm-diff-badge.create { background: var(--insbg); color: var(--green); }
 .dm-diff-badge.update { background: var(--editbg); color: var(--amber); }
+.dm-diff-badge.delete { background: var(--delbg); color: var(--red); }
 .dm-diff-badge.no-change { background: var(--bg-2); color: var(--muted); }
 
 .dm-diff-file-stats { flex: none; font-size: var(--font-size-xs); color: var(--muted); }
@@ -6036,6 +6066,69 @@ td.cell-active {
 .dm-diff-file-stats .del { color: var(--red); }
 
 .dm-diff-caret { flex: none; color: var(--muted); font-size: 10px; width: 10px; }
+
+/* --- Move Model: field-level entity/field change report (EntityFieldChangesReport.tsx) --- */
+
+.mm-repo-summary {
+   display: flex;
+   flex-wrap: wrap;
+   align-items: center;
+   gap: var(--space-3);
+   padding: var(--space-3) var(--space-3) 0;
+   font-size: var(--font-size-sm);
+   color: var(--muted);
+}
+
+.mm-stat.mm-stat-added { color: var(--green); }
+.mm-stat.mm-stat-removed { color: var(--red); }
+
+.mm-entity-table {
+   border-collapse: separate;
+   border-spacing: 0;
+   width: 100%;
+   font-size: var(--font-size-sm);
+   margin: var(--space-3);
+   margin-top: var(--space-2);
+}
+
+.mm-entity-table th,
+.mm-entity-table td {
+   border-bottom: 1px solid var(--border);
+   padding: 8px 12px;
+   text-align: left;
+   vertical-align: top;
+}
+
+.mm-entity-table th {
+   background: var(--bg-3);
+   color: var(--muted);
+   font-size: var(--font-size-xs);
+   text-transform: uppercase;
+   letter-spacing: 0.03em;
+}
+
+.mm-entity-table tr:hover td { background: var(--bg-3); }
+.mm-entity-table tr:last-child td { border-bottom: none; }
+
+.mm-entity-summary-row { cursor: pointer; }
+.mm-entity-caret { display: inline-block; width: 10px; color: var(--muted); font-size: 10px; }
+
+.mm-field-badge {
+   flex: none;
+   font-size: 10px;
+   font-weight: 700;
+   text-transform: uppercase;
+   border-radius: var(--radius-sm);
+   padding: 2px 6px;
+   white-space: nowrap;
+}
+
+.mm-field-badge.added { background: var(--insbg); color: var(--green); }
+.mm-field-badge.removed { background: var(--delbg); color: var(--red); }
+.mm-field-badge.changed { background: var(--editbg); color: var(--amber); }
+
+.mm-field-old { color: var(--red); text-decoration: line-through; }
+.mm-field-new { color: var(--green); }
 
 .diffview {
    font-family: Consolas, "Cascadia Code", monospace;

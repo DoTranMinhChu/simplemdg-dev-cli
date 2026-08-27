@@ -12,6 +12,7 @@ import { CpiQueuePage } from "./pages/CpiQueuePage";
 import { JiraDeployInfoPage } from "./pages/JiraDeployInfoPage";
 import { IncidentSearchPage } from "./pages/IncidentSearchPage";
 import { DeployModelPage } from "./pages/DeployModelPage";
+import { MoveModelPage } from "./pages/MoveModelPage";
 import { CdsBulkUpgradePage } from "./pages/CdsBulkUpgradePage";
 import { ObjectTypesPage } from "./pages/ObjectTypesPage";
 import { NpmrcRegistryPage } from "./pages/NpmrcRegistryPage";
@@ -24,6 +25,7 @@ const FileEditorPage = lazy(() => import("./pages/FileEditorPage").then((mod) =>
 
 type TToolStudioSection =
   | "deploy-model"
+  | "move-model"
   | "cds-bulk-upgrade"
   | "check-api-external"
   | "jira-deploy-info"
@@ -41,6 +43,7 @@ type TNavItem = { id: TToolStudioSection; label: string; ready: boolean };
 
 const NAV_ITEMS: TNavItem[] = [
   { id: "deploy-model", label: "Deploy Model", ready: true },
+  { id: "move-model", label: "Move Model", ready: true },
   { id: "cds-bulk-upgrade", label: "Upgrade CDS Version", ready: true },
   { id: "check-api-external", label: "Check API External", ready: true },
   { id: "test-config", label: "Test Config", ready: true },
@@ -68,6 +71,7 @@ const PAGE_COMPONENTS: Partial<Record<TToolStudioSection, React.ComponentType>> 
   "incident-search": IncidentSearchPage,
   "file-editor": FileEditorPage,
   "deploy-model": DeployModelPage,
+  "move-model": MoveModelPage,
   "cds-bulk-upgrade": CdsBulkUpgradePage,
   "object-types": ObjectTypesPage,
   "npmrc-registry": NpmrcRegistryPage,
@@ -135,11 +139,11 @@ export function ToolStudioApp(): React.ReactElement {
             </div>
             <ConnectionStatusRow />
             <div className="ts-nav-group">MDG Deploy</div>
-            {NAV_ITEMS.slice(0, 3).map((item) => (
+            {NAV_ITEMS.slice(0, 4).map((item) => (
               <NavButton key={item.id} item={item} active={section === item.id} />
             ))}
             <div className="ts-nav-group">Operations</div>
-            {NAV_ITEMS.slice(3, 10).map((item) => (
+            {NAV_ITEMS.slice(4, 11).map((item) => (
               <NavButton key={item.id} item={item} active={section === item.id} />
             ))}
             <div className="ts-nav-group">Configuration</div>

@@ -290,6 +290,8 @@ export type TObjectTypeRepoRef = { projectId: number; pathWithNamespace: string;
 export type TDiscoveredObjectType = { slug: string; envObjectName: string; repos: TObjectTypeRepoRef[]; source: "laidonBuild" | "manual" };
 
 export type TGitLabUserSummary = { id: number; username: string; name: string };
+/** Mirrors `TGitLabBranch` in `gitlab-write-client.ts`. */
+export type TGitLabBranchSummary = { name: string; default?: boolean; protected?: boolean; commit?: { id: string; short_id: string; committed_date?: string } };
 
 export type TCdsServiceInfo = { name: string; path: string; sourceFile: string };
 export type TResolvedAppServices = {
@@ -392,11 +394,32 @@ export type TJoinFieldRisk = {
   message: string;
 };
 
+/** Mirrors `TCdsFieldChange` in `cds-entity-diff.ts`. */
+export type TCdsFieldChange = { field: string; kind: "added" | "removed" | "changed"; oldType?: string; newType?: string; oldKey?: boolean; newKey?: boolean };
+/** Mirrors `TCdsEntityChange` in `cds-entity-diff.ts` — one entity's field-level report row (see the backend type's own doc comment for what `kind` means on each side). */
+export type TCdsEntityChange = { entity: string; sourceFile: string; kind: "added" | "removed" | "changed"; fields: TCdsFieldChange[] };
+
 /** Mirrors `TDeployDiffLine`/`TDeployFileDiff`/`TDeployRepoPreview`/`TDeployPreviewResult` in `deploy-model-job.ts`. */
 export type TDeployDiffLine = { type: "add" | "remove" | "context" | "collapsed"; text?: string; count?: number };
-export type TDeployFileDiff = { filePath: string; changeType: "create" | "update" | "no-change"; additions: number; deletions: number; lines: TDeployDiffLine[] };
-export type TDeployRepoPreview = { role: string; pathWithNamespace: string; files: TDeployFileDiff[] };
+export type TDeployFileDiff = { filePath: string; changeType: "create" | "update" | "delete" | "no-change"; additions: number; deletions: number; lines: TDeployDiffLine[] };
+/** `entityChanges` is populated by Deploy Model's own preview; Custom Model's separate (hand-rolled) preview endpoint shares this same response shape but doesn't compute it — optional so a caller that only needs the file-level diff never has to guard against a required field one producer doesn't send. */
+export type TDeployRepoPreview = { role: string; pathWithNamespace: string; files: TDeployFileDiff[]; entityChanges?: TCdsEntityChange[] };
 export type TDeployPreviewResult = { entityName: string; cdsDkVersion?: string; repos: TDeployRepoPreview[]; renamedEntities?: TEntityRenameRisk[]; customModelWarnings?: TCustomModelWarning[]; error?: string };
+
+// --- Move Model (promote a model between 2 branches of the same repo) ------
+// Mirrors src/core/deploy/move-model-job.ts on the backend.
+
+/** Mirrors `TMoveModelRepoPreview`/`TMoveModelPreviewResult` in `move-model-job.ts` — same shape as `TDeployRepoPreview` above, kept as its own named type since the two previews come from different endpoints. */
+export type TMoveModelRepoPreview = { role: string; pathWithNamespace: string; entityChanges: TCdsEntityChange[]; files: TDeployFileDiff[] };
+export type TMoveModelPreviewResult = { sourceBranch: string; targetBranch: string; repos: TMoveModelRepoPreview[]; error?: string };
+
+/** Mirrors `TMoveModelResult` in `move-model-job.ts`. `mergeRequests` is deliberately shaped identically to `TDeployModelResult["mergeRequests"]` so `MergeRequestsPanel` can render either without a separate component. */
+export type TMoveModelResult = {
+  mergeRequests: TDeployModelResult["mergeRequests"];
+  noChange: Array<{ role: string; pathWithNamespace: string; sourceBranch: string; targetBranch: string }>;
+  skipped: Array<{ role: string; pathWithNamespace: string; reason: string }>;
+  error?: string;
+};
 
 /** Mirrors `TCdsModelEntity` in `cds-model-reader.ts` — one entity currently in `db/final/*-model.cds`, the "attach to" picker's candidate list. */
 export type TCdsModelEntity = {
@@ -551,6 +574,22 @@ export const toolStudioApi = {
     post<{ jobId?: string; error?: string }>("/api/tool/deploy-model/auto-merge", { dbTarget, restTargets }),
   addManualObjectType: (input: { deployTargetId: string; slug: string; envObjectName?: string; projectId: number; pathWithNamespace: string; role: string; defaultBranch?: string }) =>
     post<{ ok?: boolean; error?: string }>("/api/tool/deploy-model/manual-object-type", input),
+
+  listGitlabBranches: (projectId: number, search?: string) =>
+    get<{ branches: TGitLabBranchSummary[]; error?: string }>(`/api/tool/move-model/branches?projectId=${projectId}${search ? `&search=${encodeURIComponent(search)}` : ""}`),
+  previewMoveModelChanges: (input: { deployTargetId: string; objectTypeSlug: string; repoRoles?: string[]; sourceBranch: string; targetBranch: string }) =>
+    post<TMoveModelPreviewResult>("/api/tool/move-model/preview", input),
+  createMoveModelMergeRequests: (input: {
+    deployTargetId: string;
+    objectTypeSlug: string;
+    repoRoles?: string[];
+    sourceBranch: string;
+    targetBranch: string;
+    title?: string;
+    description?: string;
+    assigneeId?: number;
+    reviewerIds?: number[];
+  }) => post<TMoveModelResult>("/api/tool/move-model/merge-request", input),
 
   getCdsUpgradeCandidateRepos: (deployTargetId: string) =>
     get<{ repos: TCdsUpgradeRepoInput[]; error?: string }>(`/api/tool/cds-upgrade/candidate-repos?deployTargetId=${encodeURIComponent(deployTargetId)}`),

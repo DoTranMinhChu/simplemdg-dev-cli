@@ -8,6 +8,7 @@ import { useAsync } from "../../../hooks/useAsync";
 import { useJobEvents, mergeJobSteps } from "../hooks/useJobEvents";
 import type { TJobStep } from "../hooks/useJobEvents";
 import { CreateDeployTargetForm } from "../components/CreateDeployTargetForm";
+import { DeployTargetInfo } from "../components/DeployTargetInfo";
 import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TCdsUpgradeResult, TDeployTarget } from "../api/tool-studio-api-client";
 
@@ -96,6 +97,7 @@ export function CdsBulkUpgradePage(): React.ReactElement {
               {targetForm === "create" ? "Cancel" : "+ New target"}
             </Button>
           </div>
+          {target && <DeployTargetInfo target={target} />}
           {targetForm !== "none" && (
             <div style={{ marginTop: 12 }}>
               <CreateDeployTargetForm

@@ -20,6 +20,7 @@ import { handleCpiQueueApi } from "./routes/cpi-queue-routes";
 import { handleJiraApi } from "./routes/jira-routes";
 import { handleIncidentApi } from "./routes/incident-routes";
 import { handleDeployModelApi } from "./routes/deploy-model-routes";
+import { handleMoveModelApi } from "./routes/move-model-routes";
 import { handleCdsUpgradeApi } from "./routes/cds-upgrade-routes";
 import { handleCustomModelApi } from "./routes/custom-model-routes";
 import { handleDeployTargetApi } from "./routes/deploy-target-routes";
@@ -68,6 +69,7 @@ const API_HANDLERS: Array<(req: http.IncomingMessage, res: http.ServerResponse, 
   handleJiraApi,
   handleIncidentApi,
   handleDeployModelApi,
+  handleMoveModelApi,
   handleCdsUpgradeApi,
   handleCustomModelApi,
   handleDeployTargetApi,

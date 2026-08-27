@@ -10,7 +10,9 @@ import { useJobEvents, mergeJobSteps } from "../hooks/useJobEvents";
 import type { TJobStep } from "../hooks/useJobEvents";
 import { GitLabLoginModal } from "../components/GitLabLoginModal";
 import { CreateDeployTargetForm } from "../components/CreateDeployTargetForm";
+import { DeployTargetInfo } from "../components/DeployTargetInfo";
 import { DeployChangesPreview } from "../components/DeployChangesPreview";
+import { EntityFieldChangesReport } from "../components/EntityFieldChangesReport";
 import { EntityRenameAlert } from "../components/EntityRenameAlert";
 import { CustomModelWarningAlert } from "../components/CustomModelWarningAlert";
 import { CustomModelStep } from "../components/CustomModelStep";
@@ -147,6 +149,7 @@ export function DeployModelPage(): React.ReactElement {
               {targetForm === "create" ? "Cancel" : "+ New target"}
             </Button>
           </div>
+          {target && <DeployTargetInfo target={target} />}
           {targetForm !== "none" && (
             <div style={{ marginTop: 12 }}>
               <CreateDeployTargetForm
@@ -295,7 +298,10 @@ export function DeployModelPage(): React.ReactElement {
             )}
             {changesPreview.data && !changesPreview.data.error && (
               <div style={{ marginTop: 12 }}>
-                <DeployChangesPreview result={changesPreview.data} />
+                <EntityFieldChangesReport repos={changesPreview.data.repos} />
+                <div style={{ marginTop: 12 }}>
+                  <DeployChangesPreview result={changesPreview.data} />
+                </div>
               </div>
             )}
           </div>

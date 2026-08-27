@@ -54,7 +54,7 @@ export async function listBranches(auth: TGitLabAuth, projectId: number, options
   const encodedId = encodeURIComponent(String(projectId));
   return smartRead<TGitLabBranch[]>({
     namespace: "gitlab-branches",
-    key: buildGitLabBranchesKey(auth.baseUrl, projectId),
+    key: buildGitLabBranchesKey(auth.baseUrl, projectId, options?.search),
     ttlMs: DEFAULT_CACHE_TTL.gitlabBranches,
     mode: options?.refresh ? "network-only" : "stale-while-revalidate",
     fetcher: () => gitlabFetchAll<TGitLabBranch>(auth, `/projects/${encodedId}/repository/branches`, options?.search ? { search: options.search } : undefined),
@@ -98,9 +98,19 @@ function normalizeBaseUrlLocal(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
+/** One changed file from GitLab's `/repository/compare` — `diff` is a unified-diff string (unused today; callers that need before/after content fetch it themselves via `fetchRawFile` against each ref instead of parsing this). */
+export type TGitLabCompareDiff = {
+  old_path: string;
+  new_path: string;
+  new_file: boolean;
+  renamed_file: boolean;
+  deleted_file: boolean;
+  diff: string;
+};
+
 export type TGitLabCompareResult = {
   commits: unknown[];
-  diffs: unknown[];
+  diffs: TGitLabCompareDiff[];
 };
 
 /**
@@ -153,6 +163,26 @@ export async function createMergeRequest(auth: TGitLabAuth, projectId: number, r
   });
   if (!response.ok) throw new Error(`GitLab merge request creation failed ${response.status}: ${await response.text()}`);
   return await response.json() as TGitLabMergeRequest;
+}
+
+/**
+ * Looks for an already-open MR between this exact source/target branch pair — used by Move Model
+ * (`move-model-job.ts`) before calling `createMergeRequest`: unlike Deploy Model (which always
+ * commits onto a freshly-created, date-suffixed branch, so a duplicate MR can't happen), Move Model
+ * points straight at a pre-existing source branch, so re-running the same move a second time would
+ * otherwise hit GitLab's 409 "already exists" — surfacing the existing MR instead reads as "already
+ * done" rather than a failure.
+ */
+export async function findOpenMergeRequest(auth: TGitLabAuth, projectId: number, sourceBranch: string, targetBranch: string): Promise<TGitLabMergeRequest | undefined> {
+  const encodedId = encodeURIComponent(String(projectId));
+  const url = new URL(`${normalizeBaseUrlLocal(auth.baseUrl)}/api/v4/projects/${encodedId}/merge_requests`);
+  url.searchParams.set("source_branch", sourceBranch);
+  url.searchParams.set("target_branch", targetBranch);
+  url.searchParams.set("state", "opened");
+  const response = await fetch(url, { headers: { "PRIVATE-TOKEN": auth.token } });
+  if (!response.ok) throw new Error(`GitLab merge request lookup failed ${response.status}: ${await response.text()}`);
+  const results = (await response.json()) as TGitLabMergeRequest[];
+  return results[0];
 }
 
 export async function getMergeRequest(auth: TGitLabAuth, projectId: number, mrIid: number): Promise<TGitLabMergeRequestDetail> {
