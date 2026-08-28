@@ -63,6 +63,20 @@ illustrations of the general risk rather than an exhaustive list:
   similar-sounding sibling's behavior.** Before depending on a shared utility/engine doing
   something non-trivial (resolving a nested path, applying a default, deriving a key), read
   its actual implementation for that specific case, not just its exported type signature.
+- **A framework's own enforcement semantics for a config-shaped annotation can be the
+  opposite of the plausible-sounding reading.** A list-valued security/validation
+  annotation (e.g. a role list on an auth check) might plausibly mean "all of these are
+  required" or "any one of these is enough" — don't reason about which from the annotation
+  shape alone (or assume it matches a similar annotation in a different framework you know).
+  Read the actual enforcement code in the framework's own installed source once, cite the
+  line, and treat that as settled rather than re-guessing it each time it comes up.
+- **A named export existing in a shared package's current source is not the same fact as
+  it existing in the specific version actually installed in a *different* repo's
+  `node_modules` right now**, when that package is consumed as a versioned registry
+  package rather than a workspace-linked local path. Before depending on something recently
+  added to a shared package, check the consuming repo's installed copy directly (its
+  `package.json` version, or a direct runtime probe of the import) — don't infer usability
+  from the shared package's own git history or `staging` branch state.
 
 The general habit, not the specific examples above, is what to carry into any task: name
 the concrete facts your implementation will depend on, and check each one against real,
@@ -78,6 +92,13 @@ case — reading the implementation is necessary but not sufficient. Write a min
 throwaway reproduction (a scratch test in the owning repo if its toolchain is available, or
 a standalone script reproducing just the relevant logic if it isn't) that exercises the
 actual case your task needs, and run it for real.
+
+One specific, easy-to-miss case worth a deliberate check whenever you add a cache in front
+of a resolver/lookup: if a valid result can itself be a falsy value (`""`, `0`, `false`,
+`null`-as-a-real-answer), a cache-hit check must use `.has(key)`, never a truthy check on
+`.get(key)` — the latter treats a correctly-cached falsy value as a cache miss and
+recomputes every time, which either just wastes work or (if recomputing isn't idempotent)
+silently produces a different answer than the one that was cached.
 
 If it reveals the shared code doesn't do what was assumed:
 - Decide explicitly whether fixing it is in scope for this task, or whether to design
@@ -113,6 +134,42 @@ codebase-wide assumption:
   follows, and remember `@plural` only changes the OData collection/generated-type name —
   never the physical database table name, which always follows the entity's own literally
   declared name.
+
+## Phase 4.5 — When adding a new outbound remote call, diff against a proven sibling, don't reason from the type signature
+
+A new call to a remote/downstream service (a new resolver, a new handler branch, a new
+call site added to an existing file that already makes similar calls) fails in three
+specific, recurring ways that a clean compile and a successful connection will not catch —
+because the argument that would have caught them is optional, so its absence is invisible
+to the type checker and the connection layer both still "succeed":
+
+- **Auth header propagation.** If this codebase's convention for remote calls is to fetch
+  a token once (e.g. `getClientToken()`) and pass it explicitly on every `.send()`/`.run()`
+  (rather than relying on destination-level auth), a new call site that forgets this
+  connects fine and fails only at the target service's own auth check — at runtime, with a
+  bare `Unauthorized`/`Forbidden` that does not name the missing header or which call site
+  caused it. Before trusting a new remote call, find at least one other real, working call
+  in the **same file** and diff your new one against it for this argument specifically —
+  don't infer it's optional just because the type signature allows omitting it.
+- **Identifier/name normalization (casing, prefixing, etc.).** When a config value feeds
+  into building an infrastructure identifier (a destination name, a queue name, a URL
+  segment), don't assume where normalization happens — grep for an existing real caller of
+  the same shared connector/helper and match its convention (normalize at the call site vs.
+  inside the shared helper) exactly, rather than picking whichever seems safer in the
+  abstract. Getting this backwards produces a silent, case-sensitive resolution failure
+  that only a live connection log reveals.
+- **Hand-rolled request serialization.** If you build a request's query string, filter
+  expression, or path by hand instead of using the target framework's own query builder,
+  verify the serialization against the *specific protocol grammar the target actually
+  speaks* — not a generic-looking serializer's default. A generic serializer's default
+  encoding (e.g. `URLSearchParams`, which encodes a space as `+` per
+  `application/x-www-form-urlencoded`) can silently diverge from what the target's parser
+  expects (e.g. OData, which expects `%20` for a space and treats a raw `+` as a syntax
+  error) — the request reaches the target and fails inside *its* parser, with an error that
+  names a byte offset, not your code. Prefer the framework's own parameterized query
+  builder when the target exposes one; if you must hand-build, percent-encode each
+  component individually (`encodeURIComponent`) rather than trusting a convenience
+  serializer built for a different content type.
 
 ## Phase 5 — Verify empirically, per module, not once for the whole task
 
