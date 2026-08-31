@@ -11,6 +11,8 @@ export type TJobStep = {
   label: string;
   status: "pending" | "running" | "success" | "failed" | "skipped";
   detail?: string;
+  /** Set on the auto-merge job's "wait for pipeline" step once GitLab reports one — lets the UI render the same clickable `PipelineBadge` pill the per-MR live-status row uses, instead of a plain text URL. */
+  pipeline?: { id: number; status: string; webUrl: string };
 };
 
 export type TJobEvent = {

@@ -4,12 +4,41 @@ import { emitJobEvent } from "../tool/studio/job-events";
 
 export type TMergeTarget = { role: string; pathWithNamespace: string; projectId: number; mrIid: number; targetBranch: string };
 
-/** Live status for one already-created MR — polled by the UI so it can show merge/pipeline state without the user opening GitLab. */
+/**
+ * Live status for one already-created MR — polled by the UI so it can show merge/pipeline state
+ * (plus mergeability: draft, conflicts, unresolved discussions, GitLab's own `merge_error`) without
+ * the user opening GitLab. `blockers` is empty once the MR is actually mergeable (or already
+ * merged/closed, where blockers stop being meaningful) — the UI surfaces it as a warning, not a hard
+ * gate: GitLab's own merge call is still the authoritative check, this is purely visibility.
+ */
 export type TMergeRequestStatus = {
   state: string;
   mergedAt: string | undefined;
   pipeline: { id: number; status: string; webUrl: string } | undefined;
+  draft: boolean;
+  hasConflicts: boolean;
+  changesCount: string | undefined;
+  blockers: string[];
 };
+
+/** Statuses GitLab reports on a MR that isn't actually blocked from merging — surfaced via the pipeline badge already, or simply "in progress", not worth a separate blocker line. */
+const NON_BLOCKING_MERGE_STATUSES = new Set(["mergeable", "ci_still_running", "checking", "unchecked", "preparing"]);
+
+function computeBlockers(detail: Awaited<ReturnType<typeof getMergeRequest>>): string[] {
+  if (detail.state === "merged" || detail.state === "closed") return [];
+  const blockers: string[] = [];
+  if (detail.draft) blockers.push("Draft — not ready for review");
+  if (detail.has_conflicts) blockers.push("Has merge conflicts");
+  if (detail.blocking_discussions_resolved === false) blockers.push("Unresolved discussions");
+  if (detail.merge_error) blockers.push(detail.merge_error);
+  // Catch-all for any other blocking `detailed_merge_status` this doesn't already special-case above
+  // (e.g. `not_approved`, `need_rebase`) — shown verbatim (underscores turned to spaces) rather than
+  // silently dropped just because it isn't one of the specific fields checked already.
+  if (!blockers.length && detail.detailed_merge_status && !NON_BLOCKING_MERGE_STATUSES.has(detail.detailed_merge_status)) {
+    blockers.push(detail.detailed_merge_status.replace(/_/g, " "));
+  }
+  return blockers;
+}
 
 export async function getMergeRequestStatus(auth: TGitLabAuth, projectId: number, mrIid: number): Promise<TMergeRequestStatus> {
   const detail = await getMergeRequest(auth, projectId, mrIid);
@@ -17,6 +46,10 @@ export async function getMergeRequestStatus(auth: TGitLabAuth, projectId: number
     state: detail.state,
     mergedAt: detail.state === "merged" ? new Date().toISOString() : undefined,
     pipeline: detail.head_pipeline ? { id: detail.head_pipeline.id, status: detail.head_pipeline.status, webUrl: detail.head_pipeline.web_url } : undefined,
+    draft: Boolean(detail.draft),
+    hasConflicts: Boolean(detail.has_conflicts),
+    changesCount: detail.changes_count ?? undefined,
+    blockers: computeBlockers(detail),
   };
 }
 
@@ -40,7 +73,7 @@ async function waitForPostMergePipeline(
   projectId: number,
   targetBranch: string,
   mergeCommitSha: string | undefined,
-  onUpdate: (status: string, webUrl?: string) => void,
+  onUpdate: (status: string, pipeline?: { id: number; webUrl: string }) => void,
 ): Promise<"success" | "failed" | "timeout" | "no-pipeline"> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let sawAnyPipeline = false;
@@ -50,7 +83,7 @@ async function waitForPostMergePipeline(
     const match = pipelines[0];
     if (match) {
       sawAnyPipeline = true;
-      onUpdate(match.status, match.web_url);
+      onUpdate(match.status, { id: match.id, webUrl: match.web_url });
       if (TERMINAL_PIPELINE_STATUSES.has(match.status)) {
         return match.status === "success" ? "success" : "failed";
       }
@@ -91,12 +124,22 @@ export async function runAutoMergeJob(jobId: string, options: { auth: TGitLabAut
 
   emitJobEvent({ jobId, type: "job-step", steps: [{ key: pipelineStepKey, label: `Wait for ${dbTarget.targetBranch} pipeline`, status: "running", detail: "waiting for the pipeline to start..." }] });
 
-  const pipelineResult = await waitForPostMergePipeline(auth, dbTarget.projectId, dbTarget.targetBranch, mergeCommitSha, (status, webUrl) => {
+  const pipelineResult = await waitForPostMergePipeline(auth, dbTarget.projectId, dbTarget.targetBranch, mergeCommitSha, (status, pipeline) => {
     const isTerminal = TERMINAL_PIPELINE_STATUSES.has(status);
     emitJobEvent({
       jobId,
       type: "job-step",
-      steps: [{ key: pipelineStepKey, label: `Wait for ${dbTarget.targetBranch} pipeline`, status: isTerminal ? (status === "success" ? "success" : "failed") : "running", detail: webUrl ? `${status} — ${webUrl}` : status }],
+      steps: [
+        {
+          key: pipelineStepKey,
+          label: `Wait for ${dbTarget.targetBranch} pipeline`,
+          status: isTerminal ? (status === "success" ? "success" : "failed") : "running",
+          detail: pipeline ? undefined : status,
+          // Once GitLab reports a real pipeline, the UI renders it as the same clickable
+          // `PipelineBadge` pill the per-MR live-status row uses instead of this plain text detail.
+          pipeline: pipeline ? { id: pipeline.id, status, webUrl: pipeline.webUrl } : undefined,
+        },
+      ],
     });
   });
 

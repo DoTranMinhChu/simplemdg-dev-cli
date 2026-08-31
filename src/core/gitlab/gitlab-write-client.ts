@@ -45,8 +45,23 @@ export type TGitLabMergeRequest = {
 
 export type TGitLabPipelineSummary = { id: number; status: string; web_url: string; sha: string };
 
+/**
+ * All extra fields here already come back on GitLab's basic `GET /merge_requests/:iid` response —
+ * confirmed against a real MR (the same one GitLab's own MR page widget reads via its GraphQL
+ * `readyToMerge`/`getMergeRequestState` queries, just the REST equivalents) — so surfacing them costs
+ * zero extra API calls. `detailed_merge_status` is the same enum GitLab's UI itself branches on to
+ * decide what to show in the merge widget (`"mergeable"`, `"draft_status"`, `"conflict"`,
+ * `"discussions_not_resolved"`, `"ci_still_running"`, `"not_approved"`, ...).
+ */
 export type TGitLabMergeRequestDetail = TGitLabMergeRequest & {
   head_pipeline?: TGitLabPipelineSummary | null;
+  draft?: boolean;
+  has_conflicts?: boolean;
+  blocking_discussions_resolved?: boolean;
+  detailed_merge_status?: string;
+  merge_error?: string | null;
+  changes_count?: string | null;
+  user_notes_count?: number;
 };
 
 /** UI-agnostic: callers decide how to surface cache/refresh state (same pattern as listRootGroups/listProjects). */

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
-export type TJobStep = { key: string; label: string; status: "pending" | "running" | "success" | "failed" | "skipped"; detail?: string };
+/** `pipeline`, when set, mirrors `TMrLiveStatus["pipeline"]` — the auto-merge job's "wait for pipeline" step carries it so the UI can render the same clickable `PipelineBadge` pill the per-MR row uses. */
+export type TJobStep = { key: string; label: string; status: "pending" | "running" | "success" | "failed" | "skipped"; detail?: string; pipeline?: { id: number; status: string; webUrl: string } };
 
 export type TJobEvent = {
   channel: "job";

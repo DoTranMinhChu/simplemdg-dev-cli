@@ -68,16 +68,19 @@ function MergeRequestRow({ mr }: { mr: TDeployModelResult["mergeRequests"][numbe
   }, [mr.projectId, mr.iid]);
 
   const isMerged = status?.state === "merged";
+  const blockers = status?.blockers ?? [];
 
   return (
     <div className={`ts-step-row ${isMerged ? "success" : ""}`}>
       <span className="ts-step-icon">{isMerged ? "✓" : "–"}</span>
       <div style={{ flex: 1 }}>
-        <div>
+        <div className="row" style={{ gap: 6 }}>
           <a href={mr.webUrl} target="_blank" rel="noreferrer">{mr.pathWithNamespace} — MR</a>
+          {status?.draft && <span className="status-badge browser-auth">Draft</span>}
         </div>
         <div className="ts-step-detail row" style={{ gap: 6, alignItems: "center" }}>
           <span>{status ? status.state : "checking status..."}</span>
+          {status?.changesCount && <span>· {status.changesCount} file{status.changesCount === "1" ? "" : "s"} changed</span>}
           {status?.pipeline && (
             <>
               <span>· on {mr.targetBranch}:</span>
@@ -85,6 +88,11 @@ function MergeRequestRow({ mr }: { mr: TDeployModelResult["mergeRequests"][numbe
             </>
           )}
         </div>
+        {blockers.length > 0 && (
+          <div className="ts-step-detail" style={{ color: "var(--amber)" }}>
+            ⚠ {blockers.join(" · ")}
+          </div>
+        )}
         {mergeError && <div className="ts-step-detail" style={{ color: "var(--red)" }}>{mergeError}</div>}
       </div>
       {!isMerged && (
@@ -92,6 +100,7 @@ function MergeRequestRow({ mr }: { mr: TDeployModelResult["mergeRequests"][numbe
           size="sm"
           variant="sec"
           disabled={merging}
+          title={blockers.length ? `GitLab reports this isn't mergeable yet: ${blockers.join(", ")}. Merging is still attempted — GitLab makes the final call.` : undefined}
           onClick={async () => {
             setMerging(true);
             setMergeError(undefined);
@@ -102,7 +111,7 @@ function MergeRequestRow({ mr }: { mr: TDeployModelResult["mergeRequests"][numbe
             if (refreshed && !refreshed.error) setStatus(refreshed);
           }}
         >
-          {merging ? <Spinner /> : "Merge"}
+          {merging ? <Spinner /> : blockers.length ? "Merge anyway" : "Merge"}
         </Button>
       )}
     </div>
@@ -174,7 +183,13 @@ export function MergeRequestsPanel({ mergeRequests }: { mergeRequests: TDeployMo
                   <span className="ts-step-icon">{step.status === "running" ? <Spinner /> : step.status === "success" ? "✓" : step.status === "failed" ? "✗" : "–"}</span>
                   <div>
                     <div>{step.label}</div>
-                    {step.detail && <div className="ts-step-detail">{step.detail}</div>}
+                    {step.pipeline ? (
+                      <div className="ts-step-detail" style={{ marginTop: 4 }}>
+                        <PipelineBadge pipeline={step.pipeline} />
+                      </div>
+                    ) : (
+                      step.detail && <div className="ts-step-detail">{step.detail}</div>
+                    )}
                   </div>
                 </div>
               ))}

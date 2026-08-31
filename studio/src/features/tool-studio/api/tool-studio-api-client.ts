@@ -374,8 +374,17 @@ export type TCdsUpgradeResult = {
   skipped: TCdsUpgradeRepoOutcome[];
 };
 
-/** Mirrors `TMergeRequestStatus` in `merge-orchestrator.ts` — polled per-MR so the UI can show merge/pipeline state without the user opening GitLab. */
-export type TMrLiveStatus = { state: string; mergedAt?: string; pipeline?: { id: number; status: string; webUrl: string }; error?: string };
+/** Mirrors `TMergeRequestStatus` in `merge-orchestrator.ts` — polled per-MR so the UI can show merge/pipeline/mergeability state (draft, conflicts, unresolved discussions, GitLab's own `merge_error`) without the user opening GitLab. */
+export type TMrLiveStatus = {
+  state: string;
+  mergedAt?: string;
+  pipeline?: { id: number; status: string; webUrl: string };
+  draft?: boolean;
+  hasConflicts?: boolean;
+  changesCount?: string;
+  blockers?: string[];
+  error?: string;
+};
 
 /** Mirrors `TMergeTarget` in `merge-orchestrator.ts`. */
 export type TMergeTargetInput = { role: string; pathWithNamespace: string; projectId: number; mrIid: number; targetBranch: string };
