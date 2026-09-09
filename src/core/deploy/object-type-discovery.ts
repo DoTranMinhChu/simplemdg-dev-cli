@@ -5,7 +5,7 @@ import { fetchRawFile, fetchRepositoryTree, listProjects, normalizeBaseUrl } fro
 import type { TGitLabAuth, TGitLabGroup, TGitLabProject } from "../gitlab/gitlab-client";
 
 export type TObjectTypeRepoRole = "db" | "srv" | "srv_process" | "unknown";
-export type TCdsVersion = "cds6" | "cds7" | "cds8";
+export type TCdsVersion = "cds6" | "cds7" | "cds8" | "cds9";
 
 export type TObjectTypeRepoRef = {
   projectId: number;
@@ -203,7 +203,8 @@ function bucketCdsVersion(versionRange: string | undefined): TCdsVersion | undef
   const major = Number(match[1]);
   if (major <= 6) return "cds6";
   if (major === 7) return "cds7";
-  return "cds8"; // 8 and above (cds8 covers cds8+cds9, per the legacy tool's own convention)
+  if (major === 8) return "cds8";
+  return "cds9"; // 9 and above
 }
 
 async function computeObjectTypeDefaults(auth: TGitLabAuth, dbRepoProjectId: number, branch: string): Promise<TObjectTypeDefaultsSuggestion> {

@@ -8,7 +8,7 @@ import type { TCdsVersion } from "./object-type-discovery";
 import type { TObjectTypeMode } from "./deploy-target-store";
 
 const KNOWN_OBJECT_TYPE_MODES = new Set(["eventmesh", "eventmesh_v1.6+", "multiple_erp", "multiple_erp_central", "buma", "SAP_SF", "natrol_ecc"]);
-const KNOWN_CDS_VERSIONS = new Set(["cds6", "cds7", "cds8"]);
+const KNOWN_CDS_VERSIONS = new Set(["cds6", "cds7", "cds8", "cds9"]);
 
 type TLegacyEnvironmentEntry = {
   branch?: string;

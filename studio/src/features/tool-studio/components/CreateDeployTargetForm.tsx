@@ -10,7 +10,7 @@ import type { TDeployTarget, TGitLabGroup, TObjectTypeMode, TCdsVersion } from "
 import type { TCfTargetSummary } from "../../../api/studio-api-types";
 
 const OBJECT_TYPE_MODES: TObjectTypeMode[] = ["eventmesh", "eventmesh_v1.6+", "multiple_erp", "multiple_erp_central", "buma", "SAP_SF", "natrol_ecc", "custom"];
-const CDS_VERSIONS: TCdsVersion[] = ["cds6", "cds7", "cds8"];
+const CDS_VERSIONS: TCdsVersion[] = ["cds6", "cds7", "cds8", "cds9"];
 
 /**
  * Shared "create OR edit a deploy target" form — used by both Deploy Model and Check API External

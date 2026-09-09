@@ -266,7 +266,7 @@ export type TIncidentSearchResult = Record<string, unknown> & { jira_ticket?: st
 export type TGitLabGroup = { id: number; name: string; full_path: string; visibility?: string };
 
 export type TObjectTypeMode = "eventmesh" | "eventmesh_v1.6+" | "multiple_erp" | "multiple_erp_central" | "buma" | "SAP_SF" | "natrol_ecc" | "custom";
-export type TCdsVersion = "cds6" | "cds7" | "cds8";
+export type TCdsVersion = "cds6" | "cds7" | "cds8" | "cds9";
 
 export type TDeployTarget = {
   id: string;
