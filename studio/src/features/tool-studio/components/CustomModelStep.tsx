@@ -7,10 +7,9 @@ import { SearchableSelect } from "../../../components/common/SearchableSelect";
 import { useAsync } from "../../../hooks/useAsync";
 import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TCustomModelEdit, TCustomModelEntityView, TCustomModelField } from "../api/tool-studio-api-client";
+import { CdsFieldRow } from "./CdsFieldRow";
 import { DeployChangesPreview } from "./DeployChangesPreview";
 import { MergeRequestsPanel } from "./MergeRequestsPanel";
-
-const FIELD_TYPES = ["String", "String(10)", "String(18)", "String(40)", "LargeString", "Integer", "Decimal(15,2)", "Boolean", "Date", "DateTime", "UUID"];
 
 function emptyField(): TCustomModelField {
   return { name: "", type: "String", isKey: false, i18nLabel: "" };
@@ -46,28 +45,6 @@ function computeEdits(original: TCustomModelEntityView[], draft: TCustomModelEnt
   return edits;
 }
 
-function FieldRow({ field, onChange, onRemove }: { field: TCustomModelField; onChange: (next: TCustomModelField) => void; onRemove: () => void }): React.ReactElement {
-  return (
-    <div className="row" style={{ gap: 8, marginBottom: 6, alignItems: "center" }}>
-      <input className="input" style={{ flex: 1 }} placeholder="fieldName" value={field.name} onChange={(event) => onChange({ ...field, name: event.target.value })} />
-      <select className="select" style={{ width: 140 }} value={field.type} onChange={(event) => onChange({ ...field, type: event.target.value })}>
-        {FIELD_TYPES.map((type) => (
-          <option key={type} value={type}>
-            {type}
-          </option>
-        ))}
-      </select>
-      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, whiteSpace: "nowrap" }}>
-        <input type="checkbox" checked={field.isKey} onChange={(event) => onChange({ ...field, isKey: event.target.checked })} /> key
-      </label>
-      <input className="input" style={{ flex: 1 }} placeholder="i18n label" value={field.i18nLabel ?? ""} onChange={(event) => onChange({ ...field, i18nLabel: event.target.value })} />
-      <Button variant="sec" size="sm" onClick={onRemove}>
-        ✕
-      </Button>
-    </div>
-  );
-}
-
 function EntityCard({
   entity,
   attachOptions,
@@ -97,7 +74,7 @@ function EntityCard({
         </Button>
       </div>
       {entity.fields.map((field, index) => (
-        <FieldRow
+        <CdsFieldRow
           key={index}
           field={field}
           onChange={(next) => onChange({ ...entity, fields: entity.fields.map((existing, i) => (i === index ? next : existing)) })}

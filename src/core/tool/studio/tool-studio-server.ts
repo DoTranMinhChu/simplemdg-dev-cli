@@ -23,6 +23,7 @@ import { handleDeployModelApi } from "./routes/deploy-model-routes";
 import { handleMoveModelApi } from "./routes/move-model-routes";
 import { handleCdsUpgradeApi } from "./routes/cds-upgrade-routes";
 import { handleCustomModelApi } from "./routes/custom-model-routes";
+import { handleManualModelApi } from "./routes/manual-model-routes";
 import { handleDeployTargetApi } from "./routes/deploy-target-routes";
 import { handleNpmrcApi } from "./routes/npmrc-routes";
 import { handleAuditLogApi } from "./routes/audit-log-routes";
@@ -72,6 +73,7 @@ const API_HANDLERS: Array<(req: http.IncomingMessage, res: http.ServerResponse, 
   handleMoveModelApi,
   handleCdsUpgradeApi,
   handleCustomModelApi,
+  handleManualModelApi,
   handleDeployTargetApi,
   handleNpmrcApi,
   handleTestConfigApi,

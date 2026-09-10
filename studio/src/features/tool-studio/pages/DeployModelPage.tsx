@@ -16,16 +16,11 @@ import { EntityFieldChangesReport } from "../components/EntityFieldChangesReport
 import { EntityRenameAlert } from "../components/EntityRenameAlert";
 import { CustomModelWarningAlert } from "../components/CustomModelWarningAlert";
 import { CustomModelStep } from "../components/CustomModelStep";
+import { ManualModelEditor } from "../components/ManualModelEditor";
+import { JoinRiskList } from "../components/JoinRiskList";
 import { MergeRequestsPanel } from "../components/MergeRequestsPanel";
 import { toolStudioApi } from "../api/tool-studio-api-client";
-import type { TDeployModelResult, TDeployTarget, TDiscoveredObjectType, TJoinFieldRisk } from "../api/tool-studio-api-client";
-
-const JOIN_RISK_SEVERITY_LABEL: Record<TJoinFieldRisk["severity"], string> = {
-  critical: "Critical",
-  high: "High",
-  medium: "Medium",
-  info: "Info",
-};
+import type { TDeployModelResult, TDeployTarget, TDiscoveredObjectType } from "../api/tool-studio-api-client";
 
 function StepHead({ n, title, sub, done }: { n: number; title: string; sub?: string; done?: boolean }): React.ReactElement {
   return (
@@ -59,7 +54,15 @@ export function DeployModelPage(): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const upload = useAsync((file: File) => toolStudioApi.uploadEdmx(file));
   const preview = useAsync((uploadId: string) => toolStudioApi.previewEdmxImport(uploadId, objectType?.envObjectName, target?.objectTypeMode, objectType?.repos));
-  const changesPreview = useAsync(() => toolStudioApi.previewDeployModelChanges({ uploadId: upload.data!.uploadId, deployTargetId: target!.id, objectTypeSlug: objectType!.slug }));
+
+  // "Upload EDMX" (produces `upload.data.uploadId`) and "Edit Model Manually" (produces
+  // `manualUpload.uploadId` via `ManualModelEditor`'s `onDraftReady`) are two different ways to
+  // reach the exact same `uploadId` the rest of this page (preview/deploy) already works with —
+  // `activeUploadId` below picks whichever tab is current.
+  const [modelSource, setModelSource] = useState<"edmx" | "manual">("edmx");
+  const [manualUpload, setManualUpload] = useState<{ uploadId: string; entityName: string } | undefined>();
+  const activeUploadId = modelSource === "manual" ? manualUpload?.uploadId : upload.data?.uploadId;
+  const changesPreview = useAsync(() => toolStudioApi.previewDeployModelChanges({ uploadId: activeUploadId!, deployTargetId: target!.id, objectTypeSlug: objectType!.slug }));
 
   const [ticketCode, setTicketCode] = useState("");
   const [jobId, setJobId] = useState<string | undefined>();
@@ -79,13 +82,14 @@ export function DeployModelPage(): React.ReactElement {
     if (objectType?.repos[0]) void members.run(objectType.repos[0].projectId);
     setAssigneeId("");
     setReviewerId("");
+    setManualUpload(undefined);
     changesPreview.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [objectType]);
 
   const startJob = useAsync(() =>
     toolStudioApi.startDeployModelJob({
-      uploadId: upload.data!.uploadId,
+      uploadId: activeUploadId!,
       deployTargetId: target!.id,
       objectTypeSlug: objectType!.slug,
       ticketCode: ticketCode || undefined,
@@ -100,20 +104,17 @@ export function DeployModelPage(): React.ReactElement {
     if (event.type === "job-failed") setJobError(event.error);
   });
 
-  const canDeploy = Boolean(target && objectType && upload.data?.uploadId && !startJob.loading);
-  const sortedRisks = [...(preview.data?.joinRisks ?? [])].sort((a, b) => {
-    const order: Record<string, number> = { critical: 0, high: 1, medium: 2, info: 3 };
-    return order[a.severity] - order[b.severity];
-  });
+  const canDeploy = Boolean(target && objectType && activeUploadId && !startJob.loading);
 
   return (
     <div>
       <div className="ts-header">
         <h1>Deploy Model</h1>
         <p className="note">
-          Upload an SAP OData <code>$metadata</code> EDMX export, convert it with the real <code>cds import</code> CLI,
-          and open a merge request into the object type's db/srv/srv_process repos — the same GitLab-branch-and-MR
-          workflow the legacy tool used, but with live-discovered repos/branches instead of hardcoded environment codes.
+          Upload an SAP OData <code>$metadata</code> EDMX export (converted with the real <code>cds import</code> CLI) —
+          or, for an object type with no EDMX to upload anymore, edit the model directly — then open a merge request
+          into the object type's db/srv/srv_process repos, the same GitLab-branch-and-MR workflow the legacy tool
+          used, but with live-discovered repos/branches instead of hardcoded environment codes.
         </p>
       </div>
 
@@ -204,77 +205,100 @@ export function DeployModelPage(): React.ReactElement {
       )}
 
       {target && objectType && (
-        <div className={`dm-step${preview.data?.entityName ? " done" : ""}`}>
-          <StepHead n={4} title="Upload EDMX" sub={preview.data?.entityName} done={Boolean(preview.data?.entityName)} />
+        <div className={`dm-step${activeUploadId ? " done" : ""}`}>
+          <StepHead n={4} title="Model source" sub={modelSource === "manual" ? manualUpload?.entityName : preview.data?.entityName} done={Boolean(activeUploadId)} />
           <div className="ts-card">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xml,.edmx"
-              style={{ display: "none" }}
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (!file) return;
-                changesPreview.reset();
-                const result = await upload.run(file);
-                if (result?.uploadId) void preview.run(result.uploadId);
-              }}
-            />
-            <Button onClick={() => fileInputRef.current?.click()} disabled={upload.loading}>
-              {upload.loading ? <Spinner /> : upload.data?.fileName ? `Re-upload (currently: ${upload.data.fileName})` : "Upload EDMX metadata file"}
-            </Button>
-            {upload.error && <div className="errbox" style={{ marginTop: 8 }}>{upload.error}</div>}
+            <div className="row" style={{ marginBottom: 12 }}>
+              <Button
+                variant={modelSource === "edmx" ? "primary" : "sec"}
+                size="sm"
+                onClick={() => {
+                  setModelSource("edmx");
+                  setManualUpload(undefined);
+                  changesPreview.reset();
+                }}
+              >
+                Upload EDMX
+              </Button>
+              <Button
+                variant={modelSource === "manual" ? "primary" : "sec"}
+                size="sm"
+                onClick={() => {
+                  setModelSource("manual");
+                  upload.reset();
+                  preview.reset();
+                  changesPreview.reset();
+                }}
+              >
+                Edit Model Manually
+              </Button>
+            </div>
 
-            {preview.loading && <div className="note" style={{ marginTop: 8 }}><Spinner /> converting to CSN...</div>}
-            {preview.error && <div className="errbox" style={{ marginTop: 8 }}>{preview.error}</div>}
-            {preview.data?.joinRiskError && (
-              <div className="errbox" style={{ marginTop: 8 }}>
-                Could not scan for join risks (this same error will block Deploy too): {preview.data.joinRiskError}
-              </div>
-            )}
-            {preview.data?.renamedEntities && preview.data.renamedEntities.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <EntityRenameAlert renames={preview.data.renamedEntities} />
-              </div>
-            )}
-            {sortedRisks.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <div className="note" style={{ marginBottom: 8 }}>
-                  {sortedRisks.length} composition join warning(s) — these relations have no <code>&lt;ReferentialConstraint&gt;</code> in the
-                  source EDMX, so the join is reconstructed by matching field names, which can drop or mismatch a key.
-                </div>
-                <div className="dm-risk-list">
-                  {sortedRisks.map((risk, index) => (
-                    <div key={index} className={`dm-risk ${risk.severity}`}>
-                      <span className="dm-risk-badge">{JOIN_RISK_SEVERITY_LABEL[risk.severity]}</span>
-                      <div className="dm-risk-body">
-                        <div className="dm-risk-title">
-                          {risk.parentBusinessTable}.{risk.relationName} → {risk.targetBusinessTable}.{risk.parentKeyField}
-                        </div>
-                        <div className="dm-risk-message">{risk.message}</div>
-                      </div>
+            {modelSource === "manual" ? (
+              <ManualModelEditor deployTargetId={target.id} objectTypeSlug={objectType.slug} onDraftReady={(result) => { changesPreview.reset(); setManualUpload(result); }} />
+            ) : (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xml,.edmx"
+                  style={{ display: "none" }}
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (!file) return;
+                    changesPreview.reset();
+                    const result = await upload.run(file);
+                    if (result?.uploadId) void preview.run(result.uploadId);
+                  }}
+                />
+                <Button onClick={() => fileInputRef.current?.click()} disabled={upload.loading}>
+                  {upload.loading ? <Spinner /> : upload.data?.fileName ? `Re-upload (currently: ${upload.data.fileName})` : "Upload EDMX metadata file"}
+                </Button>
+                {upload.error && <div className="errbox" style={{ marginTop: 8 }}>{upload.error}</div>}
+
+                {preview.loading && <div className="note" style={{ marginTop: 8 }}><Spinner /> converting to CSN...</div>}
+                {preview.error && <div className="errbox" style={{ marginTop: 8 }}>{preview.error}</div>}
+                {preview.data?.joinRiskError && (
+                  <div className="errbox" style={{ marginTop: 8 }}>
+                    Could not scan for join risks (this same error will block Deploy too): {preview.data.joinRiskError}
+                  </div>
+                )}
+                {preview.data?.renamedEntities && preview.data.renamedEntities.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <EntityRenameAlert renames={preview.data.renamedEntities} />
+                  </div>
+                )}
+                {preview.data?.joinRisks && preview.data.joinRisks.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <JoinRiskList
+                      risks={preview.data.joinRisks}
+                      note={
+                        <>
+                          these relations have no <code>&lt;ReferentialConstraint&gt;</code> in the source EDMX, so the join is reconstructed by matching field names, which can drop or mismatch a key.
+                        </>
+                      }
+                    />
+                  </div>
+                )}
+                {preview.data?.entityName && (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="note" style={{ marginBottom: 6 }}>
+                      Entity: {preview.data.entityName}
+                      {preview.data.cdsDkVersion && ` · imported with @sap/cds-dk@${preview.data.cdsDkVersion} (pinned, not this machine's global install)`}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {preview.data?.entityName && (
-              <div style={{ marginTop: 12 }}>
-                <div className="note" style={{ marginBottom: 6 }}>
-                  Entity: {preview.data.entityName}
-                  {preview.data.cdsDkVersion && ` · imported with @sap/cds-dk@${preview.data.cdsDkVersion} (pinned, not this machine's global install)`}
-                </div>
-                <Collapsible summary="Parsed CSN (JSON) — click to view">
-                  <JsonView value={preview.data.csn} />
-                </Collapsible>
-              </div>
+                    <Collapsible summary="Parsed CSN (JSON) — click to view">
+                      <JsonView value={preview.data.csn} />
+                    </Collapsible>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
       )}
 
-      {target && objectType && upload.data?.uploadId && (
+      {target && objectType && activeUploadId && (
         <div className="dm-step">
           <StepHead n={5} title="Review changes" sub="what would actually be committed, before you deploy" />
           <div className="ts-card">
@@ -308,7 +332,7 @@ export function DeployModelPage(): React.ReactElement {
         </div>
       )}
 
-      {target && objectType && upload.data?.uploadId && (
+      {target && objectType && activeUploadId && (
         <div className="dm-step">
           <StepHead n={6} title="Deploy" />
           <div className="ts-card">

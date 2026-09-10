@@ -461,6 +461,14 @@ export type TCustomModelSaveResult = {
   error?: string;
 };
 
+/** Mirrors `TManualDraftField`/`TManualDraftJoinPair`/`TManualDraftRelation`/`TManualDraftEntity`/`TManualModelDraft`/`TManualModelView` in `csn-manual-editor.ts` — Deploy Model's "Edit Model Manually" tab (an alternative to "Upload EDMX" for object types with no EDMX to upload). */
+export type TManualDraftField = { name: string; type: string; isKey: boolean; i18nLabel?: string };
+export type TManualDraftJoinPair = { parentField: string; childField: string };
+export type TManualDraftRelation = { name: string; targetEntityId: string; cardinality: "one" | "many"; joinPairs: TManualDraftJoinPair[] };
+export type TManualDraftEntity = { id: string; label: string; fields: TManualDraftField[]; relations: TManualDraftRelation[] };
+export type TManualModelDraft = { rootEntityId: string; entities: TManualDraftEntity[] };
+export type TManualModelView = { namespacePrefix: string; hasExistingModel: boolean; archivePath: string; draft: TManualModelDraft; error?: string };
+
 export const toolStudioApi = {
   // Same `/api/cf/*` route module every studio backend mounts (Tool Studio's own
   // `tool-studio-server.ts` included) — see CfLoginModal.tsx for why the same modal component
@@ -613,6 +621,13 @@ export const toolStudioApi = {
     get<TCustomModelView & { error?: string }>(`/api/tool/custom-model/view?deployTargetId=${encodeURIComponent(deployTargetId)}&objectTypeSlug=${encodeURIComponent(objectTypeSlug)}`),
   previewCustomModelChanges: (input: { deployTargetId: string; objectTypeSlug: string; edits: TCustomModelEdit[] }) => post<TDeployPreviewResult>("/api/tool/custom-model/preview", input),
   saveCustomModelChanges: (input: { deployTargetId: string; objectTypeSlug: string; edits: TCustomModelEdit[] }) => post<TCustomModelSaveResult>("/api/tool/custom-model/save", input),
+
+  getManualModelView: (deployTargetId: string, objectTypeSlug: string) =>
+    get<TManualModelView>(`/api/tool/manual-model/view?deployTargetId=${encodeURIComponent(deployTargetId)}&objectTypeSlug=${encodeURIComponent(objectTypeSlug)}`),
+  validateManualModel: (input: { deployTargetId: string; objectTypeSlug: string; draft: TManualModelDraft }) =>
+    post<{ joinRisks: TJoinFieldRisk[]; error?: string }>("/api/tool/manual-model/validate", input),
+  saveManualModelDraft: (input: { deployTargetId: string; objectTypeSlug: string; draft: TManualModelDraft }) =>
+    post<{ uploadId?: string; entityName?: string; error?: string }>("/api/tool/manual-model/save-draft", input),
 
   resolveNpmrcPackageId: (groupId: number, groupPath: string) =>
     get<{ packageId?: string; source?: string; candidateProjects?: Array<{ id: number; name: string; path_with_namespace: string }>; error?: string }>(

@@ -421,14 +421,21 @@ function buildCsnWithLevel(ctx: TWalkContext, modelName: string, currentLevel: n
       businessChildren.push(targetBusinessTable);
       ctx.businessTableToTableType[targetBusinessTable] = tableType;
 
-      const relationStringList = buildDefaultRelationJoins(namespace.identityKeys, propertyName);
-      relationStringList.push(...buildExtraRelationJoins(ctx.mode, businessTable, propertyName));
-      systemKeyList.forEach((systemKey) => relationStringList.push(`${propertyName}.${systemKey} = $self.${systemKey}`));
+      const rawRelationStringList = buildDefaultRelationJoins(namespace.identityKeys, propertyName);
+      rawRelationStringList.push(...buildExtraRelationJoins(ctx.mode, businessTable, propertyName));
+      systemKeyList.forEach((systemKey) => rawRelationStringList.push(`${propertyName}.${systemKey} = $self.${systemKey}`));
       if (hasOnTokens) {
-        appendOnTokensAsRelationSegments(on, relationStringList);
+        appendOnTokensAsRelationSegments(on, rawRelationStringList);
       } else {
-        relationStringList.push(...keyIntersectionJoins);
+        rawRelationStringList.push(...keyIntersectionJoins);
       }
+      // `keyIntersectionJoins` (or, more rarely, the CSN's own `on` tokens) can legitimately
+      // rediscover the SAME clause `buildDefaultRelationJoins` already added by name-matching alone
+      // — confirmed on real data (`Characteristics.objectID`, undeclared as a key but still present)
+      // and always true for a manually-authored model (`csn-manual-editor.ts` seeds every entity with
+      // `objectID`). De-duplicated here (order-preserving) rather than upstream, since upstream still
+      // needs the untouched match to correctly decide "is there a join here at all" a few lines above.
+      const relationStringList = [...new Set(rawRelationStringList)];
 
       const header = `${propertyName} : ${compositionType} ${targetBusinessTable}`;
       level.final.push(header, ...renderOnClauseLines(relationStringList), ";");
