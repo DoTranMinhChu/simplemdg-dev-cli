@@ -608,8 +608,12 @@ export async function previewDeployModelChanges(options: Pick<TDeployModelOption
       }
       const { lines, additions, deletions } = buildFileDiff(oldContent ?? "", newContent);
       files.push({ filePath: action.file_path, changeType, additions, deletions, lines });
-      accumulateCdsEntities(oldEntities, action.file_path, oldContent);
-      accumulateCdsEntities(newEntities, action.file_path, newContent);
+      // F4 has no generated `.cds` for accumulateCdsEntities to read at all (see its `includeCsn`
+      // doc comment) — passing `isF4` here is what's needed for its "Review changes" step to show
+      // entity/field changes instead of just the raw (often misleadingly huge, see
+      // `parseCsnEntities`'s doc comment) text diff.
+      accumulateCdsEntities(oldEntities, action.file_path, oldContent, isF4);
+      accumulateCdsEntities(newEntities, action.file_path, newContent, isF4);
     }
     repoPreviews.push({ role: repo.role, pathWithNamespace: repo.pathWithNamespace, files, entityChanges: diffCdsEntities(oldEntities, newEntities) });
   }

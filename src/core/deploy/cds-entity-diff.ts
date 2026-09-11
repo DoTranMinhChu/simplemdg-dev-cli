@@ -1,7 +1,51 @@
 import { parseCdsEntities } from "./cds-model-reader";
 import type { TCdsModelEntity } from "./cds-model-reader";
+import { cdsTypeToDisplayString } from "./csn-manual-editor";
+import type { TCsnContent } from "./csn-model-types";
 
 const CDS_FILE = /\.cds$/i;
+const CSN_FILE = /\.csn$/i;
+
+/**
+ * Parses a raw `cds import`-produced CSN JSON (see `csn-model-types.ts`) into the same
+ * `TCdsModelEntity[]` shape `parseCdsEntities` derives from `.cds` text, so `diffCdsEntities` can
+ * report entity/field changes for object types with NO generated `.cds` model at all — currently
+ * only the F4 flow (see `deploy-model-job.ts`'s `isF4` branch: it archives `db/external/MDG_F4.csn`
+ * verbatim and never runs `buildDbModelForNamespace`). Without this, F4's "Review changes" step had
+ * only the raw line-level text diff to go on — misleading for this file in particular: a freshly
+ * re-exported EDMX is often minified to one giant line while an earlier, differently-configured
+ * export was pretty-printed, so the text diff shows "replace everything" even when, structurally,
+ * only a handful of entities actually changed (confirmed against a real customer's F4 upload: the
+ * line diff looked like a full rewrite while this parser showed 9 entities added, 0 removed, 3 with
+ * field changes).
+ *
+ * Skips the bare namespace/service root definition (`kind: "service"`, no `elements`) and, within
+ * each entity, splits `target`-bearing elements out as compositions/associations the same way
+ * `parseCdsEntities` does — real F4 CSNs do carry a handful of these (e.g. `SearchHelp` ->
+ * `SearchHelpField`), even though most F4 entities have none.
+ */
+export function parseCsnEntities(csn: TCsnContent, sourceFile: string): TCdsModelEntity[] {
+  const entities: TCdsModelEntity[] = [];
+  for (const [name, definition] of Object.entries(csn.definitions)) {
+    if (!definition?.elements) continue;
+
+    const fields: TCdsModelEntity["fields"] = [];
+    const keyFields: string[] = [];
+    const compositions: TCdsModelEntity["compositions"] = [];
+
+    for (const [elementName, element] of Object.entries(definition.elements)) {
+      if (element?.target) {
+        compositions.push({ field: elementName, target: element.target, cardinality: element.cardinality?.max === "*" ? "many" : "one" });
+        continue;
+      }
+      fields.push({ name: elementName, type: cdsTypeToDisplayString(element ?? {}) });
+      if (element?.key) keyFields.push(elementName);
+    }
+
+    entities.push({ name, sourceFile, keyFields, fields, compositions });
+  }
+  return entities;
+}
 
 /**
  * Field-level report row for one entity's `Move Model` diff — see `diffCdsEntities` below.
@@ -37,12 +81,34 @@ export type TCdsEntityChange = {
  * step both structural-preview callers need per changed file, before handing their accumulated
  * before/after entity lists to `diffCdsEntities` once per repo: Move Model's preview (`move-model-job.ts`,
  * reading two real branches) and Deploy Model's preview (`previewDeployModelChanges` below, reading
- * freshly-generated content against a repo's current default branch). No-ops for a non-`.cds` path or
- * `undefined` content (the file doesn't exist on this side — e.g. a brand new file being created).
+ * freshly-generated content against a repo's current default branch). No-ops for a non-`.cds`/`.csn`
+ * path or `undefined` content (the file doesn't exist on this side — e.g. a brand new file being
+ * created).
+ *
+ * `includeCsn` is opt-in (default `false`) and deliberately NOT just "always look at `.csn` files
+ * too": every normal object type's `srv/external/<Name>.csn` is the raw, EDMX-derived CSN — its
+ * definitions are keyed by TECHNICAL name (`MDG_BP.AddressFaxNumberType`), while the generated
+ * `db/final/*.cds` this function already parses for that same object type uses the BUSINESS-label
+ * name (`entity AddressFaxNumber`). Turning this on unconditionally would make every ordinary deploy's
+ * report double-count the same change under two unrelated names. It's safe (and needed) only for a
+ * flow with no generated `.cds` at all to conflict with — today, only F4's `db/external/MDG_F4.csn`
+ * (see `deploy-model-job.ts`'s `isF4` branch, which never runs `buildDbModelForNamespace`) — so
+ * callers pass `true` only there.
  */
-export function accumulateCdsEntities(target: TCdsModelEntity[], filePath: string, content: string | undefined): void {
-  if (!content || !CDS_FILE.test(filePath)) return;
-  target.push(...parseCdsEntities(content, filePath));
+export function accumulateCdsEntities(target: TCdsModelEntity[], filePath: string, content: string | undefined, includeCsn = false): void {
+  if (!content) return;
+  if (CDS_FILE.test(filePath)) {
+    target.push(...parseCdsEntities(content, filePath));
+    return;
+  }
+  if (includeCsn && CSN_FILE.test(filePath)) {
+    try {
+      target.push(...parseCsnEntities(JSON.parse(content) as TCsnContent, filePath));
+    } catch {
+      // Malformed/partial CSN shouldn't happen for real `cds import` output — skip rather than throw,
+      // matching this function's existing "no-op for content we can't structurally read" contract.
+    }
+  }
 }
 
 /**
