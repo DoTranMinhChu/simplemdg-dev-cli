@@ -434,8 +434,19 @@ async function prepareDeployArtifacts(
   const isF4 = options.objectTypeSlug === "f4";
   // Reproduce the legacy tool's `MDG_<code>.xml` rename-before-import so the CSN's root namespace
   // prefix matches the customer's real repos (see `runEdmxImport`'s doc comment) — derived from the
-  // repos' own naming convention since it isn't recoverable from the CSN/XML content itself.
-  const shortCode = !isF4 ? deriveShortCodeFromRepos(options.repos) : undefined;
+  // repos' own naming convention since it isn't recoverable from the CSN/XML content itself. This is
+  // NOT skipped for F4: its one discovered repo is always literally named `simplemdg_db_f4` (see
+  // object-type-discovery.ts's `F4_MODEL_REPO_NAME`), so `deriveShortCodeFromRepos` mechanically
+  // derives `f4` -> `MDG_F4` from it — exactly the hardcoded name legacy's `import-f4.ts` always
+  // used. Confirmed as a real bug: an earlier version special-cased F4 out of this derivation
+  // entirely, which left `entityNameOverride` (and therefore the archived file name, the pinned
+  // cds-dk version lookup, and rename detection — everything below that's gated on `entityNameOverride`
+  // being set) silently keyed off whatever the UPLOADED FILE happened to be named instead (e.g.
+  // `F4_metadata_10092026` for a real customer export) — different from `previewEdmxImport`'s own
+  // (always-on) derivation, and from whatever `db/external/MDG_F4.csn` is already committed, so a
+  // real deploy would land a stray `F4_metadata_10092026.csn`/`.xml` pair alongside — not replacing —
+  // the actual `MDG_F4.*` the rest of the db repo (`db/f4-model.cds`) actually imports from.
+  const shortCode = deriveShortCodeFromRepos(options.repos);
   const entityNameOverride = shortCode ? `MDG_${shortCode.toUpperCase()}` : undefined;
 
   const manualUpload = await resolveManualUpload(options.uploadId);
