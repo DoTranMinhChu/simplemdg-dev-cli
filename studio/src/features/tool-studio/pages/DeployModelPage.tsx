@@ -53,7 +53,7 @@ export function DeployModelPage(): React.ReactElement {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const upload = useAsync((file: File) => toolStudioApi.uploadEdmx(file));
-  const preview = useAsync((uploadId: string) => toolStudioApi.previewEdmxImport(uploadId, objectType?.envObjectName, target?.objectTypeMode, objectType?.repos));
+  const preview = useAsync((uploadId: string) => toolStudioApi.previewEdmxImport(uploadId, objectType?.envObjectName, target?.objectTypeMode, objectType?.repos, objectType?.slug));
 
   // "Upload EDMX" (produces `upload.data.uploadId`) and "Edit Model Manually" (produces
   // `manualUpload.uploadId` via `ManualModelEditor`'s `onDraftReady`) are two different ways to
@@ -84,6 +84,11 @@ export function DeployModelPage(): React.ReactElement {
     setReviewerId("");
     setManualUpload(undefined);
     changesPreview.reset();
+    // F4 has no "Edit Model Manually" tab (see the note near that button) — force back to "edmx" so
+    // a stale "manual" selection from a previously-selected object type can't leave `activeUploadId`
+    // silently stuck on the now-cleared `manualUpload`, even though the UI is showing the EDMX
+    // upload controls.
+    if (objectType?.slug === "f4") setModelSource("edmx");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [objectType]);
 
@@ -220,21 +225,34 @@ export function DeployModelPage(): React.ReactElement {
               >
                 Upload EDMX
               </Button>
-              <Button
-                variant={modelSource === "manual" ? "primary" : "sec"}
-                size="sm"
-                onClick={() => {
-                  setModelSource("manual");
-                  upload.reset();
-                  preview.reset();
-                  changesPreview.reset();
-                }}
-              >
-                Edit Model Manually
-              </Button>
+              {objectType.slug !== "f4" && (
+                <Button
+                  variant={modelSource === "manual" ? "primary" : "sec"}
+                  size="sm"
+                  onClick={() => {
+                    setModelSource("manual");
+                    upload.reset();
+                    preview.reset();
+                    changesPreview.reset();
+                  }}
+                >
+                  Edit Model Manually
+                </Button>
+              )}
             </div>
 
-            {modelSource === "manual" ? (
+            {/* F4 (Value Help) has no single root business-object entity — it's a flat bag of many
+                independent value-help entities, so the single-root-entity manual editor (and its
+                findRootModel-based validate/save) doesn't apply. The legacy tool never supported any
+                kind of manual F4 editing either, only a raw XML upload — matched here by simply not
+                offering the tab (see manual-model-routes.ts's rejectF4 for the matching server-side guard). */}
+            {objectType.slug === "f4" && (
+              <div className="note" style={{ marginBottom: 8 }}>
+                F4 (Value Help) has no single root entity, so it can only be deployed via a real EDMX upload — manual editing isn't available for it.
+              </div>
+            )}
+
+            {modelSource === "manual" && objectType.slug !== "f4" ? (
               <ManualModelEditor deployTargetId={target.id} objectTypeSlug={objectType.slug} onDraftReady={(result) => { changesPreview.reset(); setManualUpload(result); }} />
             ) : (
               <>

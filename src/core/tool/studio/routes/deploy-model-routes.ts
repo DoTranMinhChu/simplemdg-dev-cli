@@ -40,8 +40,9 @@ export async function handleDeployModelApi(req: http.IncomingMessage, res: http.
       const objectType = getString(body, "objectType") || undefined;
       const objectTypeMode = (getString(body, "objectTypeMode") || undefined) as TObjectTypeMode | undefined;
       const repos = Array.isArray(body.repos) ? (body.repos as TObjectTypeRepoRef[]) : undefined;
+      const objectTypeSlug = getString(body, "objectTypeSlug") || undefined;
       const auth = await getDefaultGitLabAuth();
-      const result = await previewEdmxImport(filePath, objectType, objectTypeMode, repos, auth ?? undefined);
+      const result = await previewEdmxImport(filePath, objectType, objectTypeMode, repos, auth ?? undefined, objectTypeSlug);
       sendJson(res, result);
     } catch (error) {
       sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);

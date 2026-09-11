@@ -76,13 +76,21 @@ async function resolveManualUpload(uploadId: string): Promise<{ entityName: stri
  */
 /**
  * `objectType`/`objectTypeMode`/`repos` are optional because they aren't always known yet at
- * preview time (e.g. the F4 flow never builds a DB model) — when given, this also runs the real
- * DB-model generator far enough to collect `joinRisks` (see `csn-model-types.ts`) WITHOUT building
- * any `CommitAction`s or touching GitLab, so the user sees composition join warnings (missing
- * `<ReferentialConstraint>`, mismatched field names — the exact issue found on a real CMIR deploy)
- * before clicking Deploy, not after. A genuine validation failure (bad `@sap.label`, etc.) is
- * reported as `joinRiskError` instead of failing the whole preview — that same error surfaces again,
- * fatally, if the user proceeds to Deploy anyway.
+ * preview time — when given, this also runs the real DB-model generator far enough to collect
+ * `joinRisks` (see `csn-model-types.ts`) WITHOUT building any `CommitAction`s or touching GitLab, so
+ * the user sees composition join warnings (missing `<ReferentialConstraint>`, mismatched field
+ * names — the exact issue found on a real CMIR deploy) before clicking Deploy, not after. A genuine
+ * validation failure (bad `@sap.label`, etc.) is reported as `joinRiskError` instead of failing the
+ * whole preview — that same error surfaces again, fatally, if the user proceeds to Deploy anyway.
+ *
+ * `objectTypeSlug === "f4"` skips the DB-model generator entirely, the same way
+ * `prepareDeployArtifacts`'s `isF4` branch does for the real deploy: F4's CSN has no single root
+ * entity whose `@sap.label` equals the object type name (`findRootModel` assumes exactly one BO
+ * root per object type — F4 is a shared, db-only bag of many independent value-help entities), so
+ * running it here would always fail with a `joinRiskError` that has nothing to do with a real join
+ * risk. The caller (`DeployModelPage`'s `objectType.envObjectName`) always sends a truthy
+ * `objectType`/`objectTypeMode` for F4 too, so this can't be inferred from either being absent —
+ * it needs the explicit slug.
  *
  * `repos` (when given) reproduces `runDeployModelJob`'s `MDG_<code>.xml` rename-before-import (see
  * `runEdmxImport`'s doc comment) so the CSN's root namespace prefix matches what the real deploy
@@ -102,6 +110,7 @@ export async function previewEdmxImport(
   objectTypeMode?: TObjectTypeMode,
   repos?: TObjectTypeRepoRef[],
   auth?: TGitLabAuth,
+  objectTypeSlug?: string,
 ): Promise<{ csn: unknown; entityName: string; joinRisks?: TJoinFieldRisk[]; joinRiskError?: string; cdsDkVersion?: string; renamedEntities?: TEntityRenameRisk[] }> {
   const shortCode = repos ? deriveShortCodeFromRepos(repos) : undefined;
   const entityNameOverride = shortCode ? `MDG_${shortCode.toUpperCase()}` : undefined;
@@ -115,7 +124,7 @@ export async function previewEdmxImport(
   const { entityName, csnContent } = await runEdmxImport(filePath, entityNameOverride, resolved?.cliPath);
   const csn = JSON.parse(csnContent) as TCsnContent;
   const renamedEntities = detectRenamedEntityLabels(resolved?.previousCsn, csn);
-  if (!objectType || !objectTypeMode) return { csn, entityName, cdsDkVersion: resolved?.version, renamedEntities };
+  if (!objectType || !objectTypeMode || objectTypeSlug === "f4") return { csn, entityName, cdsDkVersion: resolved?.version, renamedEntities };
 
   try {
     const preprocessed = preprocessCsnForMode(objectTypeMode, csn);

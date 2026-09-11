@@ -579,8 +579,8 @@ export const toolStudioApi = {
     get<{ members: TGitLabUserSummary[]; error?: string }>(`/api/tool/deploy-model/members?projectId=${projectId}&query=${encodeURIComponent(query)}`),
 
   uploadEdmx: (file: File) => uploadRawFile<{ uploadId: string; fileName: string; error?: string }>("/api/tool/deploy-model/upload", file),
-  previewEdmxImport: (uploadId: string, objectType?: string, objectTypeMode?: TObjectTypeMode, repos?: TObjectTypeRepoRef[]) =>
-    post<{ csn?: unknown; entityName?: string; joinRisks?: TJoinFieldRisk[]; joinRiskError?: string; cdsDkVersion?: string; renamedEntities?: TEntityRenameRisk[]; error?: string }>("/api/tool/deploy-model/preview", { uploadId, objectType, objectTypeMode, repos }),
+  previewEdmxImport: (uploadId: string, objectType?: string, objectTypeMode?: TObjectTypeMode, repos?: TObjectTypeRepoRef[], objectTypeSlug?: string) =>
+    post<{ csn?: unknown; entityName?: string; joinRisks?: TJoinFieldRisk[]; joinRiskError?: string; cdsDkVersion?: string; renamedEntities?: TEntityRenameRisk[]; error?: string }>("/api/tool/deploy-model/preview", { uploadId, objectType, objectTypeMode, repos, objectTypeSlug }),
   startDeployModelJob: (input: { uploadId: string; deployTargetId: string; objectTypeSlug: string; ticketCode?: string; assigneeId?: number; reviewerIds?: number[] }) =>
     post<{ jobId?: string; error?: string }>("/api/tool/deploy-model/deploy", input),
   previewDeployModelChanges: (input: { uploadId: string; deployTargetId: string; objectTypeSlug: string }) =>

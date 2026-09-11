@@ -39,9 +39,29 @@ async function resolveObjectTypeContext(deployTargetId: string, objectTypeSlug: 
   return { target, auth, objectType };
 }
 
+/**
+ * F4 (value-help) has no single root business-object entity for `findRootModel` to key off of —
+ * its archived CSN is a flat bag of many independent value-help entities (each with its own
+ * `@sap.label`), not one composition tree rooted at an entity labeled "F4 (Value Help)" (see
+ * `object-type-discovery.ts`'s `F4_MODEL_REPO_NAME` doc comment). The legacy tool never offered any
+ * kind of manual model editing for F4 either — only a raw XML upload straight into
+ * `db/external/MDG_F4.*` (see `deploy-model-job.ts`'s `isF4` branch) — so rather than let this
+ * endpoint fail deep inside `findRootModel` with a confusing "cannot find a root entity" error, fail
+ * fast here with an explanation the user can actually act on.
+ */
+function rejectF4(objectTypeSlug: string): string | undefined {
+  return objectTypeSlug === "f4" ? "F4 (Value Help) has no single root entity to edit manually — it's a flat collection of many independent value-help entities. Use \"Upload EDMX\" instead." : undefined;
+}
+
 export async function handleManualModelApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL, method: string): Promise<boolean> {
   if (url.pathname === "/api/tool/manual-model/view" && method === "GET") {
-    const resolved = await resolveObjectTypeContext(url.searchParams.get("deployTargetId") ?? "", url.searchParams.get("objectTypeSlug") ?? "");
+    const objectTypeSlug = url.searchParams.get("objectTypeSlug") ?? "";
+    const f4Rejection = rejectF4(objectTypeSlug);
+    if (f4Rejection) {
+      sendJson(res, { error: f4Rejection }, 400);
+      return true;
+    }
+    const resolved = await resolveObjectTypeContext(url.searchParams.get("deployTargetId") ?? "", objectTypeSlug);
     if ("error" in resolved) {
       sendJson(res, { error: resolved.error }, resolved.status);
       return true;
@@ -56,7 +76,13 @@ export async function handleManualModelApi(req: http.IncomingMessage, res: http.
 
   if (url.pathname === "/api/tool/manual-model/validate" && method === "POST") {
     const body = await readJsonBody(req);
-    const resolved = await resolveObjectTypeContext(getString(body, "deployTargetId"), getString(body, "objectTypeSlug"));
+    const objectTypeSlug = getString(body, "objectTypeSlug");
+    const f4Rejection = rejectF4(objectTypeSlug);
+    if (f4Rejection) {
+      sendJson(res, { joinRisks: [], error: f4Rejection });
+      return true;
+    }
+    const resolved = await resolveObjectTypeContext(getString(body, "deployTargetId"), objectTypeSlug);
     if ("error" in resolved) {
       sendJson(res, { error: resolved.error }, resolved.status);
       return true;
@@ -76,7 +102,13 @@ export async function handleManualModelApi(req: http.IncomingMessage, res: http.
 
   if (url.pathname === "/api/tool/manual-model/save-draft" && method === "POST") {
     const body = await readJsonBody(req);
-    const resolved = await resolveObjectTypeContext(getString(body, "deployTargetId"), getString(body, "objectTypeSlug"));
+    const objectTypeSlug = getString(body, "objectTypeSlug");
+    const f4Rejection = rejectF4(objectTypeSlug);
+    if (f4Rejection) {
+      sendJson(res, { error: f4Rejection }, 400);
+      return true;
+    }
+    const resolved = await resolveObjectTypeContext(getString(body, "deployTargetId"), objectTypeSlug);
     if ("error" in resolved) {
       sendJson(res, { error: resolved.error }, resolved.status);
       return true;
