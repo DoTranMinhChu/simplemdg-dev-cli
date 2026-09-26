@@ -1,13 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../../components/common/Button";
 import { Spinner } from "../../../components/common/Spinner";
 import { EmptyState } from "../../../components/common/EmptyState";
+import { Icon } from "../../../components/common/Icon";
 import { SearchableSelect } from "../../../components/common/SearchableSelect";
 import { useAsync } from "../../../hooks/useAsync";
 import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TManualDraftEntity, TManualDraftField, TManualDraftRelation, TManualModelDraft } from "../api/tool-studio-api-client";
-import { CdsFieldRow } from "./CdsFieldRow";
 import { JoinRiskList } from "./JoinRiskList";
+import { ErdWorkspace } from "./erd/ErdWorkspace";
+import { FieldGrid } from "./erd/FieldGrid";
+import type { TErdEdge, TErdEntity, TErdFocusRequest } from "./erd/erd-types";
+import { buildErdTree } from "./erd/erd-layout";
 
 /**
  * Alternative to Deploy Model's "Upload EDMX" tab for object types that no longer have an EDMX to
@@ -138,80 +142,133 @@ function JoinPairEditor({ parent, target, relation, onChange }: { parent: TManua
   );
 }
 
-function ManualEntityCard({
+function RelationRow({
+  parent,
+  relation,
+  target,
+  onChange,
+  onRemove,
+  onOpenTarget,
+  isBackLink,
+}: {
+  parent: TManualDraftEntity;
+  relation: TManualDraftRelation;
+  target: TManualDraftEntity | undefined;
+  onChange: (next: TManualDraftRelation) => void;
+  onRemove: () => void;
+  onOpenTarget: () => void;
+  isBackLink: boolean;
+}): React.ReactElement {
+  const [showJoins, setShowJoins] = useState(false);
+  return (
+    <div className={`erd-relation${isBackLink ? " back-link" : ""}`}>
+      <div className="erd-relation-head">
+        <span className="mono erd-relation-name" title={relation.name}>{relation.name}</span>
+        <span className="note">→</span>
+        <button type="button" className="erd-link" onClick={onOpenTarget} title="Select this entity">
+          {target?.label ?? relation.targetEntityId}
+        </button>
+        {isBackLink && (
+          <span className="erd-tag" title="Points back up to an ancestor of this entity — hidden on the diagram unless Parent links is on">
+            parent link
+          </span>
+        )}
+        <span className="erd-toolbar-spacer" />
+        <select className="erd-cell erd-cardinality" value={relation.cardinality} onChange={(event) => onChange({ ...relation, cardinality: event.target.value as "one" | "many" })} title="Cardinality">
+          <option value="many">many (*)</option>
+          <option value="one">one (1)</option>
+        </select>
+        <button type="button" className="erd-chip-btn" onClick={() => setShowJoins((value) => !value)} title="Extra join keys beyond the automatic objectID match">
+          join keys{relation.joinPairs.length ? ` (${relation.joinPairs.length})` : ""} {showJoins ? "▴" : "▾"}
+        </button>
+        <button type="button" className="erd-row-delete" onClick={onRemove} title={`Remove ${relation.name}`}>
+          <Icon name="x" />
+        </button>
+      </div>
+      {showJoins && <JoinPairEditor parent={parent} target={target} relation={relation} onChange={onChange} />}
+    </div>
+  );
+}
+
+/** Right-hand inspector for the selected entity: name + path from the root, fields grid, child compositions (with join keys, parent links last), and "add child". */
+function ManualEntityInspector({
   entity,
   isRoot,
   allEntities,
-  onChangeLabel,
+  onChange,
   onDelete,
-  onUpdateField,
-  onAddField,
-  onRemoveField,
-  onUpdateRelation,
-  onRemoveRelation,
   onAddRelation,
+  onOpenEntity,
+  ancestors,
+  backLinkRelationNames,
 }: {
   entity: TManualDraftEntity;
   isRoot: boolean;
   allEntities: TManualDraftEntity[];
-  onChangeLabel: (label: string) => void;
+  /** Root-first path down to (not including) this entity, from the diagram's spanning tree. */
+  ancestors: TManualDraftEntity[];
+  backLinkRelationNames: ReadonlySet<string>;
+  onChange: (next: TManualDraftEntity) => void;
   onDelete: () => void;
-  onUpdateField: (index: number, next: TManualDraftField) => void;
-  onAddField: () => void;
-  onRemoveField: (index: number) => void;
-  onUpdateRelation: (index: number, next: TManualDraftRelation) => void;
-  onRemoveRelation: (index: number) => void;
   onAddRelation: (input: TAddChildInput) => void;
+  onOpenEntity: (id: string) => void;
 }): React.ReactElement {
   const [addingChild, setAddingChild] = useState(false);
+  // Forward relations first — the children are what people come here to edit; parent links sort last.
+  const relations = entity.relations
+    .map((relation, index) => ({ relation, index, isBackLink: backLinkRelationNames.has(relation.name) }))
+    .sort((a, b) => Number(a.isBackLink) - Number(b.isBackLink));
+  const childCount = relations.filter((item) => !item.isBackLink).length;
+
+  useEffect(() => setAddingChild(false), [entity.id]);
 
   return (
-    <div className="ts-card" style={{ marginBottom: 12 }}>
-      <div className="row" style={{ gap: 8, marginBottom: 8, alignItems: "center" }}>
-        <input className="input" style={{ flex: 1 }} value={entity.label} disabled={isRoot} onChange={(event) => onChangeLabel(event.target.value)} />
-        {isRoot ? <span className="note">ROOT — name fixed to the object type</span> : <span className="note">{entity.id}</span>}
-        {!isRoot && (
-          <Button variant="sec" size="sm" onClick={onDelete}>
-            Delete entity
-          </Button>
+    <div className="erd-inspector-body">
+      <div className="erd-inspector-head">
+        <div className="erd-inspector-kicker">{isRoot ? "Root entity" : "Entity"}</div>
+        <input className="input erd-inspector-title" value={entity.label} disabled={isRoot} onChange={(event) => onChange({ ...entity, label: event.target.value })} title={isRoot ? "The root's name is fixed to the object type" : undefined} />
+        <div className="erd-inspector-sub mono" title={entity.id}>{entity.id}</div>
+        {ancestors.length > 0 && (
+          <div className="erd-breadcrumb" title="Path from the root entity">
+            {ancestors.map((ancestor) => (
+              <span key={ancestor.id}>
+                <button type="button" className="erd-link" onClick={() => onOpenEntity(ancestor.id)}>{ancestor.label}</button>
+                <span className="erd-breadcrumb-sep">›</span>
+              </span>
+            ))}
+            <span>{entity.label}</span>
+          </div>
         )}
       </div>
 
-      {entity.fields.map((field, index) => (
-        <CdsFieldRow key={index} field={field} disableNameEdit={field.name === "objectID"} onRemove={field.name === "objectID" ? undefined : () => onRemoveField(index)} onChange={(next) => onUpdateField(index, next)} />
-      ))}
-      <Button variant="sec" size="sm" onClick={onAddField}>
-        + Add field
-      </Button>
+      <section className="erd-section">
+        <div className="erd-section-title">Fields · {entity.fields.length}</div>
+        <FieldGrid
+          fields={entity.fields}
+          lockedFieldNames={LOCKED_FIELDS}
+          newField={(): TManualDraftField => ({ name: "", type: "String(10)", isKey: false })}
+          onChange={(fields) => onChange({ ...entity, fields })}
+        />
+      </section>
 
-      {entity.relations.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <div className="note" style={{ marginBottom: 6 }}>
-            Child compositions
-          </div>
-          {entity.relations.map((relation, index) => {
-            const target = allEntities.find((candidate) => candidate.id === relation.targetEntityId);
-            return (
-              <div key={index} className="ts-card" style={{ marginBottom: 8 }}>
-                <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                  <strong>{relation.name}</strong>
-                  <span className="note">→ {target?.label ?? relation.targetEntityId}</span>
-                  <select className="select" value={relation.cardinality} onChange={(event) => onUpdateRelation(index, { ...relation, cardinality: event.target.value as "one" | "many" })}>
-                    <option value="many">Composition of many</option>
-                    <option value="one">Composition of one</option>
-                  </select>
-                  <Button variant="sec" size="sm" onClick={() => onRemoveRelation(index)}>
-                    Remove
-                  </Button>
-                </div>
-                <JoinPairEditor parent={entity} target={target} relation={relation} onChange={(next) => onUpdateRelation(index, next)} />
-              </div>
-            );
-          })}
+      <section className="erd-section">
+        <div className="erd-section-title">
+          Child entities · {childCount}
+          {relations.length > childCount ? ` (+${relations.length - childCount} parent link${relations.length - childCount === 1 ? "" : "s"})` : ""}
         </div>
-      )}
-
-      <div style={{ marginTop: 12 }}>
+        {!childCount && <div className="note">No child entities yet.</div>}
+        {relations.map(({ relation, index, isBackLink }) => (
+          <RelationRow
+            key={`${relation.name}-${index}`}
+            isBackLink={isBackLink}
+            parent={entity}
+            relation={relation}
+            target={allEntities.find((candidate) => candidate.id === relation.targetEntityId)}
+            onChange={(next) => onChange({ ...entity, relations: entity.relations.map((existing, i) => (i === index ? next : existing)) })}
+            onRemove={() => onChange({ ...entity, relations: entity.relations.filter((_, i) => i !== index) })}
+            onOpenTarget={() => onOpenEntity(relation.targetEntityId)}
+          />
+        ))}
         {addingChild ? (
           <AddChildForm
             parent={entity}
@@ -223,34 +280,66 @@ function ManualEntityCard({
             }}
           />
         ) : (
-          <Button variant="ghost" size="sm" onClick={() => setAddingChild(true)}>
-            + Add child entity
-          </Button>
+          <button type="button" className="erd-add-row" onClick={() => setAddingChild(true)}>
+            <Icon name="plus" /> Add child entity
+          </button>
         )}
-      </div>
+      </section>
+
+      {!isRoot && (
+        <section className="erd-section erd-danger">
+          <Button variant="danger" size="sm" onClick={onDelete}>
+            Delete entity
+          </Button>
+          <span className="note">Also removes every composition pointing at it.</span>
+        </section>
+      )}
     </div>
   );
+}
+
+/** `objectID` is mandatory on every manual-model entity (see `createEmptyDraftEntity`) — shown, but never renamable or removable. */
+const LOCKED_FIELDS: ReadonlySet<string> = new Set(["objectID"]);
+
+function toErd(draft: TManualModelDraft): { entities: TErdEntity[]; edges: TErdEdge[] } {
+  const ids = new Set(draft.entities.map((entity) => entity.id));
+  return {
+    entities: draft.entities.map((entity) => ({ id: entity.id, title: entity.label, subtitle: entity.id.split(".").pop(), kind: entity.id === draft.rootEntityId ? "root" : "entity", fields: entity.fields })),
+    edges: draft.entities.flatMap((entity) =>
+      entity.relations
+        .filter((relation) => ids.has(relation.targetEntityId))
+        .map((relation) => ({ id: `${entity.id}:${relation.name}`, source: entity.id, target: relation.targetEntityId, label: relation.name, cardinality: relation.cardinality, kind: "composition" as const })),
+    ),
+  };
 }
 
 export function ManualModelEditor({ deployTargetId, objectTypeSlug, onDraftReady }: { deployTargetId: string; objectTypeSlug: string; onDraftReady: (result: { uploadId: string; entityName: string }) => void }): React.ReactElement {
   const view = useAsync(() => toolStudioApi.getManualModelView(deployTargetId, objectTypeSlug));
   const [draft, setDraft] = useState<TManualModelDraft | undefined>();
   const [namespacePrefix, setNamespacePrefix] = useState("");
+  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [focusRequest, setFocusRequest] = useState<TErdFocusRequest | undefined>();
   const validate = useAsync((currentDraft: TManualModelDraft) => toolStudioApi.validateManualModel({ deployTargetId, objectTypeSlug, draft: currentDraft }));
   const saveDraft = useAsync((currentDraft: TManualModelDraft) => toolStudioApi.saveManualModelDraft({ deployTargetId, objectTypeSlug, draft: currentDraft }));
 
   useEffect(() => {
     setDraft(undefined);
+    setSelectedId(undefined);
     validate.reset();
     saveDraft.reset();
     void view.run().then((result) => {
       if (result && !result.error) {
         setDraft(result.draft);
         setNamespacePrefix(result.namespacePrefix);
+        setSelectedId(result.draft.rootEntityId);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deployTargetId, objectTypeSlug]);
+
+  const erd = useMemo(() => (draft ? toErd(draft) : { entities: [], edges: [] }), [draft]);
+  // Same spanning tree the canvas lays out — drives the inspector's breadcrumb and "parent link" tags.
+  const tree = useMemo(() => buildErdTree(erd.entities, erd.edges, draft?.rootEntityId), [erd, draft?.rootEntityId]);
 
   if (view.loading || (!draft && !view.error && !view.data?.error)) {
     return (
@@ -261,6 +350,11 @@ export function ManualModelEditor({ deployTargetId, objectTypeSlug, onDraftReady
   }
   if (view.error || view.data?.error || !draft) return <div className="errbox">{view.error || view.data?.error || "Failed to load the current model."}</div>;
 
+  function openEntity(id: string): void {
+    setSelectedId(id);
+    setFocusRequest({ id, token: Date.now() });
+  }
+
   function updateEntity(id: string, updater: (entity: TManualDraftEntity) => TManualDraftEntity): void {
     setDraft((prev) => (prev ? { ...prev, entities: prev.entities.map((entity) => (entity.id === id ? updater(entity) : entity)) } : prev));
   }
@@ -270,6 +364,7 @@ export function ManualModelEditor({ deployTargetId, objectTypeSlug, onDraftReady
       if (!prev || id === prev.rootEntityId) return prev;
       return { ...prev, entities: prev.entities.filter((entity) => entity.id !== id).map((entity) => ({ ...entity, relations: entity.relations.filter((relation) => relation.targetEntityId !== id) })) };
     });
+    setSelectedId(draft?.rootEntityId);
   }
 
   function addChildRelation(parentId: string, input: TAddChildInput): void {
@@ -302,6 +397,15 @@ export function ManualModelEditor({ deployTargetId, objectTypeSlug, onDraftReady
     });
   }
 
+  const selected = draft.entities.find((entity) => entity.id === selectedId);
+  const byId = new Map(draft.entities.map((entity) => [entity.id, entity]));
+  const ancestors: TManualDraftEntity[] = [];
+  for (let current = selected && tree.parentOf.get(selected.id); current; current = tree.parentOf.get(current)) {
+    const ancestor = byId.get(current);
+    if (ancestor) ancestors.unshift(ancestor);
+  }
+  const backLinkRelationNames = new Set(selected ? selected.relations.filter((relation) => tree.backLinkEdgeIds.has(`${selected.id}:${relation.name}`)).map((relation) => relation.name) : []);
+
   return (
     <div>
       {!view.data?.hasExistingModel && (
@@ -310,37 +414,48 @@ export function ManualModelEditor({ deployTargetId, objectTypeSlug, onDraftReady
         </div>
       )}
 
-      {draft.entities.map((entity) => (
-        <ManualEntityCard
-          key={entity.id}
-          entity={entity}
-          isRoot={entity.id === draft.rootEntityId}
-          allEntities={draft.entities}
-          onChangeLabel={(label) => updateEntity(entity.id, (current) => ({ ...current, label }))}
-          onDelete={() => deleteEntity(entity.id)}
-          onUpdateField={(index, next) => updateEntity(entity.id, (current) => ({ ...current, fields: current.fields.map((field, i) => (i === index ? next : field)) }))}
-          onAddField={() => updateEntity(entity.id, (current) => ({ ...current, fields: [...current.fields, { name: "", type: "String(10)", isKey: false }] }))}
-          onRemoveField={(index) => updateEntity(entity.id, (current) => ({ ...current, fields: current.fields.filter((_, i) => i !== index) }))}
-          onUpdateRelation={(index, next) => updateEntity(entity.id, (current) => ({ ...current, relations: current.relations.map((relation, i) => (i === index ? next : relation)) }))}
-          onRemoveRelation={(index) => updateEntity(entity.id, (current) => ({ ...current, relations: current.relations.filter((_, i) => i !== index) }))}
-          onAddRelation={(input) => addChildRelation(entity.id, input)}
-        />
-      ))}
-
-      <div className="row" style={{ marginTop: 12 }}>
-        <Button variant="sec" onClick={() => void validate.run(draft)} disabled={validate.loading}>
-          {validate.loading ? <Spinner /> : "Validate"}
-        </Button>
-        <Button
-          onClick={async () => {
-            const result = await saveDraft.run(draft);
-            if (result?.uploadId && result.entityName) onDraftReady({ uploadId: result.uploadId, entityName: result.entityName });
-          }}
-          disabled={saveDraft.loading}
-        >
-          {saveDraft.loading ? <Spinner /> : "Use this model"}
-        </Button>
-      </div>
+      <ErdWorkspace
+        entities={erd.entities}
+        edges={erd.edges}
+        rootId={draft.rootEntityId}
+        selectedId={selectedId}
+        onSelect={setSelectedId}
+        focusRequest={focusRequest}
+        actions={
+          <>
+            <Button variant="sec" size="sm" onClick={() => void validate.run(draft)} disabled={validate.loading}>
+              {validate.loading ? <Spinner /> : "Validate"}
+            </Button>
+            <Button
+              size="sm"
+              onClick={async () => {
+                const result = await saveDraft.run(draft);
+                if (result?.uploadId && result.entityName) onDraftReady({ uploadId: result.uploadId, entityName: result.entityName });
+              }}
+              disabled={saveDraft.loading}
+            >
+              {saveDraft.loading ? <Spinner /> : "Use this model"}
+            </Button>
+          </>
+        }
+        inspector={
+          selected ? (
+            <ManualEntityInspector
+              entity={selected}
+              isRoot={selected.id === draft.rootEntityId}
+              allEntities={draft.entities}
+              onChange={(next) => updateEntity(selected.id, () => next)}
+              onDelete={() => deleteEntity(selected.id)}
+              onAddRelation={(input) => addChildRelation(selected.id, input)}
+              onOpenEntity={openEntity}
+              ancestors={ancestors}
+              backLinkRelationNames={backLinkRelationNames}
+            />
+          ) : (
+            <div className="erd-inspector-empty note">Select an entity on the diagram to edit it.</div>
+          )
+        }
+      />
 
       {validate.error && <div className="errbox" style={{ marginTop: 8 }}>{validate.error}</div>}
       {validate.data?.error && <div className="errbox" style={{ marginTop: 8 }}>{validate.data.error}</div>}

@@ -7067,3 +7067,625 @@ td.cell-active {
 .ts-doc-content .ProseMirror ol {
    padding-left: 1.4em;
 }
+/* --- ERD model editor (erd-*) — shared by Deploy Model manual editor and Custom Model ----------
+   Canvas (React Flow) on the left for seeing/picking, inspector on the right for editing. */
+
+.erd-workspace {
+   display: flex;
+   flex-direction: column;
+   height: 72vh;
+   min-height: 520px;
+   border: 1px solid var(--border);
+   border-radius: var(--radius-lg);
+   background: var(--bg-2);
+   overflow: hidden;
+}
+
+.erd-workspace.fullscreen {
+   position: fixed;
+   inset: 0;
+   z-index: 900;
+   height: 100vh;
+   border-radius: 0;
+   border: none;
+}
+
+.erd-workspace .mono {
+   font-family: Consolas, "Cascadia Code", monospace;
+}
+
+.erd-toolbar {
+   display: flex;
+   align-items: center;
+   flex-wrap: wrap;
+   gap: 8px;
+   padding: 8px 10px;
+   border-bottom: 1px solid var(--border);
+   background: var(--panel);
+}
+
+.erd-toolbar .searchbox {
+   width: 240px;
+}
+
+.erd-toolbar-spacer {
+   flex: 1;
+}
+
+.erd-toggle {
+   display: inline-flex;
+   align-items: center;
+   gap: 5px;
+   font-size: var(--font-size-sm);
+   color: var(--muted);
+   white-space: nowrap;
+   cursor: pointer;
+}
+
+.erd-body {
+   flex: 1;
+   min-height: 0;
+   display: grid;
+   grid-template-columns: minmax(0, 1fr) 6px 480px;
+}
+
+.erd-canvas {
+   position: relative;
+   min-width: 0;
+   background: var(--bg);
+}
+
+.erd-canvas-loading {
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   gap: 8px;
+   height: 100%;
+   color: var(--muted);
+}
+
+.erd-resizer {
+   cursor: col-resize;
+   background: var(--border);
+   background-clip: content-box;
+   padding: 0 2.5px;
+   transition: background-color .12s ease;
+}
+
+.erd-resizer:hover,
+.erd-resizer:active {
+   background-color: var(--accent);
+   padding: 0 1.5px;
+}
+
+.erd-inspector {
+   background: var(--panel);
+   overflow-y: auto;
+   min-width: 0;
+}
+
+.erd-inspector-empty {
+   padding: 24px 18px;
+}
+
+.erd-inspector-body {
+   display: flex;
+   flex-direction: column;
+}
+
+.erd-inspector-head {
+   padding: 14px 16px 12px;
+   border-bottom: 1px solid var(--border);
+   display: flex;
+   flex-direction: column;
+   gap: 4px;
+}
+
+.erd-inspector-kicker {
+   font-size: 10.5px;
+   font-weight: 600;
+   letter-spacing: 0.08em;
+   text-transform: uppercase;
+   color: var(--faint);
+}
+
+.erd-inspector-title {
+   font-size: var(--font-size-md);
+   font-weight: 600;
+}
+
+.erd-inspector-name {
+   font-size: var(--font-size-md);
+   font-weight: 600;
+   color: var(--text);
+   word-break: break-all;
+}
+
+.erd-inspector-sub {
+   font-size: var(--font-size-xs);
+   color: var(--muted);
+   overflow: hidden;
+   text-overflow: ellipsis;
+}
+
+.erd-section {
+   padding: 12px 16px;
+   border-bottom: 1px solid var(--border);
+   display: flex;
+   flex-direction: column;
+   gap: 6px;
+}
+
+.erd-section-title {
+   font-size: var(--font-size-xs);
+   font-weight: 600;
+   letter-spacing: 0.05em;
+   text-transform: uppercase;
+   color: var(--muted);
+}
+
+.erd-danger {
+   flex-direction: row;
+   align-items: center;
+   gap: 10px;
+   border-bottom: none;
+}
+
+.erd-link {
+   background: none;
+   border: none;
+   padding: 0;
+   color: var(--accent);
+   font: inherit;
+   cursor: pointer;
+   text-align: left;
+}
+
+.erd-link:hover {
+   text-decoration: underline;
+}
+
+/* Field grid: one 28px row per field instead of a 40px row of full-size inputs. */
+.erd-fieldgrid-bar {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   margin-bottom: 6px;
+}
+
+.erd-fieldgrid-filter {
+   flex: 1;
+   height: 28px;
+   font-size: var(--font-size-sm);
+}
+
+.erd-fieldgrid-scroll {
+   max-height: 46vh;
+   overflow: auto;
+   border: 1px solid var(--border);
+   border-radius: var(--radius-md);
+}
+
+.erd-workspace.fullscreen .erd-fieldgrid-scroll {
+   max-height: 60vh;
+}
+
+.erd-fieldgrid-table {
+   width: 100%;
+   border-collapse: collapse;
+   table-layout: fixed;
+   font-size: var(--font-size-sm);
+}
+
+.erd-fieldgrid-table th {
+   position: sticky;
+   top: 0;
+   z-index: 1;
+   background: var(--bg-3);
+   color: var(--muted);
+   font-weight: 600;
+   text-align: left;
+   padding: 5px 6px;
+   border-bottom: 1px solid var(--border);
+}
+
+.erd-fieldgrid-table td {
+   padding: 0;
+   height: 28px;
+   border-bottom: 1px solid rgba(56, 73, 108, .45);
+   color: var(--text);
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+/* Read-only cells hold plain text, so they need the padding an input would otherwise provide. */
+.erd-fieldgrid-table td.mono,
+.erd-fieldgrid-table td.plain {
+   padding-left: 6px;
+}
+
+.erd-fieldgrid-table tr:hover td {
+   background: var(--bg-3);
+}
+
+.erd-fieldgrid-table tr.is-key td {
+   background: rgba(251, 191, 36, .05);
+}
+
+.erd-fieldgrid-table tr.has-problem td {
+   background: rgba(239, 68, 68, .10);
+}
+
+.erd-fieldgrid-table .col-key {
+   width: 30px;
+   text-align: center;
+   color: var(--amber);
+}
+
+.erd-fieldgrid-table .col-type {
+   width: 106px;
+}
+
+.erd-fieldgrid-table .col-del {
+   width: 28px;
+   text-align: center;
+}
+
+.erd-cell {
+   width: 100%;
+   height: 27px;
+   background: transparent;
+   border: 1px solid transparent;
+   border-radius: 4px;
+   color: var(--text);
+   font-size: var(--font-size-sm);
+   padding: 0 6px;
+   outline: none;
+}
+
+.erd-cell:hover {
+   border-color: var(--border);
+}
+
+.erd-cell:focus {
+   border-color: var(--accent);
+   background: var(--bg);
+}
+
+.erd-cell:disabled {
+   color: var(--muted);
+   cursor: not-allowed;
+}
+
+select.erd-cell {
+   cursor: pointer;
+}
+
+select.erd-cell option {
+   background: var(--panel);
+}
+
+.erd-key-toggle,
+.erd-row-delete {
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   width: 22px;
+   height: 22px;
+   border: none;
+   border-radius: 4px;
+   background: transparent;
+   color: var(--faint);
+   cursor: pointer;
+   padding: 0;
+}
+
+.erd-key-toggle:hover:not(:disabled) {
+   color: var(--amber);
+   background: var(--chip);
+}
+
+.erd-key-toggle.on {
+   color: var(--amber);
+}
+
+.erd-key-toggle:disabled {
+   cursor: not-allowed;
+}
+
+.erd-row-delete {
+   opacity: 0;
+}
+
+tr:hover .erd-row-delete,
+.erd-relation-head:hover .erd-row-delete,
+.erd-row-delete:focus-visible {
+   opacity: 1;
+}
+
+.erd-row-delete:hover {
+   color: var(--red);
+   background: rgba(239, 68, 68, .14);
+}
+
+.erd-add-row {
+   display: inline-flex;
+   align-items: center;
+   gap: 6px;
+   align-self: flex-start;
+   margin-top: 4px;
+   padding: 4px 8px;
+   border: 1px dashed var(--border);
+   border-radius: var(--radius-md);
+   background: transparent;
+   color: var(--muted);
+   font-size: var(--font-size-sm);
+   cursor: pointer;
+}
+
+.erd-add-row:hover {
+   color: var(--text);
+   border-color: var(--accent);
+}
+
+/* Relations list in the inspector. */
+.erd-relation {
+   border: 1px solid var(--border);
+   border-radius: var(--radius-md);
+   padding: 4px 6px;
+   background: var(--bg-2);
+}
+
+.erd-relation-head {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+   min-height: 28px;
+   font-size: var(--font-size-sm);
+}
+
+.erd-relation-name {
+   color: var(--text);
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+   max-width: 48%;
+   flex: 0 1 auto;
+}
+
+.erd-cardinality {
+   width: auto;
+   padding-right: 2px;
+}
+
+.erd-relation.back-link {
+   opacity: 0.7;
+   border-style: dashed;
+}
+
+.erd-tag {
+   font-size: 10px;
+   color: var(--muted);
+   border: 1px solid var(--border);
+   border-radius: var(--radius-full);
+   padding: 0 6px;
+   white-space: nowrap;
+}
+
+.erd-breadcrumb {
+   display: flex;
+   flex-wrap: wrap;
+   align-items: center;
+   gap: 2px;
+   font-size: var(--font-size-xs);
+   color: var(--muted);
+}
+
+.erd-breadcrumb-sep {
+   margin: 0 4px;
+   color: var(--faint);
+}
+
+/* Name gets the most room — technical names are long and are what people scan for. */
+.erd-fieldgrid-table .col-label {
+   width: 34%;
+}
+
+.erd-chip-btn {
+   border: 1px solid var(--border);
+   border-radius: var(--radius-full);
+   background: transparent;
+   color: var(--muted);
+   font-size: var(--font-size-xs);
+   padding: 2px 8px;
+   cursor: pointer;
+   white-space: nowrap;
+}
+
+.erd-chip-btn:hover {
+   color: var(--text);
+   border-color: var(--border-strong);
+}
+
+/* Entity nodes on the canvas. Kind colors: root = accent, entity = teal, custom = violet, generated = muted. */
+.erd-node {
+   --kind: var(--teal);
+   background: var(--panel);
+   border: 1px solid var(--border);
+   border-top: 3px solid var(--kind);
+   border-radius: 8px;
+   box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+   font-size: 12px;
+   color: var(--text);
+   transition: opacity .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+
+.erd-node.kind-root { --kind: var(--accent); }
+.erd-node.kind-custom { --kind: var(--violet); }
+.erd-node.kind-generated { --kind: var(--faint); }
+
+.erd-node.selected {
+   border-color: var(--kind);
+   box-shadow: 0 0 0 2px var(--kind), 0 6px 20px rgba(0, 0, 0, .45);
+}
+
+.erd-node.dimmed {
+   opacity: 0.25;
+}
+
+.erd-node-header {
+   padding: 6px 10px 5px;
+   border-bottom: 1px solid var(--border);
+   background: var(--bg-3);
+   border-radius: 5px 5px 0 0;
+}
+
+.erd-node-title {
+   font-weight: 600;
+   font-size: 13px;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.erd-node-meta {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+   color: var(--muted);
+   font-size: 10.5px;
+   min-width: 0;
+}
+
+.erd-node-badge {
+   color: var(--kind);
+   font-weight: 700;
+   letter-spacing: 0.06em;
+}
+
+.erd-node-subtitle {
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+   color: var(--faint);
+}
+
+.erd-node-rows {
+   padding: 3px 0 4px;
+}
+
+.erd-node-row {
+   display: grid;
+   grid-template-columns: 18px minmax(0, 1fr) auto;
+   align-items: center;
+   gap: 4px;
+   height: 22px;
+   padding: 0 10px 0 6px;
+   font-family: Consolas, "Cascadia Code", monospace;
+   font-size: 11.5px;
+}
+
+.erd-node-row.key .erd-node-field {
+   font-weight: 700;
+}
+
+.erd-node-key {
+   display: inline-flex;
+   color: var(--amber);
+}
+
+.erd-node-key svg.ic {
+   width: 12px;
+   height: 12px;
+}
+
+.erd-node-field {
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.erd-node-type {
+   color: var(--muted);
+   font-size: 10.5px;
+}
+
+.erd-node-more {
+   padding: 2px 10px 0 28px;
+   color: var(--faint);
+   font-size: 11px;
+   font-style: italic;
+}
+
+.erd-handle {
+   opacity: 0;
+   pointer-events: none;
+}
+
+/* React Flow chrome, re-themed to the studio palette. */
+.erd-canvas .react-flow {
+   --xy-background-color: var(--bg);
+   --xy-background-pattern-color: #26324a;
+   --xy-edge-stroke: #5b7aa8;
+   --xy-edge-stroke-selected: var(--accent);
+   --xy-edge-label-background-color: var(--bg-3);
+   --xy-edge-label-color: var(--muted);
+   --xy-controls-button-background-color: var(--panel);
+   --xy-controls-button-background-color-hover: var(--bg-3);
+   --xy-controls-button-color: var(--text);
+   --xy-controls-button-border-color: var(--border);
+   --xy-minimap-background-color: var(--panel);
+   --xy-minimap-mask-background-color: rgba(11, 15, 23, .6);
+   --xy-node-border-radius: 8px;
+}
+
+.erd-canvas .react-flow__node {
+   cursor: pointer;
+}
+
+.erd-canvas .react-flow__edge.related .react-flow__edge-path {
+   stroke: var(--accent);
+   stroke-width: 2;
+}
+
+.erd-canvas .react-flow__edge.kind-attach .react-flow__edge-path {
+   stroke: var(--violet);
+   stroke-dasharray: 6 4;
+}
+
+.erd-canvas .react-flow__edge-text {
+   font-size: 10.5px;
+   font-family: Consolas, "Cascadia Code", monospace;
+}
+
+.erd-canvas .react-flow__minimap {
+   border: 1px solid var(--border);
+   border-radius: 6px;
+}
+
+.erd-minimap-node { fill: var(--teal); }
+.erd-minimap-node.kind-root { fill: var(--accent); }
+.erd-minimap-node.kind-custom { fill: var(--violet); }
+.erd-minimap-node.kind-generated { fill: var(--faint); }
+
+/* Parent links (child → its own ancestor) — only drawn when the toolbar toggle is on; kept faint so the tree still reads first. */
+.erd-canvas .react-flow__edge.back-link .react-flow__edge-path {
+   stroke: var(--faint);
+   stroke-dasharray: 2 4;
+}
+
+/* Narrow screens: canvas above inspector (the inline column widths from the resizer are overridden). */
+@media (max-width: 800px) {
+   .erd-workspace { height: auto; }
+   .erd-body { grid-template-columns: 1fr !important; grid-template-rows: 60vh auto; }
+   .erd-resizer { display: none; }
+   .erd-inspector { border-top: 1px solid var(--border); }
+}
+
+.erd-relation-head .erd-link {
+   min-width: 0;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
