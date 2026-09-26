@@ -5953,6 +5953,13 @@ td.cell-active {
    margin-top: var(--space-5);
 }
 
+/* Collapsing the sidebar is an explicit "give me the room" — lift the 1400px reading-width cap so
+   pages (the ERD model editor above all) actually use the space instead of leaving it empty. */
+.ts-shell.nav-collapsed .ts-card,
+.ts-shell.nav-collapsed .dm-step {
+   max-width: none;
+}
+
 .dm-step-head {
    display: flex;
    align-items: center;
@@ -7489,7 +7496,12 @@ tr:hover .erd-row-delete,
 
 /* Name gets the most room — technical names are long and are what people scan for. */
 .erd-fieldgrid-table .col-label {
-   width: 34%;
+   width: 32%;
+}
+
+/* A narrow inspector scrolls the grid sideways rather than squeezing Name down to two letters. */
+.erd-fieldgrid-table {
+   min-width: 400px;
 }
 
 .erd-chip-btn {

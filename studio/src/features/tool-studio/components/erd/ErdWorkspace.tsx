@@ -10,7 +10,7 @@ const ErdCanvas = lazy(() => import("./ErdCanvas"));
 
 const INSPECTOR_WIDTH_KEY = "erd-inspector-width";
 const INSPECTOR_DEFAULT_WIDTH = 480;
-const INSPECTOR_MIN_WIDTH = 340;
+const INSPECTOR_MIN_WIDTH = 420;
 
 function readStoredWidth(): number {
   try {
