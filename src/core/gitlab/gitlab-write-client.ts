@@ -43,7 +43,7 @@ export type TGitLabMergeRequest = {
   merge_status?: string;
 };
 
-export type TGitLabPipelineSummary = { id: number; status: string; web_url: string; sha: string };
+export type TGitLabPipelineSummary = { id: number; status: string; web_url: string; sha: string; created_at?: string; updated_at?: string };
 
 /**
  * All extra fields here already come back on GitLab's basic `GET /merge_requests/:iid` response —
@@ -62,7 +62,18 @@ export type TGitLabMergeRequestDetail = TGitLabMergeRequest & {
   merge_error?: string | null;
   changes_count?: string | null;
   user_notes_count?: number;
+  target_branch?: string;
+  /** Set instead of `merge_commit_sha` when the MR was squash-merged; `sha` (the MR head) is what lands on a fast-forward merge. */
+  squash_commit_sha?: string | null;
+  sha?: string;
 };
+
+/**
+ * One commit status on a SHA — this is how an external CI (Jenkins) reports into GitLab: each
+ * Jenkins job posts a status (GitLab's widget shows it as "external: running") whose `target_url`
+ * is the Jenkins build page itself, so this is the only place to get a direct link to the build log.
+ */
+export type TGitLabCommitStatus = { id: number; name: string; status: string; target_url: string | null; ref: string | null };
 
 /** UI-agnostic: callers decide how to surface cache/refresh state (same pattern as listRootGroups/listProjects). */
 export async function listBranches(auth: TGitLabAuth, projectId: number, options?: { refresh?: boolean; search?: string }): Promise<TSmartCacheResult<TGitLabBranch[]>> {
@@ -225,8 +236,66 @@ export async function listPipelinesForRef(auth: TGitLabAuth, projectId: number, 
   url.searchParams.set("order_by", "id");
   url.searchParams.set("sort", "desc");
   url.searchParams.set("per_page", "10");
+  // Filter server-side too, so a busy branch's newer pipelines can't push this SHA's one off the first page.
+  if (options?.sha) url.searchParams.set("sha", options.sha);
   const response = await fetch(url, { headers: { "PRIVATE-TOKEN": auth.token } });
   if (!response.ok) throw new Error(`GitLab pipelines fetch failed ${response.status}: ${await response.text()}`);
   const pipelines = await response.json() as TGitLabPipelineSummary[];
   return options?.sha ? pipelines.filter((pipeline) => pipeline.sha === options.sha) : pipelines;
+}
+
+/** Commit statuses posted on one SHA (external CI such as Jenkins included) — see `TGitLabCommitStatus`. */
+export async function listCommitStatuses(auth: TGitLabAuth, projectId: number, sha: string): Promise<TGitLabCommitStatus[]> {
+  const encodedId = encodeURIComponent(String(projectId));
+  const url = new URL(`${normalizeBaseUrlLocal(auth.baseUrl)}/api/v4/projects/${encodedId}/repository/commits/${encodeURIComponent(sha)}/statuses`);
+  url.searchParams.set("per_page", "50");
+  const response = await fetch(url, { headers: { "PRIVATE-TOKEN": auth.token } });
+  if (!response.ok) throw new Error(`GitLab commit statuses fetch failed ${response.status}: ${await response.text()}`);
+  return await response.json() as TGitLabCommitStatus[];
+}
+
+/** One row of GitLab's global `GET /merge_requests` list — the list endpoint omits `head_pipeline`, so pipeline state is looked up separately per MR. */
+export type TGitLabMergeRequestListItem = TGitLabMergeRequestDetail & {
+  project_id: number;
+  source_branch: string;
+  created_at: string;
+  updated_at: string;
+  merged_at?: string | null;
+  references?: { full?: string };
+  author?: { name: string; username: string } | null;
+  /** `merge_user` is the current field; `merged_by` is its deprecated predecessor, still filled on older GitLab versions. */
+  merge_user?: { name: string; username: string } | null;
+  merged_by?: { name: string; username: string } | null;
+  labels?: string[];
+};
+
+export type TMyMergeRequestsScope = "created_by_me" | "assigned_to_me";
+export type TMyMergeRequestsState = "all" | "opened" | "merged" | "closed";
+
+/** The logged-in user's MRs across every project on the instance, newest activity first — one page only (callers page explicitly). */
+export async function listMyMergeRequests(
+  auth: TGitLabAuth,
+  options: { scope: TMyMergeRequestsScope; state: TMyMergeRequestsState; page: number; perPage: number; search?: string },
+): Promise<{ items: TGitLabMergeRequestListItem[]; hasMore: boolean; total: number | undefined; totalPages: number | undefined }> {
+  const url = new URL(`${normalizeBaseUrlLocal(auth.baseUrl)}/api/v4/merge_requests`);
+  url.searchParams.set("scope", options.scope);
+  url.searchParams.set("state", options.state);
+  // GitLab matches `search` against title + description — enough for ticket keys like "MCKES-660".
+  if (options.search) url.searchParams.set("search", options.search);
+  url.searchParams.set("order_by", "updated_at");
+  url.searchParams.set("sort", "desc");
+  url.searchParams.set("page", String(options.page));
+  url.searchParams.set("per_page", String(options.perPage));
+  const response = await fetch(url, { headers: { "PRIVATE-TOKEN": auth.token } });
+  if (!response.ok) throw new Error(`GitLab merge request list failed ${response.status}: ${await response.text()}`);
+  const items = (await response.json()) as TGitLabMergeRequestListItem[];
+  // GitLab omits the total headers once a result set passes 10,000 rows — fall back to `x-next-page` alone then.
+  const totalHeader = Number(response.headers.get("x-total"));
+  const totalPagesHeader = Number(response.headers.get("x-total-pages"));
+  return {
+    items,
+    hasMore: Boolean(response.headers.get("x-next-page")),
+    total: totalHeader > 0 || response.headers.has("x-total") ? totalHeader : undefined,
+    totalPages: totalPagesHeader > 0 ? totalPagesHeader : undefined,
+  };
 }

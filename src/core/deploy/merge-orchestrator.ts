@@ -1,5 +1,5 @@
 import type { TGitLabAuth } from "../gitlab/gitlab-client";
-import { getMergeRequest, listPipelinesForRef, mergeMergeRequest } from "../gitlab/gitlab-write-client";
+import { getMergeRequest, listCommitStatuses, listPipelinesForRef, mergeMergeRequest } from "../gitlab/gitlab-write-client";
 import { emitJobEvent } from "../tool/studio/job-events";
 
 export type TMergeTarget = { role: string; pathWithNamespace: string; projectId: number; mrIid: number; targetBranch: string };
@@ -14,7 +14,10 @@ export type TMergeTarget = { role: string; pathWithNamespace: string; projectId:
 export type TMergeRequestStatus = {
   state: string;
   mergedAt: string | undefined;
-  pipeline: { id: number; status: string; webUrl: string } | undefined;
+  /** Before merge: the MR's head pipeline (if any). After merge: the merge commit's pipeline on the target branch. */
+  pipeline: { id: number; status: string; webUrl: string; sha?: string; ref?: string; createdAt?: string; updatedAt?: string } | undefined;
+  /** External CI jobs (Jenkins) reported on the merge commit, each linking to its own build page. */
+  externalJobs: { name: string; status: string; targetUrl: string }[];
   draft: boolean;
   hasConflicts: boolean;
   changesCount: string | undefined;
@@ -40,12 +43,53 @@ function computeBlockers(detail: Awaited<ReturnType<typeof getMergeRequest>>): s
   return blockers;
 }
 
+/**
+ * The pipeline a merged MR's merge commit triggered on its target branch — the "Pipeline #N running
+ * for <sha> on <branch>" block GitLab's own MR page shows after merge. `head_pipeline` can't provide
+ * this: it's the MR's *source*-branch pipeline, which this project's repos never run (CI only fires
+ * on the target branch after merge), so it stays null. Also returns the SHA's external commit
+ * statuses (Jenkins jobs) with their build-page links. Best-effort: lookup failures just mean no
+ * pipeline shown, never a failed status call.
+ */
+async function getPostMergePipeline(
+  auth: TGitLabAuth,
+  projectId: number,
+  detail: Awaited<ReturnType<typeof getMergeRequest>>,
+): Promise<TCommitPipeline> {
+  const sha = detail.merge_commit_sha ?? detail.squash_commit_sha ?? detail.sha;
+  if (!sha || !detail.target_branch) return { pipeline: undefined, externalJobs: [] };
+  return getPipelineForCommit(auth, projectId, detail.target_branch, sha);
+}
+
+export type TCommitPipeline = { pipeline: TMergeRequestStatus["pipeline"]; externalJobs: TMergeRequestStatus["externalJobs"] };
+
+/** The pipeline `sha` triggered on `ref`, plus its external (Jenkins) commit statuses — best-effort, never throws. */
+export async function getPipelineForCommit(auth: TGitLabAuth, projectId: number, ref: string, sha: string): Promise<TCommitPipeline> {
+  const [pipelines, statuses] = await Promise.all([
+    listPipelinesForRef(auth, projectId, ref, { sha }).catch(() => []),
+    listCommitStatuses(auth, projectId, sha).catch(() => []),
+  ]);
+  const match = pipelines[0];
+  return {
+    pipeline: match ? { id: match.id, status: match.status, webUrl: match.web_url, sha, ref, createdAt: match.created_at, updatedAt: match.updated_at } : undefined,
+    externalJobs: statuses
+      .filter((status) => status.target_url)
+      .map((status) => ({ name: status.name, status: status.status, targetUrl: status.target_url! })),
+  };
+}
+
 export async function getMergeRequestStatus(auth: TGitLabAuth, projectId: number, mrIid: number): Promise<TMergeRequestStatus> {
   const detail = await getMergeRequest(auth, projectId, mrIid);
+  const postMerge = detail.state === "merged" ? await getPostMergePipeline(auth, projectId, detail) : undefined;
   return {
     state: detail.state,
     mergedAt: detail.state === "merged" ? new Date().toISOString() : undefined,
-    pipeline: detail.head_pipeline ? { id: detail.head_pipeline.id, status: detail.head_pipeline.status, webUrl: detail.head_pipeline.web_url } : undefined,
+    pipeline: postMerge
+      ? postMerge.pipeline
+      : detail.head_pipeline
+        ? { id: detail.head_pipeline.id, status: detail.head_pipeline.status, webUrl: detail.head_pipeline.web_url, sha: detail.head_pipeline.sha, ref: detail.target_branch }
+        : undefined,
+    externalJobs: postMerge?.externalJobs ?? [],
     draft: Boolean(detail.draft),
     hasConflicts: Boolean(detail.has_conflicts),
     changesCount: detail.changes_count ?? undefined,

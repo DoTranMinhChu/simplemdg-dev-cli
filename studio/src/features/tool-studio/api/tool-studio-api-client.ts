@@ -378,13 +378,45 @@ export type TCdsUpgradeResult = {
 export type TMrLiveStatus = {
   state: string;
   mergedAt?: string;
-  pipeline?: { id: number; status: string; webUrl: string };
+  pipeline?: { id: number; status: string; webUrl: string; sha?: string; ref?: string; createdAt?: string; updatedAt?: string };
+  externalJobs?: { name: string; status: string; targetUrl: string }[];
   draft?: boolean;
   hasConflicts?: boolean;
   changesCount?: string;
   blockers?: string[];
   error?: string;
 };
+
+/** Mirrors `TMyMergeRequest` in `src/core/deploy/my-merge-requests.ts`. */
+export type TMyMergeRequest = {
+  projectId: number;
+  iid: number;
+  title: string;
+  state: string;
+  draft: boolean;
+  webUrl: string;
+  pathWithNamespace: string;
+  customer: string;
+  groupPath: string;
+  projectName: string;
+  projectWebUrl: string;
+  sourceBranch: string;
+  targetBranch: string;
+  author?: string;
+  mergedBy?: string;
+  labels: string[];
+  ticketKeys: string[];
+  commitSha?: string;
+  commitUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+  mergedAt?: string;
+  pipelineRef?: string;
+  pipeline?: TMrLiveStatus["pipeline"];
+  externalJobs: NonNullable<TMrLiveStatus["externalJobs"]>;
+};
+export type TMyMergeRequestsScope = "created_by_me" | "assigned_to_me";
+export type TMyMergeRequestsState = "all" | "opened" | "merged" | "closed";
 
 /** Mirrors `TMergeTarget` in `merge-orchestrator.ts`. */
 export type TMergeTargetInput = { role: string; pathWithNamespace: string; projectId: number; mrIid: number; targetBranch: string };
@@ -585,6 +617,10 @@ export const toolStudioApi = {
     post<{ jobId?: string; error?: string }>("/api/tool/deploy-model/deploy", input),
   previewDeployModelChanges: (input: { uploadId: string; deployTargetId: string; objectTypeSlug: string }) =>
     post<TDeployPreviewResult>("/api/tool/deploy-model/preview-changes", input),
+  listMyMergeRequests: (input: { scope: TMyMergeRequestsScope; state: TMyMergeRequestsState; page: number; perPage: number; search?: string }) =>
+    get<{ items?: TMyMergeRequest[]; hasMore?: boolean; page?: number; total?: number; totalPages?: number; error?: string }>(
+      `/api/tool/my-merge-requests?scope=${input.scope}&state=${input.state}&page=${input.page}&perPage=${input.perPage}${input.search ? `&search=${encodeURIComponent(input.search)}` : ""}`,
+    ),
   getMrStatus: (projectId: number, mrIid: number) => get<TMrLiveStatus>(`/api/tool/deploy-model/mr-status?projectId=${projectId}&mrIid=${mrIid}`),
   mergeMr: (projectId: number, mrIid: number) => post<{ merged: boolean; state?: string; mergeCommitSha?: string; error?: string }>("/api/tool/deploy-model/merge", { projectId, mrIid }),
   startAutoMerge: (dbTarget: TMergeTargetInput, restTargets: TMergeTargetInput[]) =>

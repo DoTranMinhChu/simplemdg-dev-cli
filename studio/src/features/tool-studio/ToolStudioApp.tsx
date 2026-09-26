@@ -3,6 +3,7 @@ import { EmptyState } from "../../components/common/EmptyState";
 import { StudioMark } from "../../components/common/StudioMark";
 import { Spinner } from "../../components/common/Spinner";
 import { IconButton } from "../../components/common/IconButton";
+import { Icon } from "../../components/common/Icon";
 import { ConnectionStatusRow } from "./components/ConnectionStatusRow";
 import { ToolAuthStatusProvider } from "./state/tool-auth-status";
 import { TestConfigPage } from "./pages/TestConfigPage";
@@ -18,6 +19,7 @@ import { ObjectTypesPage } from "./pages/ObjectTypesPage";
 import { NpmrcRegistryPage } from "./pages/NpmrcRegistryPage";
 import { BtpCredentialsPage } from "./pages/BtpCredentialsPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
+import { MyMergeRequestsPage } from "./pages/MyMergeRequestsPage";
 
 // Fortune-sheet/TipTap/docx/mammoth/exceljs together add several MB — code-split so that weight
 // only downloads for someone who actually opens File Editor, not on every Tool Studio page load.
@@ -28,6 +30,7 @@ type TToolStudioSection =
   | "move-model"
   | "cds-bulk-upgrade"
   | "check-api-external"
+  | "my-merge-requests"
   | "jira-deploy-info"
   | "incident-search"
   | "test-config"
@@ -39,24 +42,55 @@ type TToolStudioSection =
   | "btp-credentials"
   | "file-editor";
 
-type TNavItem = { id: TToolStudioSection; label: string; ready: boolean };
+type TNavItem = { id: TToolStudioSection; label: string; icon: string; ready: boolean };
+type TNavGroup = { label: string; items: TNavItem[] };
 
-const NAV_ITEMS: TNavItem[] = [
-  { id: "deploy-model", label: "Deploy Model", ready: true },
-  { id: "move-model", label: "Move Model", ready: true },
-  { id: "cds-bulk-upgrade", label: "Upgrade CDS Version", ready: true },
-  { id: "check-api-external", label: "Check API External", ready: true },
-  { id: "test-config", label: "Test Config", ready: true },
-  { id: "cpi-queue", label: "CPI Queue / Event Mesh", ready: true },
-  { id: "cf-log-restart", label: "CF Log / Restart", ready: true },
-  { id: "audit-log-monitor", label: "Audit Log Monitor", ready: true },
-  { id: "jira-deploy-info", label: "Jira Deploy Info", ready: true },
-  { id: "incident-search", label: "Incident Search", ready: true },
-  { id: "file-editor", label: "File Editor", ready: true },
-  { id: "object-types", label: "Object Types", ready: true },
-  { id: "npmrc-registry", label: "npmrc / Registry", ready: true },
-  { id: "btp-credentials", label: "BTP Credentials", ready: true },
+// Grouped by what the user is doing, not by build order — each group declares its own items, so a
+// page can never show up twice or land in the wrong group the way index-slicing one flat list did.
+const NAV_GROUPS: TNavGroup[] = [
+  {
+    label: "Deploy",
+    items: [
+      { id: "deploy-model", label: "Deploy Model", icon: "upload", ready: true },
+      { id: "move-model", label: "Move Model", icon: "swap", ready: true },
+      { id: "cds-bulk-upgrade", label: "Upgrade CDS Version", icon: "sch", ready: true },
+      { id: "my-merge-requests", label: "My Merge Requests", icon: "gitMerge", ready: true },
+    ],
+  },
+  {
+    label: "Monitor",
+    items: [
+      { id: "cf-log-restart", label: "CF Log / Restart", icon: "terminal", ready: true },
+      { id: "audit-log-monitor", label: "Audit Log Monitor", icon: "activity", ready: true },
+      { id: "cpi-queue", label: "CPI Queue / Event Mesh", icon: "plug", ready: true },
+      { id: "incident-search", label: "Incident Search", icon: "bug", ready: true },
+    ],
+  },
+  {
+    label: "Test",
+    items: [
+      { id: "test-config", label: "Test Config", icon: "flask", ready: true },
+      { id: "check-api-external", label: "Check API External", icon: "globe", ready: true },
+    ],
+  },
+  {
+    label: "Tools",
+    items: [
+      { id: "jira-deploy-info", label: "Jira Deploy Info", icon: "ticket", ready: true },
+      { id: "file-editor", label: "File Editor", icon: "fun", ready: true },
+    ],
+  },
+  {
+    label: "Settings",
+    items: [
+      { id: "object-types", label: "Object Types", icon: "tbl", ready: true },
+      { id: "npmrc-registry", label: "npmrc / Registry", icon: "package", ready: true },
+      { id: "btp-credentials", label: "BTP Credentials", icon: "key", ready: true },
+    ],
+  },
 ];
+
+const NAV_ITEMS: TNavItem[] = NAV_GROUPS.flatMap((group) => group.items);
 
 const DEFAULT_SECTION: TToolStudioSection = "test-config";
 
@@ -66,6 +100,7 @@ const PAGE_COMPONENTS: Partial<Record<TToolStudioSection, React.ComponentType>> 
   "cf-log-restart": CfLogRestartPage,
   "audit-log-monitor": AuditLogPage,
   "check-api-external": CheckApiExternalPage,
+  "my-merge-requests": MyMergeRequestsPage,
   "cpi-queue": CpiQueuePage,
   "jira-deploy-info": JiraDeployInfoPage,
   "incident-search": IncidentSearchPage,
@@ -138,20 +173,18 @@ export function ToolStudioApp(): React.ReactElement {
               SimpleMDG Tool Studio
             </div>
             <ConnectionStatusRow />
-            <div className="ts-nav-group">MDG Deploy</div>
-            {NAV_ITEMS.slice(0, 4).map((item) => (
-              <NavButton key={item.id} item={item} active={section === item.id} />
-            ))}
-            <div className="ts-nav-group">Operations</div>
-            {NAV_ITEMS.slice(4, 11).map((item) => (
-              <NavButton key={item.id} item={item} active={section === item.id} />
-            ))}
-            <div className="ts-nav-group">Configuration</div>
-            {NAV_ITEMS.slice(10).map((item) => (
-              <NavButton key={item.id} item={item} active={section === item.id} />
-            ))}
           </>
         )}
+        {/* Collapsed, the same groups render as an icon-only rail (label moves into the tooltip)
+            rather than disappearing entirely — every page stays one click away either way. */}
+        {NAV_GROUPS.map((group) => (
+          <div className="ts-nav-section" key={group.label} role="group" aria-label={group.label}>
+            {!navCollapsed && <div className="ts-nav-group">{group.label}</div>}
+            {group.items.map((item) => (
+              <NavButton key={item.id} item={item} active={section === item.id} iconOnly={navCollapsed} />
+            ))}
+          </div>
+        ))}
       </nav>
       <main className="ts-content">
         <Suspense fallback={<Spinner />}>
@@ -177,11 +210,17 @@ export function ToolStudioApp(): React.ReactElement {
   );
 }
 
-function NavButton({ item, active }: { item: TNavItem; active: boolean }): React.ReactElement {
+function NavButton({ item, active, iconOnly }: { item: TNavItem; active: boolean; iconOnly: boolean }): React.ReactElement {
   return (
-    <a href={`#${item.id}`} className={`ts-nav-item${active ? " active" : ""}${item.ready ? "" : " disabled"}`}>
-      {item.label}
-      {!item.ready && <span className="ts-badge-soon">soon</span>}
+    <a
+      href={`#${item.id}`}
+      className={`ts-nav-item${active ? " active" : ""}${item.ready ? "" : " disabled"}${iconOnly ? " icon-only" : ""}`}
+      title={iconOnly ? item.label : undefined}
+      aria-current={active ? "page" : undefined}
+    >
+      <Icon name={item.icon} className="ts-nav-icon" />
+      {!iconOnly && <span className="ts-nav-label">{item.label}</span>}
+      {!iconOnly && !item.ready && <span className="ts-badge-soon">soon</span>}
     </a>
   );
 }

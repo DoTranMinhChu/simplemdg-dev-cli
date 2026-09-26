@@ -38,6 +38,15 @@ const ICON_PATHS: Record<string, string> = {
   panel: "M3 4h18v16H3z|M9 4v16",
   plug: "M9 2v6|M15 2v6|M6 8h12v6a6 6 0 0 1-12 0V8z|M12 20v2",
   map: "M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z|M9 4v14|M15 6v14",
+  upload: "M12 16V4|M7 9l5-5 5 5|M5 20h14",
+  swap: "M7 7h13|M16 3l4 4-4 4|M17 17H4|M8 13l-4 4 4 4",
+  gitMerge: "M6 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z|M6 22a2 2 0 1 0 0-4 2 2 0 0 0 0 4z|M18 16a2 2 0 1 0 0-4 2 2 0 0 0 0 4z|M6 6v12|M6 8c0 4 4 6 10 6",
+  flask: "M9 3h6|M10 3v6L4 19a1.5 1.5 0 0 0 1.3 2h13.4a1.5 1.5 0 0 0 1.3-2L14 9V3|M7 15h10",
+  globe: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z|M3 12h18|M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9|M12 3c-2.5 2.5-3.5 5.5-3.5 9s1 6.5 3.5 9",
+  ticket: "M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4z|M14 7v10",
+  bug: "M9 7a3 3 0 0 1 6 0|M7 9h10v6a5 5 0 0 1-10 0z|M12 11v8|M3 13h4|M17 13h4|M4 8l3 2|M20 8l-3 2|M4 19l3-2|M20 19l-3-2",
+  package: "M12 3l8 4.5v9L12 21l-8-4.5v-9z|M4 7.5l8 4.5 8-4.5|M12 12v9",
+  key: "M8 14a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M11 10h10|M18 10v4|M21 10v3",
 };
 
 export function Icon({ name, className }: { name: string; className?: string }): React.ReactElement {

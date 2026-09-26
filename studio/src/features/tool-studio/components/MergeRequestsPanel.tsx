@@ -7,6 +7,9 @@ import { toolStudioApi } from "../api/tool-studio-api-client";
 import type { TDeployModelResult, TMrLiveStatus } from "../api/tool-studio-api-client";
 
 const POLL_INTERVAL_MS = 6000;
+const TERMINAL_PIPELINE_STATUSES = new Set(["success", "failed", "canceled", "skipped"]);
+/** How long a merged MR keeps waiting for its post-merge pipeline to appear before assuming the target branch has no CI (~3 min). */
+const NO_PIPELINE_MAX_POLLS = 30;
 
 // GitLab pipeline statuses mapped onto the shared `.status-badge` color set (see globals.css) —
 // reusing it rather than inventing new colors keeps this visually consistent with every other
@@ -32,7 +35,7 @@ const PIPELINE_STATUS_ICON: Record<string, string> = {
 
 /** GitLab-style pipeline status pill, linking straight to the pipeline on GitLab — the whole point
  * being the user doesn't have to open GitLab just to see whether the build passed. */
-function PipelineBadge({ pipeline }: { pipeline: { id: number; status: string; webUrl: string } }): React.ReactElement {
+export function PipelineBadge({ pipeline }: { pipeline: { id: number; status: string; webUrl: string } }): React.ReactElement {
   const badgeClass = PIPELINE_STATUS_CLASS[pipeline.status] ?? "stopped";
   const icon = PIPELINE_STATUS_ICON[pipeline.status];
   return (
@@ -54,11 +57,17 @@ function MergeRequestRow({ mr }: { mr: TDeployModelResult["mergeRequests"][numbe
       const result = await toolStudioApi.getMrStatus(mr.projectId, mr.iid).catch(() => undefined);
       if (cancelled) return;
       if (result && !result.error) setStatus(result);
-      // A merged/closed MR's state never changes again — keeping this polling forever once mounted
-      // used to be bounded by "until the user leaves Deploy Model"; with keep-alive nav that's now
-      // "for the rest of the tab's life," so it must stop itself once there's nothing left to watch.
-      if (result?.state === "merged" || result?.state === "closed") clearInterval(interval);
+      // Polling must stop itself once there's nothing left to watch (with keep-alive nav it would
+      // otherwise run for the rest of the tab's life). A closed MR is done; a merged one is only done
+      // once its post-merge pipeline finishes — or never shows up at all (no CI on that branch).
+      if (result?.state === "closed") clearInterval(interval);
+      if (result?.state === "merged") {
+        mergedPolls += 1;
+        const pipelineDone = result.pipeline && TERMINAL_PIPELINE_STATUSES.has(result.pipeline.status);
+        if (pipelineDone || (!result.pipeline && mergedPolls >= NO_PIPELINE_MAX_POLLS)) clearInterval(interval);
+      }
     };
+    let mergedPolls = 0;
     void poll();
     interval = setInterval(poll, POLL_INTERVAL_MS);
     return () => {
@@ -83,11 +92,23 @@ function MergeRequestRow({ mr }: { mr: TDeployModelResult["mergeRequests"][numbe
           {status?.changesCount && <span>· {status.changesCount} file{status.changesCount === "1" ? "" : "s"} changed</span>}
           {status?.pipeline && (
             <>
-              <span>· on {mr.targetBranch}:</span>
+              <span>
+                · {status.pipeline.sha ? <>for <code>{status.pipeline.sha.slice(0, 8)}</code> </> : null}on {status.pipeline.ref ?? mr.targetBranch}:
+              </span>
               <PipelineBadge pipeline={status.pipeline} />
             </>
           )}
+          {isMerged && !status?.pipeline && <span>· waiting for {mr.targetBranch} pipeline...</span>}
         </div>
+        {(status?.externalJobs?.length ?? 0) > 0 && (
+          <div className="ts-step-detail row" style={{ gap: 6, flexWrap: "wrap" }}>
+            {status!.externalJobs!.map((job) => (
+              <a key={job.targetUrl} href={job.targetUrl} target="_blank" rel="noreferrer" title="Open build in Jenkins">
+                {job.name} · {job.status} ↗
+              </a>
+            ))}
+          </div>
+        )}
         {blockers.length > 0 && (
           <div className="ts-step-detail" style={{ color: "var(--amber)" }}>
             ⚠ {blockers.join(" · ")}

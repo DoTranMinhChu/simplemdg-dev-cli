@@ -27,6 +27,7 @@ import { handleManualModelApi } from "./routes/manual-model-routes";
 import { handleDeployTargetApi } from "./routes/deploy-target-routes";
 import { handleNpmrcApi } from "./routes/npmrc-routes";
 import { handleAuditLogApi } from "./routes/audit-log-routes";
+import { handleMyMergeRequestsApi } from "./routes/my-merge-requests-routes";
 
 export type TToolStudioServerOptions = {
   port?: number;
@@ -78,6 +79,7 @@ const API_HANDLERS: Array<(req: http.IncomingMessage, res: http.ServerResponse, 
   handleNpmrcApi,
   handleTestConfigApi,
   handleAuditLogApi,
+  handleMyMergeRequestsApi,
 ];
 
 export async function startToolStudioServer(options: TToolStudioServerOptions = {}): Promise<TToolStudioServerHandle> {
