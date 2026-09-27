@@ -10,11 +10,8 @@ import { askRootHelpMode, openUserGuideInBrowser, printUserGuide } from "./core/
 import { installRepository } from "./core/install";
 import { scanRepositoryVariables } from "./core/scanner";
 import { doctorPackage } from "./core/doctor";
-import {
-  readCache,
-  rememberOverrideValue,
-  rememberVariableValue,
-} from "./core/cache";
+import { askMissingVariables } from "./core/variable-prompt";
+import { rememberOverrideValue } from "./core/cache";
 import { resolveRepositoryPath } from "./core/repository";
 import {
   inspectPackageConflicts,
@@ -31,6 +28,7 @@ import { registerAiCommands } from "./commands/ai.command";
 import { registerPluginCommands } from "./commands/plugin.command";
 import { registerToolCommands } from "./commands/tool.command";
 import { registerProxyCommands } from "./commands/proxy.command";
+import { registerLocalRegistryCommands } from "./commands/local.command";
 import { enableInteractiveNavigation } from "./core/navigator";
 import { launchInteractiveShell } from "./terminal/services/terminal-launcher";
 import { installTerminalCrashGuard } from "./terminal/services/terminal-crash-guard";
@@ -78,88 +76,6 @@ function parseKeyValueList(values: string[] | undefined): TKeyValueMap {
     }
 
     result[key] = keyValue;
-  }
-
-  return result;
-}
-
-async function askMissingVariables(options: {
-  repositoryPath: string;
-  filePatterns: string[];
-  providedValues: Record<string, string>;
-}): Promise<Record<string, string>> {
-  const scannedVariables = await scanRepositoryVariables({
-    repositoryPath: options.repositoryPath,
-    filePatterns: options.filePatterns,
-  });
-
-  const variableNames = [...new Set(scannedVariables.map((item) => item.variableName))];
-  const cache = await readCache();
-  const result: Record<string, string> = { ...options.providedValues };
-
-  if (variableNames.length === 0) {
-    console.log("No package variables found.");
-    return result;
-  }
-
-  console.log("");
-  console.log("Detected package variables:");
-
-  for (const variableName of variableNames) {
-    const occurrences = scannedVariables
-      .filter((item) => item.variableName === variableName)
-      .reduce((total, item) => total + item.occurrences, 0);
-
-    console.log(`- ${variableName} (${occurrences} occurrence(s))`);
-  }
-
-  console.log("");
-
-  for (const variableName of variableNames) {
-    if (result[variableName]) {
-      await rememberVariableValue(variableName, result[variableName]);
-      continue;
-    }
-
-    const cachedValues = cache.variables[variableName] ?? [];
-
-    if (cachedValues.length > 0) {
-      const response = await prompts({
-        type: "select",
-        name: "selectedValue",
-        message: `Value for ${variableName}`,
-        choices: [
-          ...cachedValues.map((value) => ({ title: value, value })),
-          { title: "Enter new value", value: "__ENTER_NEW_VALUE__" },
-        ],
-        initial: 0,
-      });
-
-      if (!response.selectedValue) {
-        throw new Error(`Missing value for ${variableName}`);
-      }
-
-      if (response.selectedValue !== "__ENTER_NEW_VALUE__") {
-        result[variableName] = response.selectedValue as string;
-        await rememberVariableValue(variableName, response.selectedValue as string);
-        continue;
-      }
-    }
-
-    const response = await prompts({
-      type: "text",
-      name: "value",
-      message: `Enter value for ${variableName}`,
-      initial: cachedValues[0] ?? "",
-      validate: (value: string) => value?.trim() ? true : `${variableName} is required`,
-    });
-
-    if (!response.value) {
-      throw new Error(`Missing value for ${variableName}`);
-    }
-
-    result[variableName] = response.value as string;
-    await rememberVariableValue(variableName, response.value as string);
   }
 
   return result;
@@ -473,6 +389,7 @@ program
 registerCloudFoundryCommands(program);
 registerCdsCommands(program);
 registerNpmrcCommands(program);
+registerLocalRegistryCommands(program);
 registerGitLabCommands(program);
 registerCacheCommands(program);
 registerGitCommands(program);

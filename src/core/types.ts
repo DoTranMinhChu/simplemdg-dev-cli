@@ -168,6 +168,28 @@ export type TSimpleMdgCache = {
   terminal: TTerminalCache;
 };
 
+export type TLocalRegistryKey = {
+  host: string;
+  packageId: string;
+  packageName: string;
+};
+
+export type TLocalPublishRecord = {
+  packageName: string;
+  version: string;
+  host: string;
+  packageId: string;
+  publishedAt: string;
+  tarballFileName: string;
+};
+
+export type TLocalVariableOption = {
+  packageName: string;
+  version: string;
+  publishedAt: string;
+  tarballPath: string;
+};
+
 export type TParsedCloudFoundryEnvironment = {
   VCAP_SERVICES?: unknown;
   VCAP_APPLICATION?: unknown;

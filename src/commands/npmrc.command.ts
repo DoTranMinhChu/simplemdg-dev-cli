@@ -15,6 +15,7 @@ import {
   normalizeNpmScope,
   parsePackageInputList,
   readPackageJsonName,
+  resolveImportFilePath,
   writeNpmrcFile,
 } from "../core/npmrc";
 import { searchableSelectChoice, searchableSelectOrInput } from "../core/prompts";
@@ -99,7 +100,7 @@ function uniquePackageEntries(entries: TNpmrcPackageEntry[]): TNpmrcPackageEntry
   return result;
 }
 
-async function resolveCurrentProjectName(cwd: string, explicitProjectName?: string): Promise<string> {
+export async function resolveCurrentProjectName(cwd: string, explicitProjectName?: string): Promise<string> {
   if (explicitProjectName?.trim()) {
     return explicitProjectName.trim();
   }
@@ -110,7 +111,7 @@ async function resolveCurrentProjectName(cwd: string, explicitProjectName?: stri
   return packageJsonName ?? path.basename(repositoryPath) ?? DEFAULT_PROJECT_NAME;
 }
 
-async function askHost(providedHost?: string): Promise<string> {
+export async function askHost(providedHost?: string): Promise<string> {
   if (providedHost?.trim()) {
     return normalizeGitLabHost(providedHost);
   }
@@ -125,7 +126,7 @@ async function askHost(providedHost?: string): Promise<string> {
   }));
 }
 
-async function askScope(providedScope?: string): Promise<string> {
+export async function askScope(providedScope?: string): Promise<string> {
   if (providedScope?.trim()) {
     return normalizeNpmScope(providedScope);
   }
@@ -140,7 +141,7 @@ async function askScope(providedScope?: string): Promise<string> {
   }));
 }
 
-async function askPackageEntry(options: {
+export async function askPackageEntry(options: {
   projectName: string;
   host: string;
   scope: string;
@@ -374,8 +375,20 @@ async function importPackages(options: TNpmrcImportOptions): Promise<void> {
   let rawInput = options.ids ?? "";
 
   if (options.file?.trim()) {
-    const filePath = path.resolve(options.cwd ?? process.cwd(), options.file);
-    const fileContent = await readFile(filePath, "utf8");
+    const filePath = resolveImportFilePath(options.cwd ?? process.cwd(), options.file);
+
+    let fileContent: string;
+
+    try {
+      fileContent = await readFile(filePath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(`Packages file not found: ${filePath}\nCheck the --file path — if it was pasted from Windows "Copy as path", remove the surrounding quotes.`);
+      }
+
+      throw error;
+    }
+
     rawInput = `${rawInput}\n${fileContent}`;
   }
 
