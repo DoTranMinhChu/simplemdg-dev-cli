@@ -12,6 +12,7 @@ import { emitJobEvent } from "../tool/studio/job-events";
 import { deriveShortCodeFromRepos } from "./object-type-discovery";
 import type { TObjectTypeRepoRef } from "./object-type-discovery";
 import type { TObjectTypeMode } from "./deploy-target-store";
+import { DB_NAMESPACE_CONFIG } from "./csn-model-types";
 import type { TCsnContent, TCustomModelPreservation, TCustomModelWarning, TEntityRenameRisk, TJoinFieldRisk } from "./csn-model-types";
 import { preprocessCsnForMode } from "./csn-preprocess";
 import { buildDbModelForNamespace, detectRenamedEntityLabels, findRootModel } from "./csn-model-builder";
@@ -335,8 +336,8 @@ export function buildFileDiff(oldContent: string, newContent: string): { lines: 
  * whatever's there, and only APPEND the lines Phase 1 actually needs if they're missing — never
  * reconstruct or reorder the file. Returns `undefined` (no action) when nothing needs to change.
  */
-async function buildIndexCdsAction(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef, hasF4Model: boolean): Promise<TGitLabCommitAction | undefined> {
-  const requiredLines = ["using from './final/1st-model';", "using from './staging/1st-model';"];
+async function buildIndexCdsAction(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef, hasF4Model: boolean, extraTiers: TExtraDbTier[]): Promise<TGitLabCommitAction | undefined> {
+  const requiredLines = ["using from './final/1st-model';", "using from './staging/1st-model';", ...extraTiers.map((tier) => `using from './${DB_NAMESPACE_CONFIG[tier].folder}/1st-model';`)];
   if (hasF4Model) requiredLines.unshift("using from './f4-model';");
 
   const existing = await fetchRawFile(auth, dbRepo.projectId, "db/index.cds", dbRepo.defaultBranch).catch(() => undefined);
@@ -357,7 +358,7 @@ async function buildIndexCdsAction(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef
  * where the object type has no `custom-model.cds` at all, so this costs nothing beyond one extra
  * `fetchRawFile` for objects that don't use the pattern.
  */
-async function loadCustomModelPreservationForTier(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef, tierFolder: "final" | "staging"): Promise<TCustomModelPreservationForTier | undefined> {
+async function loadCustomModelPreservationForTier(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef, tierFolder: "final" | "staging" | TExtraDbTier): Promise<TCustomModelPreservationForTier | undefined> {
   const customModelRaw = await fetchRawFile(auth, dbRepo.projectId, `db/${tierFolder}/custom-model.cds`, dbRepo.defaultBranch).catch(() => undefined);
   if (!customModelRaw) return undefined;
 
@@ -379,27 +380,47 @@ async function loadCustomModelPreservationForTier(auth: TGitLabAuth, dbRepo: TOb
   return mergeCustomModelPreservation(extracted);
 }
 
+type TExtraDbTier = "cons" | "clone_final";
+const EXTRA_DB_TIERS: TExtraDbTier[] = ["cons", "clone_final"];
+
+/** Which of `db/cons` / `db/clone_final` already exist as folders on the db repo's default branch. */
+async function detectExistingExtraTiers(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef): Promise<TExtraDbTier[]> {
+  const dbTree = await fetchRepositoryTree(auth, dbRepo.projectId, "db", dbRepo.defaultBranch).catch(() => []);
+  return EXTRA_DB_TIERS.filter((tier) => dbTree.some((entry) => entry.type === "tree" && entry.name === DB_NAMESPACE_CONFIG[tier].folder));
+}
+
 async function buildDbModel(auth: TGitLabAuth, dbRepo: TObjectTypeRepoRef, csnContentRaw: string, objectType: string, objectTypeMode: TObjectTypeMode): Promise<TDbModel> {
   const csnContent = JSON.parse(csnContentRaw) as TCsnContent;
   const preprocessed = preprocessCsnForMode(objectTypeMode, csnContent);
   const { rootModelName, shortName } = findRootModel(preprocessed, objectType);
 
-  const [finalPreservation, stagingPreservation] = await Promise.all([
+  // Only tiers this repo already has get regenerated — never introduces a new `cons`/`clone_final` folder.
+  const extraTiers = await detectExistingExtraTiers(auth, dbRepo);
+
+  const [finalPreservation, stagingPreservation, ...extraPreservations] = await Promise.all([
     loadCustomModelPreservationForTier(auth, dbRepo, "final"),
     loadCustomModelPreservationForTier(auth, dbRepo, "staging"),
+    ...extraTiers.map((tier) => loadCustomModelPreservationForTier(auth, dbRepo, tier)),
   ]);
-  const customModelPreservation: TCustomModelPreservation | undefined = finalPreservation || stagingPreservation ? { final: finalPreservation, staging: stagingPreservation } : undefined;
+  const customModelPreservation: TCustomModelPreservation = { final: finalPreservation, staging: stagingPreservation };
+  extraTiers.forEach((tier, index) => {
+    customModelPreservation[tier] = extraPreservations[index];
+  });
+  const hasAnyPreservation = Object.values(customModelPreservation).some(Boolean);
 
-  const built = buildDbModelForNamespace("final", preprocessed, rootModelName, objectType, shortName, objectTypeMode, customModelPreservation);
+  const built = buildDbModelForNamespace("final", preprocessed, rootModelName, objectType, shortName, objectTypeMode, hasAnyPreservation ? customModelPreservation : undefined);
+  // The walk is re-run per namespace (identity keys/base aspects differ); i18n and srv output are
+  // namespace-invariant, so only the `final` pass's are used.
+  const extraBuilt = extraTiers.map((tier) => buildDbModelForNamespace(tier, preprocessed, rootModelName, objectType, shortName, objectTypeMode, hasAnyPreservation ? customModelPreservation : undefined));
 
   const hasF4Model = Boolean(await fetchRawFile(auth, dbRepo.projectId, "db/f4-model.cds", dbRepo.defaultBranch).catch(() => undefined));
-  const indexCdsAction = await buildIndexCdsAction(auth, dbRepo, hasF4Model);
+  const indexCdsAction = await buildIndexCdsAction(auth, dbRepo, hasF4Model, extraTiers);
 
   return {
-    dbActions: [...built.dbActions, ...buildI18nActions(built.i18nFragments), ...(indexCdsAction ? [indexCdsAction] : [])],
+    dbActions: [...built.dbActions, ...extraBuilt.flatMap((result) => result.dbActions), ...buildI18nActions(built.i18nFragments), ...(indexCdsAction ? [indexCdsAction] : [])],
     srvActions: built.srvActions,
     shortName,
-    customModelWarnings: built.customModelWarnings,
+    customModelWarnings: [...built.customModelWarnings, ...extraBuilt.flatMap((result) => result.customModelWarnings)],
   };
 }
 

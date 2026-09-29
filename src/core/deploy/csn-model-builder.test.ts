@@ -116,6 +116,25 @@ describe("buildDbModelForNamespace — eventmesh mode", () => {
   });
 });
 
+describe("buildDbModelForNamespace — clone_final / cons tiers", () => {
+  it("renders clone_final under db/clone_final with its own namespace, base entity and objectID+requestID joins, and no staging/srv output", () => {
+    const result = buildDbModelForNamespace("clone_final", makeCsnFixture(), "MDG_TST.TestObject", "TestObject", "TST", "eventmesh");
+    expect(result.dbActions.map((a) => a.file_path)).toEqual(["db/clone_final/1st-model.cds", "db/clone_final/2nd-model.cds"]);
+    const content = findAction(result.dbActions, "db/clone_final/1st-model.cds");
+    expect(content).toContain("namespace tst.model.clonefinal;");
+    expect(content).toContain("entity TestObject : clone_final_1st_level_entity {");
+    expectNormalizedToContain(content, "on to_Child.objectID = $self.objectID\n and to_Child.requestID = $self.requestID\n and to_Child.linkKey = $self.linkKey");
+    expect(findAction(result.dbActions, "db/clone_final/2nd-model.cds")).toContain("entity ChildObject : clone_final_child_level_entity {");
+  });
+
+  it("renders cons under db/cons with a requestID-only join", () => {
+    const result = buildDbModelForNamespace("cons", makeCsnFixture(), "MDG_TST.TestObject", "TestObject", "TST", "eventmesh");
+    const content = findAction(result.dbActions, "db/cons/1st-model.cds");
+    expect(content).toContain("namespace tst.model.cons;");
+    expectNormalizedToContain(content, "on to_Child.requestID = $self.requestID\n and to_Child.linkKey = $self.linkKey");
+  });
+});
+
 describe("buildDbModelForNamespace — matches a real customer's multi-key composition (CustomerMaterialInfoRecord)", () => {
   // Reproduces the exact shape of a live `simplemdg_db_cmi` composition: the CSN's own on-condition
   // carries 3 "and"-joined business-key segments (not just 1), on top of the namespace's own
